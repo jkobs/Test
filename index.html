@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daily Horoscope ✨</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: white;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 8px;
+      text-align: center;
+      text-shadow: 0 0 20px rgba(255, 200, 100, 0.8);
+    }
+
+    .subtitle {
+      color: #aaa;
+      margin-bottom: 32px;
+      font-size: 1rem;
+      text-align: center;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      padding: 36px;
+      width: 100%;
+      max-width: 480px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 1rem;
+      color: #ccc;
+    }
+
+    input[type="date"] {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.1);
+      color: white;
+      font-size: 1rem;
+      margin-bottom: 20px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="date"]:focus {
+      border-color: #f0c040;
+    }
+
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+      cursor: pointer;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: none;
+      background: linear-gradient(135deg, #f0c040, #e07b20);
+      color: #1a1a2e;
+      font-size: 1.1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(240, 192, 64, 0.4);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    #result {
+      display: none;
+      margin-top: 28px;
+      text-align: center;
+      animation: fadeIn 0.5s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .sign-emoji {
+      font-size: 4rem;
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    .sign-name {
+      font-size: 1.6rem;
+      font-weight: bold;
+      color: #f0c040;
+      margin-bottom: 4px;
+    }
+
+    .sign-dates {
+      font-size: 0.85rem;
+      color: #aaa;
+      margin-bottom: 16px;
+    }
+
+    .horoscope-text {
+      background: rgba(255,255,255,0.06);
+      border-left: 4px solid #f0c040;
+      border-radius: 0 12px 12px 0;
+      padding: 16px 18px;
+      font-size: 1rem;
+      line-height: 1.7;
+      text-align: left;
+      color: #e0e0e0;
+    }
+
+    .lucky {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .lucky-item {
+      background: rgba(255,255,255,0.08);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      color: #ccc;
+    }
+
+    .lucky-item span {
+      color: #f0c040;
+      font-weight: bold;
+    }
+
+    #error {
+      display: none;
+      color: #ff7070;
+      margin-top: 10px;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+
+    .stars {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: -1;
+      overflow: hidden;
+    }
+
+    .star {
+      position: absolute;
+      background: white;
+      border-radius: 50%;
+      animation: twinkle var(--dur) infinite alternate;
+      opacity: var(--op);
+    }
+
+    @keyframes twinkle {
+      from { opacity: var(--op); }
+      to   { opacity: calc(var(--op) * 0.2); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="stars" id="stars"></div>
+
+  <h1>✨ Daily Horoscope</h1>
+  <p class="subtitle">Enter your birthday to see what the stars say today!</p>
+
+  <div class="card">
+    <label for="birthday">Your Birthday</label>
+    <input type="date" id="birthday" />
+    <p id="error">Please enter your birthday first!</p>
+    <button onclick="showHoroscope()">Read My Horoscope 🔮</button>
+
+    <div id="result">
+      <span class="sign-emoji" id="sign-emoji"></span>
+      <div class="sign-name" id="sign-name"></div>
+      <div class="sign-dates" id="sign-dates"></div>
+      <div class="horoscope-text" id="horoscope-text"></div>
+      <div class="lucky" id="lucky"></div>
+    </div>
+  </div>
+
+  <script>
+    // --- Star background ---
+    const starsContainer = document.getElementById('stars');
+    for (let i = 0; i < 120; i++) {
+      const star = document.createElement('div');
+      star.className = 'star';
+      const size = Math.random() * 2.5 + 0.5;
+      star.style.cssText = `
+        width: ${size}px; height: ${size}px;
+        top: ${Math.random() * 100}%;
+        left: ${Math.random() * 100}%;
+        --dur: ${Math.random() * 3 + 1.5}s;
+        --op: ${Math.random() * 0.7 + 0.1};
+      `;
+      starsContainer.appendChild(star);
+    }
+
+    // --- Zodiac data ---
+    const signs = [
+      {
+        name: 'Capricorn', emoji: '♑', dates: 'Dec 22 – Jan 19',
+        horoscopes: [
+          "Today is a great day to set a goal and take the first step toward it. Your hard work will definitely pay off!",
+          "A friend might need your help today. Being there for others will make you feel really good inside.",
+          "Try something new today — maybe a new game, book, or hobby. You might surprise yourself!",
+          "You're extra focused today, which makes it a perfect day to tackle that homework or project.",
+          "Good things are coming your way! Stay patient and keep a positive attitude.",
+        ],
+        lucky: { number: 8, color: 'Brown', gem: 'Garnet' }
+      },
+      {
+        name: 'Aquarius', emoji: '♒', dates: 'Jan 20 – Feb 18',
+        horoscopes: [
+          "Your creative ideas are flowing today! Write them down so you don't forget them.",
+          "You might come up with a really clever solution to a tricky problem today.",
+          "Spending time with friends will make today extra fun and memorable.",
+          "Think outside the box today — the unusual idea just might be the best one!",
+          "Your curiosity is your superpower today. Keep asking questions and exploring!",
+        ],
+        lucky: { number: 11, color: 'Blue', gem: 'Amethyst' }
+      },
+      {
+        name: 'Pisces', emoji: '♓', dates: 'Feb 19 – Mar 20',
+        horoscopes: [
+          "Your imagination is extra powerful today. Use it to create something amazing!",
+          "You're feeling kind and caring today — the perfect day to do something nice for someone.",
+          "A daydream might give you an exciting idea. Pay attention to your thoughts!",
+          "Music, art, or storytelling will bring you joy today. Let your creativity shine.",
+          "Trust your gut feelings today — your instincts are pointing you in the right direction.",
+        ],
+        lucky: { number: 7, color: 'Sea Green', gem: 'Aquamarine' }
+      },
+      {
+        name: 'Aries', emoji: '♈', dates: 'Mar 21 – Apr 19',
+        horoscopes: [
+          "Today is made for adventure! Lead the way and others will follow your energy.",
+          "You're full of energy today — channel it into a sport, project, or something fun.",
+          "Don't be afraid to speak up today. Your ideas are worth sharing!",
+          "A challenge is coming, but you've got what it takes to handle it like a champion.",
+          "Your enthusiasm is contagious today. You'll inspire everyone around you!",
+        ],
+        lucky: { number: 9, color: 'Red', gem: 'Diamond' }
+      },
+      {
+        name: 'Taurus', emoji: '♉', dates: 'Apr 20 – May 20',
+        horoscopes: [
+          "Slow and steady wins the race today. Take your time and do things right.",
+          "Treat yourself to something you enjoy — you've earned a little relaxation!",
+          "Your loyalty makes you a great friend. Someone will appreciate you extra today.",
+          "Nature and fresh air will lift your spirits. Try to spend some time outside.",
+          "Stick with your plan today — your patience will lead to a fantastic result.",
+        ],
+        lucky: { number: 6, color: 'Green', gem: 'Emerald' }
+      },
+      {
+        name: 'Gemini', emoji: '♊', dates: 'May 21 – Jun 20',
+        horoscopes: [
+          "You're in a super chatty and social mood today — great for making new friends!",
+          "Your quick mind will help you solve a puzzle or problem in record time.",
+          "Try doing two fun things today — you'll have energy for both!",
+          "A conversation with someone will give you a fascinating new perspective.",
+          "Learning something new today will feel exciting and easy. Dive in!",
+        ],
+        lucky: { number: 5, color: 'Yellow', gem: 'Agate' }
+      },
+      {
+        name: 'Cancer', emoji: '♋', dates: 'Jun 21 – Jul 22',
+        horoscopes: [
+          "Home and family feel extra cozy and comforting today. Enjoy those warm moments.",
+          "Your caring heart will make a big difference to someone who needs it today.",
+          "Trust your feelings today — they're leading you somewhere wonderful.",
+          "Cooking, crafting, or creating something at home will bring you happiness.",
+          "A memory from the past might inspire a great idea for your future!",
+        ],
+        lucky: { number: 2, color: 'Silver', gem: 'Pearl' }
+      },
+      {
+        name: 'Leo', emoji: '♌', dates: 'Jul 23 – Aug 22',
+        horoscopes: [
+          "The spotlight is yours today! Share your talents and let your true self shine.",
+          "Your confidence is through the roof — use it to try something you've been nervous about.",
+          "You're a natural leader today. Step up and show others the way!",
+          "A performance, presentation, or show will go really well for you today.",
+          "Your warm and generous spirit will make everyone around you smile today.",
+        ],
+        lucky: { number: 1, color: 'Gold', gem: 'Ruby' }
+      },
+      {
+        name: 'Virgo', emoji: '♍', dates: 'Aug 23 – Sep 22',
+        horoscopes: [
+          "Your attention to detail is amazing today — perfect for finishing a project neatly.",
+          "Helping others feels especially rewarding today. Offer a hand where you can.",
+          "Organize your space or your thoughts today — it'll make you feel calm and clear.",
+          "Your careful thinking will help you avoid a mistake that others might make.",
+          "A healthy choice today — whether food, exercise, or rest — will boost your mood.",
+        ],
+        lucky: { number: 4, color: 'Tan', gem: 'Sapphire' }
+      },
+      {
+        name: 'Libra', emoji: '♎', dates: 'Sep 23 – Oct 22',
+        horoscopes: [
+          "Today is wonderful for making new friends or strengthening old friendships.",
+          "You have a great eye for beauty — try creating art, decorating, or designing something.",
+          "If there's a disagreement, you'll be amazing at helping find a fair solution.",
+          "Balance is your superpower today. You'll handle whatever comes at you with grace.",
+          "Someone will love your sense of style or your kind, fair point of view today.",
+        ],
+        lucky: { number: 6, color: 'Pink', gem: 'Opal' }
+      },
+      {
+        name: 'Scorpio', emoji: '♏', dates: 'Oct 23 – Nov 21',
+        horoscopes: [
+          "Your focus and determination are unstoppable today — dive deep into what excites you.",
+          "A mystery or puzzle will grab your attention, and you'll figure it out!",
+          "You see things others miss today. Trust your sharp instincts.",
+          "Your passion for something you love will inspire the people around you.",
+          "A hidden talent or strength might surprise even you today — go for it!",
+        ],
+        lucky: { number: 8, color: 'Maroon', gem: 'Topaz' }
+      },
+      {
+        name: 'Sagittarius', emoji: '♐', dates: 'Nov 22 – Dec 21',
+        horoscopes: [
+          "Adventure is calling! Today is perfect for exploring somewhere new.",
+          "Your sense of humor will make everyone laugh — spread that joy!",
+          "Learning something about a faraway place or culture will fascinate you today.",
+          "Your optimism is contagious. Keep believing that great things are on the way!",
+          "Be bold and honest today — people respect what you have to say.",
+        ],
+        lucky: { number: 3, color: 'Purple', gem: 'Turquoise' }
+      },
+    ];
+
+    function getZodiacSign(month, day) {
+      if ((month === 12 && day >= 22) || (month === 1 && day <= 19)) return signs[0];  // Capricorn
+      if (month === 1 || (month === 2 && day <= 18)) return signs[1];                  // Aquarius
+      if ((month === 2 && day >= 19) || (month === 3 && day <= 20)) return signs[2];   // Pisces
+      if ((month === 3 && day >= 21) || (month === 4 && day <= 19)) return signs[3];   // Aries
+      if ((month === 4 && day >= 20) || (month === 5 && day <= 20)) return signs[4];   // Taurus
+      if ((month === 5 && day >= 21) || (month === 6 && day <= 20)) return signs[5];   // Gemini
+      if ((month === 6 && day >= 21) || (month === 7 && day <= 22)) return signs[6];   // Cancer
+      if ((month === 7 && day >= 23) || (month === 8 && day <= 22)) return signs[7];   // Leo
+      if ((month === 8 && day >= 23) || (month === 9 && day <= 22)) return signs[8];   // Virgo
+      if ((month === 9 && day >= 23) || (month === 10 && day <= 22)) return signs[9];  // Libra
+      if ((month === 10 && day >= 23) || (month === 11 && day <= 21)) return signs[10]; // Scorpio
+      return signs[11]; // Sagittarius
+    }
+
+    // Pick a daily horoscope based on the date so it changes each day
+    function getDailyHoroscope(sign) {
+      const today = new Date();
+      const dayOfYear = Math.floor(
+        (today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24)
+      );
+      return sign.horoscopes[dayOfYear % sign.horoscopes.length];
+    }
+
+    function showHoroscope() {
+      const input = document.getElementById('birthday').value;
+      const errorEl = document.getElementById('error');
+      const resultEl = document.getElementById('result');
+
+      if (!input) {
+        errorEl.style.display = 'block';
+        resultEl.style.display = 'none';
+        return;
+      }
+      errorEl.style.display = 'none';
+
+      const [year, month, day] = input.split('-').map(Number);
+      const sign = getZodiacSign(month, day);
+      const horoscope = getDailyHoroscope(sign);
+
+      document.getElementById('sign-emoji').textContent = sign.emoji;
+      document.getElementById('sign-name').textContent = sign.name;
+      document.getElementById('sign-dates').textContent = sign.dates;
+      document.getElementById('horoscope-text').textContent = horoscope;
+
+      document.getElementById('lucky').innerHTML = `
+        <div class="lucky-item">🍀 Lucky Number: <span>${sign.lucky.number}</span></div>
+        <div class="lucky-item">🎨 Lucky Color: <span>${sign.lucky.color}</span></div>
+        <div class="lucky-item">💎 Birthstone: <span>${sign.lucky.gem}</span></div>
+      `;
+
+      // Re-trigger animation
+      resultEl.style.display = 'none';
+      void resultEl.offsetWidth;
+      resultEl.style.display = 'block';
+    }
+
+    // Allow pressing Enter to submit
+    document.getElementById('birthday').addEventListener('keydown', e => {
+      if (e.key === 'Enter') showHoroscope();
+    });
+  </script>
+</body>
+</html>
