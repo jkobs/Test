@@ -1,0 +1,22 @@
+{
+  "name": "solunar-fishing-times",
+  "version": "1.0.0",
+  "description": "Solunar major/minor fishing periods for a location (default Yellow Lake, WI). Single-file, offline, iOS-friendly.",
+  "scripts": {
+    "build": "node build.mjs",
+    "test:engine": "node test/solunar.test.mjs",
+    "test:oracle": "python3 oracle/oracle.py",
+    "test:uat": "node test/uat.test.mjs",
+    "shot": "node scripts/screenshot.mjs",
+    "verify": "node test/solunar.test.mjs && python3 oracle/oracle.py && node build.mjs && node test/uat.test.mjs",
+    "test": "npm run verify"
+  },
+  "dependencies": {
+    "astronomy-engine": "^2.1.19"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0",
+    "playwright": "^1.44.0"
+  },
+  "license": "MIT"
+}

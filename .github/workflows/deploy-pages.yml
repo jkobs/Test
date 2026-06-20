@@ -1,0 +1,60 @@
+name: Deploy Solunar to GitHub Pages
+
+on:
+  push:
+    branches: [ "claude/solunar-fishing-app-mtjpc3", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; newer pushes cancel in-progress runs.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      - name: Build single-file app
+        run: npm run build
+
+      - name: Verify engine accuracy (regression)
+        run: node test/solunar.test.mjs
+
+      - name: Run acceptance tests (UAT)
+        run: node test/uat.test.mjs
+
+      - name: Assemble site
+        run: |
+          mkdir -p public
+          cp dist/solunar.html public/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
