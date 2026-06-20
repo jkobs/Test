@@ -12,7 +12,8 @@
     "test": "npm run verify"
   },
   "dependencies": {
-    "astronomy-engine": "^2.1.19"
+    "astronomy-engine": "^2.1.19",
+    "leaflet": "^1.9.4"
   },
   "devDependencies": {
     "jsdom": "^24.0.0",

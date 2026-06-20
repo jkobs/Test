@@ -5,7 +5,10 @@
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7 };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null };
+
+  // ---- Leaflet map state ----
+  var _map = null, _locMarker = null, _windLine = null;
 
   // ---- formatting ----
   function fmtTime(date, tz) {
@@ -288,6 +291,149 @@
     }
   }
 
+  // ---- map ----
+  function initMap(lat, lng, towardDeg, windSpeed) {
+    if (typeof L === 'undefined' || !L.map) return;
+    var el = document.getElementById('advisor-map');
+    if (!el) return;
+    try {
+    if (!_map) {
+      _map = L.map('advisor-map', { zoomControl: true, attributionControl: false });
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 18
+      }).addTo(_map);
+      L.control.attribution({ prefix: '© Esri' }).addTo(_map);
+    }
+    _map.setView([lat, lng], 14);
+    if (_locMarker) _locMarker.remove();
+    _locMarker = L.circleMarker([lat, lng], {
+      radius: 9, fillColor: '#4fd07a', color: '#fff', weight: 2.5, fillOpacity: 1
+    }).addTo(_map);
+
+    if (_windLine) { _windLine.remove(); _windLine = null; }
+    if (towardDeg !== null && windSpeed > 4) {
+      var towardRad = towardDeg * Math.PI / 180;
+      var d = 0.005;
+      var dlat = d * Math.cos(towardRad);
+      var dlng = d * Math.sin(towardRad) / Math.cos(lat * Math.PI / 180);
+      _windLine = L.polyline([[lat, lng], [lat + dlat, lng + dlng]], {
+        color: '#56b3f0', weight: 3, opacity: 0.85, dashArray: '6,5'
+      }).bindTooltip('Windward shore →', { permanent: false }).addTo(_map);
+    }
+    setTimeout(function () { if (_map) _map.invalidateSize(); }, 150);
+    } catch(e) { /* map unavailable in non-visual environment */ }
+  }
+
+  // ---- fishing advice engine ----
+  var DIRS8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  function bearing8(deg) { return DIRS8[Math.round(deg / 45) % 8]; }
+
+  function computeAdvice(delta, windSpeed, windDir, airTemp) {
+    // Pressure → depth zone & activity base score
+    var depth, structure, presentation, pressureStr, pScore;
+    if (delta > 3) {
+      depth = '18–28 ft'; pressureStr = 'rising fast'; pScore = 1;
+      structure = 'main basin, deep rock, river channel edges';
+      presentation = 'dead-stick, very slow vertical jig';
+    } else if (delta > 1) {
+      depth = '12–20 ft'; pressureStr = 'rising'; pScore = 2;
+      structure = 'outside points dropping to deep water, rock humps';
+      presentation = 'slow jig, finesse drop-shot';
+    } else if (delta >= -1) {
+      depth = '10–18 ft'; pressureStr = 'stable'; pScore = 3;
+      structure = 'mid-depth points, rock piles, weed-to-hard-bottom breaks';
+      presentation = 'standard jig, shad-body crankbait';
+    } else if (delta >= -3) {
+      depth = '6–14 ft'; pressureStr = 'falling'; pScore = 4;
+      structure = 'windward shoreline, weed edges, shallow rock flats';
+      presentation = 'crankbait, inline spinner';
+    } else {
+      depth = '4–10 ft'; pressureStr = 'falling fast'; pScore = 5;
+      structure = 'windward shore, emergent weeds, rocky shoals';
+      presentation = 'fast crankbait, reaction jig';
+    }
+
+    // Wind modifier
+    var windScore = 0, windNote;
+    var fromDir = bearing8(windDir);
+    var towardDeg = (windDir + 180) % 360;
+    var towardDir = bearing8(towardDeg);
+    if (windSpeed > 15) {
+      windNote = 'Strong wind from ' + fromDir + ' — concentrate on ' + towardDir + ' windward shore; wave action piles baitfish.';
+      windScore = 2;
+    } else if (windSpeed > 8) {
+      windNote = 'Wind from ' + fromDir + ' — ' + towardDir + ' windward points and edges are prime.';
+      windScore = 1;
+    } else if (windSpeed > 3) {
+      windNote = 'Light wind from ' + fromDir + ' — subtle windward edge on ' + towardDir + ' side.';
+    } else {
+      windNote = 'Calm — no windward advantage. Work structure breaks with a slow, methodical approach.';
+      windScore = -1;
+    }
+
+    // Temperature modifier
+    var tempNote;
+    if (airTemp < 45) {
+      tempNote = 'Cold air — walleye likely lethargic. Fish slow and deep near bottom.';
+      pScore = Math.max(1, pScore - 1);
+    } else if (airTemp < 60) {
+      tempNote = 'Cool conditions — transition period; expect fish on rock and gravel structure.';
+    } else if (airTemp <= 80) {
+      tempNote = 'Comfortable temps — walleye in their active range; run a full structure sweep.';
+    } else {
+      tempNote = 'Hot air — midday fish likely deep or suspended; focus early/late on shallows.';
+      pScore = Math.max(1, pScore - 1);
+    }
+
+    // Solunar boost
+    var solunarNote = '', solunarBoost = 0;
+    var p = nextPeriod();
+    var now = Date.now();
+    if (p) {
+      var toStart = p.start.getTime() - now;
+      var isActive = now >= p.start.getTime() && now <= p.end.getTime();
+      if (isActive) {
+        solunarNote = '🔥 ' + (p.type === 'major' ? 'Major' : 'Minor') + ' solunar period ACTIVE — fish your best spot right now.';
+        solunarBoost = p.type === 'major' ? 2 : 1;
+      } else if (toStart > 0 && toStart < 30 * 60 * 1000) {
+        solunarNote = '⏱ ' + (p.type === 'major' ? 'Major' : 'Minor') + ' period in ' + Math.round(toStart / 60000) + ' min — get in position.';
+        solunarBoost = 1;
+      }
+    }
+
+    var score = Math.max(1, Math.min(5, pScore + windScore + solunarBoost));
+    var labels = ['Very Slow', 'Slow', 'Moderate', 'Active', 'Hot Bite'];
+    var dots = '●'.repeat(score) + '○'.repeat(5 - score);
+    var dotColor = score >= 4 ? 'var(--good)' : score >= 3 ? 'var(--major)' : 'var(--muted)';
+
+    return {
+      score, label: labels[score - 1], dots, dotColor,
+      pressureStr, depth, structure, presentation,
+      windSpeed, fromDir, towardDir, towardDeg,
+      windNote, tempNote, solunarNote
+    };
+  }
+
+  function renderAdvisor(adv, lat, lng) {
+    initMap(lat, lng, adv.towardDeg, adv.windSpeed);
+    var el = document.getElementById('advisor-body');
+    if (!el) return;
+    el.innerHTML =
+      '<div class="adv-activity">' +
+        '<span class="adv-dots" style="color:' + adv.dotColor + '">' + adv.dots + '</span>' +
+        '<span class="adv-level">' + adv.label + '</span>' +
+      '</div>' +
+      '<div class="adv-grid">' +
+        '<div class="adv-item"><div class="adv-label">Pressure</div><div class="adv-val">' + adv.pressureStr + '</div></div>' +
+        '<div class="adv-item"><div class="adv-label">Target depth</div><div class="adv-val">' + adv.depth + '</div></div>' +
+        '<div class="adv-item adv-wide"><div class="adv-label">Structure</div><div class="adv-val">' + adv.structure + '</div></div>' +
+        '<div class="adv-item adv-wide"><div class="adv-label">Presentation</div><div class="adv-val">' + adv.presentation + '</div></div>' +
+      '</div>' +
+      (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
+      '<div class="adv-note">' + adv.windNote + '</div>' +
+      '<div class="adv-note">' + adv.tempNote + '</div>';
+  }
+
   // ---- weather overlay ----
   function fetchWeather() {
     if (typeof fetch === 'undefined') return;
@@ -359,13 +505,19 @@
 
   function fetchPressure() {
     var el = document.getElementById('baro');
-    if (!el || typeof fetch === 'undefined') return;
+    if (typeof fetch === 'undefined') return;
     var loc = state.loc;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
-      '&hourly=surface_pressure&timezone=auto&past_hours=4&forecast_hours=4&timeformat=unixtime';
+      '&current=temperature_2m,wind_speed_10m,wind_direction_10m' +
+      '&hourly=surface_pressure&timezone=auto&past_hours=4&forecast_hours=4&timeformat=unixtime' +
+      '&temperature_unit=fahrenheit&wind_speed_unit=mph';
     fetch(url).then(function (r) { return r.json(); }).then(function (j) {
       if (!j.hourly || !j.hourly.surface_pressure) return;
+      var cur2 = j.current || {};
+      var windSpeed = cur2.wind_speed_10m || 0;
+      var windDir = cur2.wind_direction_10m || 0;
+      var airTemp = cur2.temperature_2m || 65;
       var times = j.hourly.time;          // Unix timestamps (s)
       var vals  = j.hourly.surface_pressure;
       var nowS  = Math.floor(Date.now() / 1000);
@@ -378,7 +530,10 @@
       var cur = vals[nowIdx];
       var past = vals[Math.max(0, nowIdx - 4)] || vals[0]; // 4h ago
       var delta = cur - past;
+      state.pressureDelta = delta;
       var info = pressureTip(delta, cur);
+      var adv = computeAdvice(delta, windSpeed, windDir, airTemp);
+      renderAdvisor(adv, loc.lat, loc.lng);
 
       // Hour labels: "−4h", "now", "+4h"
       function hLabel(i) {
@@ -405,7 +560,10 @@
         '<div class="baro-legend"><span class="baro-leg past"></span> Past &nbsp; <span class="baro-leg future"></span> Forecast</div>' +
         '<div class="baro-tip">🎣 ' + info.tip + '</div>';
     }).catch(function () {
-      el.innerHTML = '<span class="note">Barometer unavailable offline.</span>';
+      if (el) el.innerHTML = '<span class="note">Barometer unavailable offline.</span>';
+      initMap(loc.lat, loc.lng, null, 0);
+      var advEl = document.getElementById('advisor-body');
+      if (advEl) advEl.innerHTML = '<div class="adv-offline">Conditions unavailable offline — check solunar periods below for timing.</div>';
     });
   }
 
