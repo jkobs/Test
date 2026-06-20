@@ -46,6 +46,7 @@
     }, state.range);
     render();
     fetchWeather();
+    fetchPressure();
   }
 
   // ---- next period (across the forecast) ----
@@ -309,6 +310,94 @@
       45: 'fog', 48: 'rime fog', 51: 'light drizzle', 61: 'light rain', 63: 'rain',
       65: 'heavy rain', 71: 'snow', 80: 'showers', 95: 'thunderstorm' };
     return m[code] || 'see forecast';
+  }
+
+  // ---- barometer: 4h past + 4h forecast pressure (Open-Meteo, no key) ----
+  function hpaToInHg(hpa) { return (hpa * 0.02953).toFixed(2); }
+
+  function pressureTip(delta4h, curHpa) {
+    // Walleye-specific bite guidance based on pressure change over 4h
+    var abs = Math.abs(delta4h);
+    if (delta4h > 3)  return { arrow: '↑↑', label: 'Rising fast',  tip: 'Pressure spiking — walleye may go deep briefly, then turn on' };
+    if (delta4h > 1)  return { arrow: '↑',  label: 'Rising',       tip: 'Rising pressure — walleye moving to structure, good bite window' };
+    if (delta4h < -3) return { arrow: '↓↓', label: 'Falling fast', tip: 'Pressure dropping fast — aggressive bite now before they shut down' };
+    if (delta4h < -1) return { arrow: '↓',  label: 'Falling',      tip: 'Falling pressure — feed up before the front, fish shallow edges' };
+    return { arrow: '→', label: 'Steady', tip: 'Stable pressure — find structure, slower methodical presentation' };
+  }
+
+  function pressureSparkSVG(values, nowIdx) {
+    var W = 200, H = 36;
+    var min = Math.min.apply(null, values) - 0.3;
+    var max = Math.max.apply(null, values) + 0.3;
+    var n = values.length;
+    function px(i) { return (i / (n - 1)) * W; }
+    function py(v) { return H - ((v - min) / (max - min)) * H; }
+
+    // Past polyline (solid blue)
+    var pastPts = values.slice(0, nowIdx + 1).map(function (v, i) { return px(i) + ',' + py(v); }).join(' ');
+    // Future polyline (dashed amber)
+    var futPts  = values.slice(nowIdx).map(function (v, i) { return px(nowIdx + i) + ',' + py(v); }).join(' ');
+    var nowX = px(nowIdx);
+    var nowY = py(values[nowIdx]);
+
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="baro-spark" aria-hidden="true">' +
+      '<polyline points="' + pastPts + '" fill="none" stroke="var(--minor)" stroke-width="2" stroke-linejoin="round"/>' +
+      '<polyline points="' + futPts + '" fill="none" stroke="var(--major)" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="4,3" opacity=".75"/>' +
+      '<line x1="' + nowX + '" y1="0" x2="' + nowX + '" y2="' + H + '" stroke="rgba(255,255,255,.25)" stroke-width="1"/>' +
+      '<circle cx="' + nowX + '" cy="' + nowY + '" r="3" fill="var(--ink)"/>' +
+      '</svg>';
+  }
+
+  function fetchPressure() {
+    var el = document.getElementById('baro');
+    if (!el || typeof fetch === 'undefined') return;
+    var loc = state.loc;
+    var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
+      '&longitude=' + loc.lng +
+      '&hourly=surface_pressure&timezone=auto&past_hours=4&forecast_hours=4&timeformat=unixtime';
+    fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.hourly || !j.hourly.surface_pressure) return;
+      var times = j.hourly.time;          // Unix timestamps (s)
+      var vals  = j.hourly.surface_pressure;
+      var nowS  = Math.floor(Date.now() / 1000);
+      // Find closest hour to now
+      var nowIdx = 0, minDiff = Infinity;
+      times.forEach(function (t, i) {
+        var d = Math.abs(t - nowS);
+        if (d < minDiff) { minDiff = d; nowIdx = i; }
+      });
+      var cur = vals[nowIdx];
+      var past = vals[Math.max(0, nowIdx - 4)] || vals[0]; // 4h ago
+      var delta = cur - past;
+      var info = pressureTip(delta, cur);
+
+      // Hour labels: "−4h", "now", "+4h"
+      function hLabel(i) {
+        var diff = i - nowIdx;
+        if (diff === 0) return 'now';
+        return (diff > 0 ? '+' : '') + diff + 'h';
+      }
+      var labelHTML = '';
+      [0, nowIdx, vals.length - 1].forEach(function (i) {
+        var pct = (i / (vals.length - 1)) * 100;
+        labelHTML += '<span style="left:' + pct + '%">' + hLabel(i) + '</span>';
+      });
+
+      el.innerHTML =
+        '<div class="baro-head">' +
+          '<span class="baro-val">' + hpaToInHg(cur) + ' inHg</span>' +
+          '<span class="baro-hpa">(' + Math.round(cur) + ' hPa)</span>' +
+          '<span class="baro-arrow baro-' + (delta > 1 ? 'up' : delta < -1 ? 'down' : 'steady') + '">' + info.arrow + ' ' + info.label + '</span>' +
+        '</div>' +
+        '<div class="baro-spark-wrap">' +
+          pressureSparkSVG(vals, nowIdx) +
+          '<div class="baro-spark-labels">' + labelHTML + '</div>' +
+        '</div>' +
+        '<div class="baro-legend"><span class="baro-leg past"></span> Past &nbsp; <span class="baro-leg future"></span> Forecast</div>' +
+        '<div class="baro-tip">🎣 ' + info.tip + '</div>';
+    }).catch(function () {
+      el.innerHTML = '<span class="note">Barometer unavailable offline.</span>';
+    });
   }
 
   // ---- geolocation ----
