@@ -1,0 +1,87 @@
+:root {
+  --bg: #0b1f2a;
+  --bg2: #102b38;
+  --card: #15323f;
+  --card2: #1b3c4b;
+  --ink: #eaf4f7;
+  --muted: #8fb3c0;
+  --major: #ffb020;
+  --minor: #56b3f0;
+  --sun: #ff7a3d;
+  --good: #4fd07a;
+  --line: #25505f;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  background: linear-gradient(180deg, var(--bg), var(--bg2));
+  color: var(--ink);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  min-height: 100%;
+}
+
+.wrap { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
+
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+header h1 { font-size: 20px; margin: 0; }
+.loc { color: var(--muted); font-size: 13px; }
+.loc button {
+  background: none; border: 1px solid var(--line); color: var(--muted);
+  border-radius: 8px; padding: 3px 8px; font-size: 12px; margin-left: 6px; cursor: pointer;
+}
+
+/* Next-period banner + countdown */
+.next {
+  margin: 14px 0; padding: 14px 16px; border-radius: var(--radius);
+  background: var(--card2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.next .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.next .when { font-size: 15px; font-weight: 600; }
+.next .countdown { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; }
+.next.major .countdown { color: var(--major); }
+.next.minor .countdown { color: var(--minor); }
+.next.active .countdown { color: var(--good); }
+
+/* Day cards */
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 16px; margin: 12px 0;
+}
+.card.today { border-color: var(--major); }
+.day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.day-head .date { font-weight: 600; }
+.day-head .stars { color: var(--major); letter-spacing: 2px; }
+.day-sub { color: var(--muted); font-size: 13px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 10px; }
+
+.periods { margin-top: 10px; display: grid; gap: 8px; }
+.period {
+  display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 10px; background: var(--card2);
+}
+.period .tag {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  padding: 3px 6px; border-radius: 6px; text-align: center;
+}
+.period.major .tag { background: rgba(255,176,32,.18); color: var(--major); }
+.period.minor .tag { background: rgba(86,179,240,.18); color: var(--minor); }
+.period .kind { font-size: 13px; color: var(--muted); }
+.period .time { font-weight: 600; font-variant-numeric: tabular-nums; }
+.period .range { color: var(--muted); font-size: 12px; }
+.period.sun::after { content: "☀ near sun"; color: var(--sun); font-size: 11px; }
+
+.weather { margin-top: 10px; color: var(--muted); font-size: 13px; }
+.weather strong { color: var(--ink); }
+
+.legend { color: var(--muted); font-size: 12px; margin-top: 18px; line-height: 1.6; }
+.legend b.major { color: var(--major); }
+.legend b.minor { color: var(--minor); }
+
+.note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+button.toggle {
+  width: 100%; margin-top: 8px; padding: 10px; border-radius: 10px; cursor: pointer;
+  background: var(--card2); color: var(--ink); border: 1px solid var(--line); font-size: 14px;
+}

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1f2a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Solunar Fishing Times</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>🎣 Solunar Times</h1>
+    </header>
+    <div class="loc" id="loc">Locating…</div>
+
+    <div class="next" id="next" style="display:none"></div>
+
+    <button class="toggle" id="notify-btn">🔔 Enable next-period alerts</button>
+
+    <div id="days"></div>
+
+    <div class="legend">
+      <b class="major">Major periods</b> (~2 h): moon overhead &amp; underfoot — strongest bite.<br>
+      <b class="minor">Minor periods</b> (~1 h): moonrise &amp; moonset.<br>
+      ☀ marks periods overlapping sunrise/sunset — the biggest driver in solunar theory.
+      <div class="note">Times for the lake's timezone. Best days: near new/full moon with a period at sunrise/sunset.</div>
+    </div>
+  </div>
+
+  <script src="vendor/astronomy.browser.min.js"></script>
+  <script src="solunar.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
