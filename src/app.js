@@ -8,8 +8,10 @@
   var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null };
 
   // ---- Leaflet map state ----
-  var _map = null, _locMarker = null, _windLine = null;
+  var _map = null, _locMarker = null, _windLine = null, _accCircle = null;
   var _pressureReqId = 0; // incremented on each fetchPressure call; stale responses are dropped
+  var _geoWatchId = null;
+  var _lastRecomputeLat = null, _lastRecomputeLng = null;
 
   // ---- formatting ----
   function fmtTime(date, tz) {
@@ -574,19 +576,60 @@
   }
 
   // ---- geolocation ----
-  function useMyLocation() {
-    if (!navigator.geolocation) { alert('Geolocation not available; using Yellow Lake.'); return; }
-    navigator.geolocation.getCurrentPosition(function (pos) {
+  function onGpsUpdate(pos) {
+    var lat = +pos.coords.latitude.toFixed(5);
+    var lng = +pos.coords.longitude.toFixed(5);
+    var acc = Math.round(pos.coords.accuracy); // metres
+
+    // Always move the map pin immediately — no full recompute needed
+    if (_map && _locMarker) {
+      _locMarker.setLatLng([lat, lng]);
+      if (_accCircle) { _accCircle.remove(); _accCircle = null; }
+      if (acc < 300) {
+        try {
+          _accCircle = L.circle([lat, lng], {
+            radius: acc, color: '#4fd07a', fillColor: '#4fd07a',
+            fillOpacity: 0.08, weight: 1, interactive: false
+          }).addTo(_map);
+        } catch(e) {}
+      }
+      _map.setView([lat, lng], _map.getZoom());
+    }
+
+    // Full recompute (refetch weather/pressure) only when location changed >100 m
+    var moved = _lastRecomputeLat === null ||
+      Math.abs(lat - _lastRecomputeLat) > 0.001 ||
+      Math.abs(lng - _lastRecomputeLng) > 0.001;
+
+    if (moved) {
+      _lastRecomputeLat = lat; _lastRecomputeLng = lng;
       state.loc = {
-        name: 'Current location',
-        lat: +pos.coords.latitude.toFixed(4),
-        lng: +pos.coords.longitude.toFixed(4),
+        name: 'Current location ±' + acc + ' m',
+        lat: lat, lng: lng,
         tz: Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT.tz
       };
       recompute();
-    }, function () {
-      alert('Could not get location. Using Yellow Lake.');
-    }, { timeout: 8000, maximumAge: 600000 });
+    }
+  }
+
+  function startGpsWatch() {
+    if (!navigator.geolocation) return;
+    if (_geoWatchId !== null) navigator.geolocation.clearWatch(_geoWatchId);
+    _geoWatchId = navigator.geolocation.watchPosition(
+      onGpsUpdate,
+      function () {},
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
+
+  function useMyLocation() {
+    if (!navigator.geolocation) { alert('Geolocation not available; using Yellow Lake.'); return; }
+    // Force a fresh one-shot fix then re-arm the watch
+    navigator.geolocation.getCurrentPosition(
+      function(pos) { onGpsUpdate(pos); startGpsWatch(); },
+      function() { alert('Could not get location. Using Yellow Lake.'); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
   }
 
   function enableNotifications() {
@@ -602,17 +645,7 @@
     document.getElementById('notify-btn').onclick = enableNotifications;
     recompute();
     setInterval(renderNext, 1000);
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(function (pos) {
-        state.loc = {
-          name: 'Current location',
-          lat: +pos.coords.latitude.toFixed(4),
-          lng: +pos.coords.longitude.toFixed(4),
-          tz: Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT.tz
-        };
-        recompute();
-      }, function () {}, { timeout: 6000, maximumAge: 600000 });
-    }
+    startGpsWatch();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
