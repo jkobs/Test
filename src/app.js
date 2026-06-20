@@ -3,9 +3,9 @@
   'use strict';
 
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
-  var FORECAST_DAYS = 7;
+  var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7 };
 
   // ---- formatting ----
   function fmtTime(date, tz) {
@@ -31,6 +31,11 @@
   }
   function stars(n) { return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n); }
   var KIND = { overhead: 'Moon overhead', underfoot: 'Moon underfoot', moonrise: 'Moonrise', moonset: 'Moonset' };
+  var PHASE_ICON = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
+
+  function phaseIcon(phase) {
+    return PHASE_ICON[Math.floor((phase * 8) + 0.5) % 8];
+  }
 
   // ---- compute ----
   function recompute() {
@@ -38,7 +43,7 @@
     state.days = Solunar.computeForecast({
       year: t.year, month: t.month, day: t.day,
       lat: state.loc.lat, lng: state.loc.lng, tz: state.loc.tz
-    }, FORECAST_DAYS);
+    }, state.range);
     render();
     fetchWeather();
   }
@@ -69,19 +74,151 @@
       '</div>';
   }
 
-  function dayCard(d, isFirst) {
+  function dayCard(d, isFirst, idx) {
     var tz = d.tz;
     var sub = 'Sunrise ' + fmtTime(d.sunrise, tz) + ' · Sunset ' + fmtTime(d.sunset, tz) +
               ' · ' + d.moon.phaseName + ' (' + Math.round(d.moon.illumination * 100) + '%)';
     var rows = d.periods.map(function (p) { return periodRow(p, tz); }).join('');
     var weather = isFirst ? '<div class="weather" id="weather"></div>' : '';
-    return '<div class="card' + (isFirst ? ' today' : '') + '">' +
+    return '<div class="card' + (isFirst ? ' today' : '') + '" data-idx="' + idx + '" role="button" tabindex="0" aria-label="Open details for ' + fmtDayLabel(d.date, tz) + '">' +
       '<div class="day-head"><span class="date">' + fmtDayLabel(d.date, tz) + '</span>' +
-        '<span class="stars" title="' + d.rating.stars + '/5">' + stars(d.rating.stars) + '</span></div>' +
+        '<span class="stars" title="' + d.rating.stars + '/5">' + stars(d.rating.stars) + ' <span class="tap-hint">tap for details</span></span></div>' +
       '<div class="day-sub">' + sub + '</div>' +
       '<div class="periods">' + rows + '</div>' + weather +
       '</div>';
   }
+
+  // ---- day-timeline SVG (visual 24-hr bar) ----
+  function timelineBar(d) {
+    var tz = d.tz;
+    function pct(date) {
+      if (!date) return null;
+      var ms = date.getTime();
+      // position as fraction of the local day
+      var parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, hour: 'numeric', minute: '2-digit', second: '2-digit',
+        hour12: false
+      }).formatToParts(date);
+      var hp = {}, pp = {};
+      parts.forEach(function (x) { hp[x.type] = +x.value; });
+      return ((hp.hour * 3600 + hp.minute * 60 + (hp.second || 0)) / 86400) * 100;
+    }
+
+    var W = 100; // percentage-based
+    var rows = [];
+
+    // Daylight band
+    var srP = pct(d.sunrise), ssP = pct(d.sunset);
+    if (srP !== null && ssP !== null) {
+      rows.push('<div class="tl-band daylight" style="left:' + srP + '%;width:' + (ssP - srP) + '%"></div>');
+    }
+
+    // Period bands
+    d.periods.forEach(function (p) {
+      var s = pct(p.start), e = pct(p.end), c = pct(p.center);
+      if (s === null) return;
+      // handle wrap-around midnight: clamp to 0-100
+      if (e < s) e = 100;
+      rows.push('<div class="tl-band ' + p.type + (p.sunOverlap ? ' sun' : '') + '" style="left:' + Math.max(0,s) + '%;width:' + Math.min(100-Math.max(0,s), e-Math.max(0,s)) + '%"></div>');
+      if (c !== null) rows.push('<div class="tl-tick" style="left:' + c + '%"></div>');
+    });
+
+    // Sun markers
+    if (srP !== null) rows.push('<div class="tl-sun-mark" style="left:' + srP + '%" title="Sunrise"></div>');
+    if (ssP !== null) rows.push('<div class="tl-sun-mark" style="left:' + ssP + '%" title="Sunset"></div>');
+
+    // Hour labels
+    var hourLabels = '';
+    [6, 12, 18].forEach(function (h) {
+      var label = h === 6 ? '6am' : h === 12 ? 'noon' : '6pm';
+      hourLabels += '<span style="left:' + (h/24*100) + '%">' + label + '</span>';
+    });
+
+    return '<div class="tl-wrap">' +
+      '<div class="tl-bar">' + rows.join('') + '</div>' +
+      '<div class="tl-labels">' + hourLabels + '</div>' +
+      '</div>';
+  }
+
+  // ---- modal ----
+  function openModal(idx) {
+    var d = state.days[idx];
+    if (!d) return;
+    var tz = d.tz;
+
+    var pRows = d.periods.map(function (p) {
+      return '<div class="period ' + p.type + (p.sunOverlap ? ' sun' : '') + '">' +
+        '<span class="tag">' + p.type + '</span>' +
+        '<span class="kind">' + KIND[p.kind] + (p.sunOverlap ? ' <span class="sun-badge">☀ near sun</span>' : '') + '</span>' +
+        '<span class="time">' + fmtTime(p.center, tz) +
+          ' <span class="range">' + fmtTime(p.start, tz) + '–' + fmtTime(p.end, tz) + '</span></span>' +
+        '</div>';
+    }).join('');
+
+    var html =
+      '<div class="modal-overlay" id="modal-overlay">' +
+        '<div class="modal" role="dialog" aria-modal="true">' +
+          '<div class="modal-head">' +
+            '<div>' +
+              '<div class="modal-date">' + fmtDayLabel(d.date, tz) + '</div>' +
+              '<div class="modal-stars">' + stars(d.rating.stars) + '</div>' +
+            '</div>' +
+            '<button class="modal-close" id="modal-close" aria-label="Close">✕</button>' +
+          '</div>' +
+
+          '<div class="modal-section">' +
+            '<div class="modal-section-label">Day at a glance</div>' +
+            timelineBar(d) +
+            '<div class="tl-legend">' +
+              '<span class="tl-leg-dot major"></span> Major &nbsp;' +
+              '<span class="tl-leg-dot minor"></span> Minor &nbsp;' +
+              '<span class="tl-leg-dot daylight"></span> Daylight' +
+            '</div>' +
+          '</div>' +
+
+          '<div class="modal-section">' +
+            '<div class="modal-section-label">Solunar periods</div>' +
+            '<div class="periods">' + pRows + '</div>' +
+          '</div>' +
+
+          '<div class="modal-section modal-meta">' +
+            '<div>' +
+              '<div class="modal-section-label">Sun</div>' +
+              '<div>Sunrise &nbsp;<strong>' + fmtTime(d.sunrise, tz) + '</strong></div>' +
+              '<div>Sunset &nbsp;<strong>' + fmtTime(d.sunset, tz) + '</strong></div>' +
+            '</div>' +
+            '<div>' +
+              '<div class="modal-section-label">Moon</div>' +
+              '<div>' + phaseIcon(d.moon.phase) + ' ' + d.moon.phaseName + '</div>' +
+              '<div>' + Math.round(d.moon.illumination * 100) + '% illuminated</div>' +
+            '</div>' +
+            '<div>' +
+              '<div class="modal-section-label">Rating</div>' +
+              '<div>' + stars(d.rating.stars) + ' ' + d.rating.stars + '/5</div>' +
+              '<div class="muted">Phase ' + Math.round(d.rating.phaseScore * 100) + '%' +
+                (d.rating.sunBoost > 0 ? ' + sun overlap' : '') + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    var el = document.createElement('div');
+    el.innerHTML = html;
+    document.body.appendChild(el.firstChild);
+
+    document.getElementById('modal-close').onclick = closeModal;
+    document.getElementById('modal-overlay').onclick = function (e) {
+      if (e.target.id === 'modal-overlay') closeModal();
+    };
+    document.addEventListener('keydown', onEsc);
+  }
+
+  function closeModal() {
+    var el = document.getElementById('modal-overlay');
+    if (el) el.remove();
+    document.removeEventListener('keydown', onEsc);
+  }
+  function onEsc(e) { if (e.key === 'Escape') closeModal(); }
 
   function render() {
     var loc = state.loc;
@@ -90,9 +227,28 @@
       '<button id="useloc">Use my location</button>';
     document.getElementById('useloc').onclick = useMyLocation;
 
-    var first = state.days[0];
-    var cards = state.days.map(function (d, i) { return dayCard(d, i === 0); }).join('');
+    // Range picker
+    var rangeHtml = RANGE_OPTIONS.map(function (n) {
+      return '<button class="range-btn' + (n === state.range ? ' active' : '') +
+        '" data-range="' + n + '">' + n + ' days</button>';
+    }).join('');
+    document.getElementById('range-picker').innerHTML = rangeHtml;
+    document.querySelectorAll('.range-btn').forEach(function (btn) {
+      btn.onclick = function () {
+        state.range = +btn.dataset.range;
+        recompute();
+      };
+    });
+
+    var cards = state.days.map(function (d, i) { return dayCard(d, i === 0, i); }).join('');
     document.getElementById('days').innerHTML = cards;
+
+    // Wire card click/keyboard for modal
+    document.querySelectorAll('#days .card').forEach(function (card) {
+      card.onclick = function () { openModal(+card.dataset.idx); };
+      card.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') openModal(+card.dataset.idx); };
+    });
+
     renderNext();
   }
 
@@ -116,22 +272,22 @@
     maybeNotify(p, active, secs);
   }
 
-  // ---- opportunistic notification (no-ops where unavailable, e.g. iOS file://) ----
+  // ---- opportunistic notification ----
   var notified = {};
   function maybeNotify(p, active, secs) {
     if (!state.notify || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
     var key = p.center.getTime();
-    if (!active && secs <= 600 && !notified[key]) { // 10 min warning
+    if (!active && secs <= 600 && !notified[key]) {
       notified[key] = true;
       try {
         new Notification('Solunar: ' + p.type + ' period soon', {
           body: KIND[p.kind] + ' at ' + fmtTime(p.center, state.loc.tz)
         });
-      } catch (e) { /* iOS file:// or denied — silently ignore */ }
+      } catch (e) {}
     }
   }
 
-  // ---- weather overlay (Open-Meteo, no key; needs network) ----
+  // ---- weather overlay ----
   function fetchWeather() {
     var el = document.getElementById('weather');
     if (!el || typeof fetch === 'undefined') return;
@@ -167,7 +323,7 @@
       };
       recompute();
     }, function () {
-      alert('Could not get location (blocked on local files in iOS Safari). Using Yellow Lake.');
+      alert('Could not get location. Using Yellow Lake.');
     }, { timeout: 8000, maximumAge: 600000 });
   }
 
@@ -184,7 +340,6 @@
     document.getElementById('notify-btn').onclick = enableNotifications;
     recompute();
     setInterval(renderNext, 1000);
-    // try geolocation automatically; falls back silently to Yellow Lake
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(function (pos) {
         state.loc = {
@@ -194,7 +349,7 @@
           tz: Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT.tz
         };
         recompute();
-      }, function () { /* keep Yellow Lake */ }, { timeout: 6000, maximumAge: 600000 });
+      }, function () {}, { timeout: 6000, maximumAge: 600000 });
     }
   }
 
