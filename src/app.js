@@ -9,6 +9,7 @@
 
   // ---- Leaflet map state ----
   var _map = null, _locMarker = null, _windLine = null;
+  var _pressureReqId = 0; // incremented on each fetchPressure call; stale responses are dropped
 
   // ---- formatting ----
   function fmtTime(date, tz) {
@@ -50,6 +51,8 @@
     render();
     fetchWeather();
     fetchPressure();
+    // Update map pin immediately — don't wait for pressure fetch
+    initMap(state.loc.lat, state.loc.lng, null, 0);
   }
 
   // ---- next period (across the forecast) ----
@@ -507,12 +510,14 @@
     var el = document.getElementById('baro');
     if (typeof fetch === 'undefined') return;
     var loc = state.loc;
+    var reqId = ++_pressureReqId; // claim this generation; any older response will be ignored
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
       '&current=temperature_2m,wind_speed_10m,wind_direction_10m' +
       '&hourly=surface_pressure&timezone=auto&past_hours=4&forecast_hours=4&timeformat=unixtime' +
       '&temperature_unit=fahrenheit&wind_speed_unit=mph';
     fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+      if (reqId !== _pressureReqId) return; // stale — a newer location fetch is in flight
       if (!j.hourly || !j.hourly.surface_pressure) return;
       var cur2 = j.current || {};
       var windSpeed = cur2.wind_speed_10m || 0;
@@ -560,6 +565,7 @@
         '<div class="baro-legend"><span class="baro-leg past"></span> Past &nbsp; <span class="baro-leg future"></span> Forecast</div>' +
         '<div class="baro-tip">🎣 ' + info.tip + '</div>';
     }).catch(function () {
+      if (reqId !== _pressureReqId) return;
       if (el) el.innerHTML = '<span class="note">Barometer unavailable offline.</span>';
       initMap(loc.lat, loc.lng, null, 0);
       var advEl = document.getElementById('advisor-body');
