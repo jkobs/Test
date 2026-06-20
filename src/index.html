@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Solunar Fishing Times</title>
+  <link rel="stylesheet" href="vendor/leaflet.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -24,6 +25,14 @@
 
     <div class="baro-card" id="baro"></div>
 
+    <div class="advisor-card" id="advisor">
+      <div class="advisor-hd">📍 Fishing Advisor</div>
+      <div id="advisor-map"></div>
+      <div class="advisor-body" id="advisor-body">
+        <div class="note">Fetching conditions…</div>
+      </div>
+    </div>
+
     <div id="days"></div>
 
     <div class="legend">
@@ -34,6 +43,7 @@
     </div>
   </div>
 
+  <script src="vendor/leaflet.js"></script>
   <script src="vendor/astronomy.browser.min.js"></script>
   <script src="solunar.js"></script>
   <script src="app.js"></script>
