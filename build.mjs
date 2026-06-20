@@ -13,12 +13,16 @@ const S = (p) => readFileSync(join(root, p), 'utf8');
 
 const html = S('src/index.html');
 const css = S('src/styles.css');
+const leafletCss = S('node_modules/leaflet/dist/leaflet.css');
+const leafletJs = S('node_modules/leaflet/dist/leaflet.js');
 const vendor = S('src/vendor/astronomy.browser.min.js');
 const engine = S('src/solunar.js');
 const app = S('src/app.js');
 
 const bundled = html
+  .replace('<link rel="stylesheet" href="vendor/leaflet.css">', `<style>\n${leafletCss}\n</style>`)
   .replace('<link rel="stylesheet" href="styles.css">', `<style>\n${css}\n</style>`)
+  .replace('<script src="vendor/leaflet.js"></script>', `<script>\n${leafletJs}\n</script>`)
   .replace('<script src="vendor/astronomy.browser.min.js"></script>', `<script>\n${vendor}\n</script>`)
   .replace('<script src="solunar.js"></script>', `<script>\n${engine}\n</script>`)
   .replace('<script src="app.js"></script>', `<script>\n${app}\n</script>`);
