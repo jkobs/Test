@@ -788,12 +788,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var sub = 'Sunrise ' + fmtTime(d.sunrise, tz) + ' · Sunset ' + fmtTime(d.sunset, tz) +
               ' · ' + d.moon.phaseName + ' (' + Math.round(d.moon.illumination * 100) + '%)';
     var rows = d.periods.map(function (p) { return periodRow(p, tz); }).join('');
-    var weather = isFirst ? '<div class="weather" id="weather"></div>' : '';
     return '<div class="card' + (isFirst ? ' today' : '') + '" data-idx="' + idx + '" role="button" tabindex="0" aria-label="Open details for ' + fmtDayLabel(d.date, tz) + '">' +
       '<div class="day-head"><span class="date">' + fmtDayLabel(d.date, tz) + '</span>' +
         '<span class="stars" title="' + d.rating.stars + '/5">' + stars(d.rating.stars) + ' <span class="tap-hint">tap for details</span></span></div>' +
       '<div class="day-sub">' + sub + '</div>' +
-      '<div class="periods">' + rows + '</div>' + weather +
+      '<div class="periods">' + rows + '</div>' +
+      '<div class="weather" id="weather-' + idx + '"></div>' +
       '</div>';
   }
 
@@ -998,20 +998,29 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
   // ---- weather overlay ----
   function fetchWeather() {
-    var el = document.getElementById('weather');
-    if (!el || typeof fetch === 'undefined') return;
+    if (typeof fetch === 'undefined') return;
     var loc = state.loc;
+    var days = Math.min(state.range, 16); // Open-Meteo free tier max
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
       '&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max,weather_code' +
-      '&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto';
+      '&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=' + days;
     fetch(url).then(function (r) { return r.json(); }).then(function (j) {
       if (!j.daily) return;
-      var d = j.daily, hi = Math.round(d.temperature_2m_max[0]), lo = Math.round(d.temperature_2m_min[0]);
-      var wind = Math.round(d.wind_speed_10m_max[0]);
-      el.innerHTML = '<strong>Weather today:</strong> ' + hi + '°/' + lo + '°F · wind to ' +
-        wind + ' mph · ' + weatherText(d.weather_code[0]);
-    }).catch(function () { el.innerHTML = '<span class="note">Weather unavailable offline.</span>'; });
+      var d = j.daily;
+      for (var i = 0; i < d.temperature_2m_max.length; i++) {
+        var el = document.getElementById('weather-' + i);
+        if (!el) continue;
+        var hi = Math.round(d.temperature_2m_max[i]);
+        var lo = Math.round(d.temperature_2m_min[i]);
+        var wind = Math.round(d.wind_speed_10m_max[i]);
+        el.innerHTML = (i === 0 ? '<strong>Weather:</strong> ' : '') +
+          hi + '°/' + lo + '°F · wind to ' + wind + ' mph · ' + weatherText(d.weather_code[i]);
+      }
+    }).catch(function () {
+      var el = document.getElementById('weather-0');
+      if (el) el.innerHTML = '<span class="note">Weather unavailable offline.</span>';
+    });
   }
   function weatherText(code) {
     var m = { 0: 'clear', 1: 'mainly clear', 2: 'partly cloudy', 3: 'overcast',
