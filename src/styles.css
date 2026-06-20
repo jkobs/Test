@@ -38,9 +38,12 @@ header h1 { font-size: 20px; margin: 0; }
   margin: 14px 0; padding: 14px 16px; border-radius: var(--radius);
   background: var(--card2); border: 1px solid var(--line);
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  transition: border-color .15s, background .15s;
 }
+.next:hover { border-color: var(--minor); background: #183847; }
 .next .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
 .next .when { font-size: 15px; font-weight: 600; }
+.next-hint { font-size: 10px; color: var(--muted); margin-top: 3px; }
 .next .countdown { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; }
 .next.major .countdown { color: var(--major); }
 .next.minor .countdown { color: var(--minor); }
@@ -254,3 +257,17 @@ button.toggle {
   border: 1px solid var(--line); background: var(--card2);
   color: var(--muted); cursor: pointer; text-decoration: none;
 }
+.baro-expand-hint { margin-left: auto; font-size: 11px; color: var(--muted); }
+.baro-card { transition: border-color .15s, background .15s; }
+.baro-card:hover { border-color: var(--minor); background: #183847; }
+.advisor-hd { transition: color .15s; }
+.advisor-hd:hover { color: var(--ink); }
+
+/* ---- Full-screen map in modal ---- */
+.modal-map-full {
+  height: 55vh; min-height: 260px; background: var(--bg2);
+  margin: 0 -16px;
+}
+
+/* ---- Period active highlight ---- */
+.period.period-now { border: 1px solid var(--good); }

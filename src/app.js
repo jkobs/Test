@@ -5,13 +5,17 @@
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null };
 
   // ---- Leaflet map state ----
-  var _map = null, _locMarker = null, _windLine = null, _accCircle = null;
-  var _pressureReqId = 0; // incremented on each fetchPressure call; stale responses are dropped
+  var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
+  var _topoLayer = null, _drnEnabled = true;
+  var _pressureReqId = 0;
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
+
+  var SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  var TOPO_URL = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}';
 
   // ---- formatting ----
   function fmtTime(date, tz) {
@@ -53,7 +57,6 @@
     render();
     fetchWeather();
     fetchPressure();
-    // Update map pin immediately — don't wait for pressure fetch
     initMap(state.loc.lat, state.loc.lng, null, 0);
   }
 
@@ -102,54 +105,73 @@
     var tz = d.tz;
     function pct(date) {
       if (!date) return null;
-      var ms = date.getTime();
-      // position as fraction of the local day
       var parts = new Intl.DateTimeFormat('en-US', {
         timeZone: tz, hour: 'numeric', minute: '2-digit', second: '2-digit',
         hour12: false
       }).formatToParts(date);
-      var hp = {}, pp = {};
+      var hp = {};
       parts.forEach(function (x) { hp[x.type] = +x.value; });
       return ((hp.hour * 3600 + hp.minute * 60 + (hp.second || 0)) / 86400) * 100;
     }
 
-    var W = 100; // percentage-based
     var rows = [];
-
-    // Daylight band
     var srP = pct(d.sunrise), ssP = pct(d.sunset);
     if (srP !== null && ssP !== null) {
       rows.push('<div class="tl-band daylight" style="left:' + srP + '%;width:' + (ssP - srP) + '%"></div>');
     }
-
-    // Period bands
     d.periods.forEach(function (p) {
       var s = pct(p.start), e = pct(p.end), c = pct(p.center);
       if (s === null) return;
-      // handle wrap-around midnight: clamp to 0-100
       if (e < s) e = 100;
       rows.push('<div class="tl-band ' + p.type + (p.sunOverlap ? ' sun' : '') + '" style="left:' + Math.max(0,s) + '%;width:' + Math.min(100-Math.max(0,s), e-Math.max(0,s)) + '%"></div>');
       if (c !== null) rows.push('<div class="tl-tick" style="left:' + c + '%"></div>');
     });
-
-    // Sun markers
     if (srP !== null) rows.push('<div class="tl-sun-mark" style="left:' + srP + '%" title="Sunrise"></div>');
     if (ssP !== null) rows.push('<div class="tl-sun-mark" style="left:' + ssP + '%" title="Sunset"></div>');
 
-    // Hour labels
     var hourLabels = '';
     [6, 12, 18].forEach(function (h) {
       var label = h === 6 ? '6am' : h === 12 ? 'noon' : '6pm';
       hourLabels += '<span style="left:' + (h/24*100) + '%">' + label + '</span>';
     });
-
     return '<div class="tl-wrap">' +
       '<div class="tl-bar">' + rows.join('') + '</div>' +
       '<div class="tl-labels">' + hourLabels + '</div>' +
       '</div>';
   }
 
-  // ---- modal ----
+  // ---- modal infrastructure ----
+  function _showModal(innerHtml, afterAppend) {
+    closeModal();
+    var wrap = document.createElement('div');
+    wrap.innerHTML = '<div class="modal-overlay" id="modal-overlay"><div class="modal" role="dialog" aria-modal="true">' + innerHtml + '</div></div>';
+    document.body.appendChild(wrap.firstChild);
+    document.getElementById('modal-close').onclick = closeModal;
+    document.getElementById('modal-overlay').onclick = function (e) {
+      if (e.target.id === 'modal-overlay') closeModal();
+    };
+    document.addEventListener('keydown', onEsc);
+    if (afterAppend) afterAppend();
+  }
+
+  function closeModal() {
+    if (_modalMap) { try { _modalMap.remove(); } catch (e) {} _modalMap = null; }
+    var el = document.getElementById('modal-overlay');
+    if (el) el.remove();
+    document.removeEventListener('keydown', onEsc);
+  }
+  function onEsc(e) { if (e.key === 'Escape') closeModal(); }
+
+  function _modalHead(title, sub) {
+    return '<div class="modal-head">' +
+      '<div><div class="modal-date">' + title + '</div>' +
+      (sub ? '<div class="modal-section-label" style="margin-top:2px">' + sub + '</div>' : '') +
+      '</div>' +
+      '<button class="modal-close" id="modal-close" aria-label="Close">✕</button>' +
+    '</div>';
+  }
+
+  // ---- day-detail modal ----
   function openModal(idx) {
     var d = state.days[idx];
     if (!d) return;
@@ -164,70 +186,180 @@
         '</div>';
     }).join('');
 
-    var html =
-      '<div class="modal-overlay" id="modal-overlay">' +
-        '<div class="modal" role="dialog" aria-modal="true">' +
-          '<div class="modal-head">' +
-            '<div>' +
-              '<div class="modal-date">' + fmtDayLabel(d.date, tz) + '</div>' +
-              '<div class="modal-stars">' + stars(d.rating.stars) + '</div>' +
-            '</div>' +
-            '<button class="modal-close" id="modal-close" aria-label="Close">✕</button>' +
-          '</div>' +
-
-          '<div class="modal-section">' +
-            '<div class="modal-section-label">Day at a glance</div>' +
-            timelineBar(d) +
-            '<div class="tl-legend">' +
-              '<span class="tl-leg-dot major"></span> Major &nbsp;' +
-              '<span class="tl-leg-dot minor"></span> Minor &nbsp;' +
-              '<span class="tl-leg-dot daylight"></span> Daylight' +
-            '</div>' +
-          '</div>' +
-
-          '<div class="modal-section">' +
-            '<div class="modal-section-label">Solunar periods</div>' +
-            '<div class="periods">' + pRows + '</div>' +
-          '</div>' +
-
-          '<div class="modal-section modal-meta">' +
-            '<div>' +
-              '<div class="modal-section-label">Sun</div>' +
-              '<div>Sunrise &nbsp;<strong>' + fmtTime(d.sunrise, tz) + '</strong></div>' +
-              '<div>Sunset &nbsp;<strong>' + fmtTime(d.sunset, tz) + '</strong></div>' +
-            '</div>' +
-            '<div>' +
-              '<div class="modal-section-label">Moon</div>' +
-              '<div>' + phaseIcon(d.moon.phase) + ' ' + d.moon.phaseName + '</div>' +
-              '<div>' + Math.round(d.moon.illumination * 100) + '% illuminated</div>' +
-            '</div>' +
-            '<div>' +
-              '<div class="modal-section-label">Rating</div>' +
-              '<div>' + stars(d.rating.stars) + ' ' + d.rating.stars + '/5</div>' +
-              '<div class="muted">Phase ' + Math.round(d.rating.phaseScore * 100) + '%' +
-                (d.rating.sunBoost > 0 ? ' + sun overlap' : '') + '</div>' +
-            '</div>' +
-          '</div>' +
+    _showModal(
+      '<div class="modal-head">' +
+        '<div>' +
+          '<div class="modal-date">' + fmtDayLabel(d.date, tz) + '</div>' +
+          '<div class="modal-stars">' + stars(d.rating.stars) + '</div>' +
         '</div>' +
-      '</div>';
-
-    var el = document.createElement('div');
-    el.innerHTML = html;
-    document.body.appendChild(el.firstChild);
-
-    document.getElementById('modal-close').onclick = closeModal;
-    document.getElementById('modal-overlay').onclick = function (e) {
-      if (e.target.id === 'modal-overlay') closeModal();
-    };
-    document.addEventListener('keydown', onEsc);
+        '<button class="modal-close" id="modal-close" aria-label="Close">✕</button>' +
+      '</div>' +
+      '<div class="modal-section">' +
+        '<div class="modal-section-label">Day at a glance</div>' +
+        timelineBar(d) +
+        '<div class="tl-legend">' +
+          '<span class="tl-leg-dot major"></span> Major &nbsp;' +
+          '<span class="tl-leg-dot minor"></span> Minor &nbsp;' +
+          '<span class="tl-leg-dot daylight"></span> Daylight' +
+        '</div>' +
+      '</div>' +
+      '<div class="modal-section">' +
+        '<div class="modal-section-label">Solunar periods</div>' +
+        '<div class="periods">' + pRows + '</div>' +
+      '</div>' +
+      '<div class="modal-section modal-meta">' +
+        '<div>' +
+          '<div class="modal-section-label">Sun</div>' +
+          '<div>Sunrise &nbsp;<strong>' + fmtTime(d.sunrise, tz) + '</strong></div>' +
+          '<div>Sunset &nbsp;<strong>' + fmtTime(d.sunset, tz) + '</strong></div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="modal-section-label">Moon</div>' +
+          '<div>' + phaseIcon(d.moon.phase) + ' ' + d.moon.phaseName + '</div>' +
+          '<div>' + Math.round(d.moon.illumination * 100) + '% illuminated</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="modal-section-label">Rating</div>' +
+          '<div>' + stars(d.rating.stars) + ' ' + d.rating.stars + '/5</div>' +
+          '<div class="muted">Phase ' + Math.round(d.rating.phaseScore * 100) + '%' +
+            (d.rating.sunBoost > 0 ? ' + sun overlap' : '') + '</div>' +
+        '</div>' +
+      '</div>'
+    );
   }
 
-  function closeModal() {
-    var el = document.getElementById('modal-overlay');
-    if (el) el.remove();
-    document.removeEventListener('keydown', onEsc);
+  // ---- next-periods modal ----
+  function openNextModal() {
+    var tz = state.loc.tz;
+    var now = Date.now();
+    var upcoming = allPeriods().filter(function (p) { return p.end.getTime() >= now; }).slice(0, 16);
+    if (!upcoming.length) return;
+
+    var rows = upcoming.map(function (p) {
+      var isActive = now >= p.start.getTime() && now <= p.end.getTime();
+      return '<div class="period ' + p.type + (p.sunOverlap ? ' sun' : '') + (isActive ? ' period-now' : '') + '">' +
+        '<span class="tag">' + p.type + '</span>' +
+        '<span class="kind">' + KIND[p.kind] + (isActive ? ' <span class="sun-badge" style="color:var(--good)">● now</span>' : '') + '</span>' +
+        '<span class="time">' + fmtTime(p.center, tz) +
+          ' <span class="range">' + fmtTime(p.start, tz) + '–' + fmtTime(p.end, tz) + '</span></span>' +
+        '</div>';
+    }).join('');
+
+    _showModal(
+      _modalHead('Upcoming Periods', state.loc.name) +
+      '<div class="modal-section">' +
+        '<div class="modal-section-label">Next ' + upcoming.length + ' solunar periods</div>' +
+        '<div class="periods">' + rows + '</div>' +
+      '</div>'
+    );
   }
-  function onEsc(e) { if (e.key === 'Escape') closeModal(); }
+
+  // ---- barometer modal ----
+  function openBaroModal() {
+    var bd = state.baroData;
+    if (!bd) return;
+    var vals = bd.vals, nowIdx = bd.nowIdx, cur = bd.cur, info = bd.info, delta = bd.delta;
+
+    function sparkLarge(values, nIdx) {
+      var W = 300, H = 80;
+      var min = Math.min.apply(null, values) - 0.3;
+      var max = Math.max.apply(null, values) + 0.3;
+      var n = values.length;
+      function px(i) { return (i / (n - 1)) * W; }
+      function py(v) { return H - ((v - min) / (max - min)) * H; }
+      var pastPts = values.slice(0, nIdx + 1).map(function (v, i) { return px(i) + ',' + py(v); }).join(' ');
+      var futPts  = values.slice(nIdx).map(function (v, i) { return px(nIdx + i) + ',' + py(v); }).join(' ');
+      var nowX = px(nIdx), nowY = py(values[nIdx]);
+      return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="baro-spark" style="height:80px" aria-hidden="true">' +
+        '<polyline points="' + pastPts + '" fill="none" stroke="var(--minor)" stroke-width="2.5" stroke-linejoin="round"/>' +
+        '<polyline points="' + futPts + '" fill="none" stroke="var(--major)" stroke-width="2" stroke-linejoin="round" stroke-dasharray="5,4" opacity=".75"/>' +
+        '<line x1="' + nowX + '" y1="0" x2="' + nowX + '" y2="' + H + '" stroke="rgba(255,255,255,.25)" stroke-width="1"/>' +
+        '<circle cx="' + nowX + '" cy="' + nowY + '" r="4" fill="var(--ink)"/>' +
+        '</svg>';
+    }
+
+    function hLabel(i) {
+      var diff = i - nowIdx;
+      if (diff === 0) return 'now';
+      return (diff > 0 ? '+' : '') + diff + 'h';
+    }
+    var labelHTML = '';
+    [0, nowIdx, vals.length - 1].forEach(function (i) {
+      var pct = (i / (vals.length - 1)) * 100;
+      labelHTML += '<span style="left:' + pct + '%">' + hLabel(i) + '</span>';
+    });
+
+    _showModal(
+      _modalHead('Barometer') +
+      '<div class="modal-section">' +
+        '<div class="baro-head" style="margin-bottom:14px">' +
+          '<span class="baro-val" style="font-size:30px">' + hpaToInHg(cur) + ' inHg</span>' +
+          '<span class="baro-hpa">(' + Math.round(cur) + ' hPa)</span>' +
+          '<span class="baro-arrow baro-' + (delta > 1 ? 'up' : delta < -1 ? 'down' : 'steady') + '" style="font-size:17px">' + info.arrow + ' ' + info.label + '</span>' +
+        '</div>' +
+        '<div class="baro-spark-wrap">' +
+          sparkLarge(vals, nowIdx) +
+          '<div class="baro-spark-labels">' + labelHTML + '</div>' +
+        '</div>' +
+        '<div class="baro-legend" style="margin-top:10px"><span class="baro-leg past"></span> Past &nbsp; <span class="baro-leg future"></span> Forecast</div>' +
+        '<div class="baro-tip" style="font-size:14px;margin-top:14px">🎣 ' + info.tip + '</div>' +
+      '</div>' +
+      '<div class="modal-section">' +
+        '<div class="modal-section-label">Walleye pressure guide</div>' +
+        '<div class="adv-grid">' +
+          '<div class="adv-item"><div class="adv-label">↑↑ Rising fast</div><div class="adv-val">Go deep — then turn on hard</div></div>' +
+          '<div class="adv-item"><div class="adv-label">↑ Rising</div><div class="adv-val">Move to structure — good bite window</div></div>' +
+          '<div class="adv-item"><div class="adv-label">→ Steady</div><div class="adv-val">Slow methodical sweep on structure</div></div>' +
+          '<div class="adv-item"><div class="adv-label">↓ Falling</div><div class="adv-val">Feed up before front — fish edges</div></div>' +
+          '<div class="adv-item adv-wide"><div class="adv-label">↓↓ Falling fast</div><div class="adv-val">Aggressive bite now before shut-down</div></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  // ---- fishing advisor / map modal ----
+  function openAdvisorModal() {
+    var lat = state.loc.lat, lng = state.loc.lng;
+    var adv = state.lastAdv;
+    var bodyEl = document.getElementById('advisor-body');
+    var bodyHtml = bodyEl ? bodyEl.innerHTML : '';
+
+    _showModal(
+      _modalHead('Fishing Advisor', state.loc.name) +
+      '<div id="modal-map" class="modal-map-full"></div>' +
+      '<div class="modal-section" style="padding-top:14px">' + bodyHtml + '</div>',
+      function () {
+        // Remove the inline toggle/footer from modal copy (buttons are wired to main map)
+        var footer = document.querySelector('#modal-overlay .adv-map-footer');
+        if (footer) footer.remove();
+
+        if (typeof L === 'undefined' || !L.map) return;
+        try {
+          _modalMap = L.map('modal-map', { zoomControl: true, attributionControl: false });
+          L.tileLayer(SATELLITE_URL, { maxZoom: 18 }).addTo(_modalMap);
+          L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_modalMap);
+          if (_drnEnabled) {
+            L.tileLayer(TOPO_URL, { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' }).addTo(_modalMap);
+          }
+          var zoom = _map ? _map.getZoom() : 14;
+          _modalMap.setView([lat, lng], zoom);
+          L.circleMarker([lat, lng], {
+            radius: 9, fillColor: '#4fd07a', color: '#fff', weight: 2.5, fillOpacity: 1
+          }).addTo(_modalMap);
+          if (adv && adv.towardDeg !== null && adv.windSpeed > 4) {
+            var towardRad = adv.towardDeg * Math.PI / 180;
+            var dd = 0.005;
+            var dlat = dd * Math.cos(towardRad);
+            var dlng = dd * Math.sin(towardRad) / Math.cos(lat * Math.PI / 180);
+            L.polyline([[lat, lng], [lat + dlat, lng + dlng]], {
+              color: '#56b3f0', weight: 3, opacity: 0.85, dashArray: '6,5'
+            }).bindTooltip('Windward shore →', { permanent: false }).addTo(_modalMap);
+          }
+          setTimeout(function () { if (_modalMap) _modalMap.invalidateSize(); }, 100);
+        } catch (e) {}
+      }
+    );
+  }
 
   function render() {
     var loc = state.loc;
@@ -236,7 +368,6 @@
       '<button id="useloc">Use my location</button>';
     document.getElementById('useloc').onclick = useMyLocation;
 
-    // Range picker
     var rangeHtml = RANGE_OPTIONS.map(function (n) {
       return '<button class="range-btn' + (n === state.range ? ' active' : '') +
         '" data-range="' + n + '">' + n + ' days</button>';
@@ -252,7 +383,6 @@
     var cards = state.days.map(function (d, i) { return dayCard(d, i === 0, i); }).join('');
     document.getElementById('days').innerHTML = cards;
 
-    // Wire card click/keyboard for modal
     document.querySelectorAll('#days .card').forEach(function (card) {
       card.onclick = function () { openModal(+card.dataset.idx); };
       card.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') openModal(+card.dataset.idx); };
@@ -275,8 +405,11 @@
     var cd = (h > 0 ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
     el.innerHTML =
       '<div><div class="label">' + (active ? 'Active now — ' + p.type : 'Next ' + p.type + ' period') + '</div>' +
-      '<div class="when">' + KIND[p.kind] + ' · ' + fmtTime(p.center, state.loc.tz) + '</div></div>' +
+      '<div class="when">' + KIND[p.kind] + ' · ' + fmtTime(p.center, state.loc.tz) + '</div>' +
+      '<div class="next-hint">tap for all periods</div></div>' +
       '<div class="countdown">' + cd + '</div>';
+    el.style.cursor = 'pointer';
+    el.onclick = openNextModal;
 
     maybeNotify(p, active, secs);
   }
@@ -296,35 +429,54 @@
     }
   }
 
+  // ---- map depth overlay (USGS Topo tile layer) ----
+  function refreshDNRLayer() {
+    if (!_map || !_drnEnabled) return;
+    if (!_topoLayer) {
+      _topoLayer = L.tileLayer(TOPO_URL, { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' }).addTo(_map);
+    }
+  }
+
+  function toggleDNRLayer() {
+    var btn = document.getElementById('dnr-toggle');
+    if (_drnEnabled) {
+      _drnEnabled = false;
+      if (_topoLayer && _map) { _map.removeLayer(_topoLayer); _topoLayer = null; }
+      if (btn) btn.textContent = 'Show overlay';
+    } else {
+      _drnEnabled = true;
+      refreshDNRLayer();
+      if (btn) btn.textContent = 'Hide overlay';
+    }
+  }
+
   function initMap(lat, lng, towardDeg, windSpeed) {
     if (typeof L === 'undefined' || !L.map) return;
     var el = document.getElementById('advisor-map');
     if (!el) return;
     try {
-    if (!_map) {
-      _map = L.map('advisor-map', { zoomControl: true, attributionControl: false });
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 18
+      if (!_map) {
+        _map = L.map('advisor-map', { zoomControl: true, attributionControl: false });
+        L.tileLayer(SATELLITE_URL, { maxZoom: 18 }).addTo(_map);
+        L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_map);
+      }
+      _map.setView([lat, lng], 14);
+      if (_locMarker) _locMarker.remove();
+      _locMarker = L.circleMarker([lat, lng], {
+        radius: 9, fillColor: '#4fd07a', color: '#fff', weight: 2.5, fillOpacity: 1
       }).addTo(_map);
-      L.control.attribution({ prefix: '© Esri' }).addTo(_map);
-    }
-    _map.setView([lat, lng], 14);
-    if (_locMarker) _locMarker.remove();
-    _locMarker = L.circleMarker([lat, lng], {
-      radius: 9, fillColor: '#4fd07a', color: '#fff', weight: 2.5, fillOpacity: 1
-    }).addTo(_map);
 
-    if (_windLine) { _windLine.remove(); _windLine = null; }
-    if (towardDeg !== null && windSpeed > 4) {
-      var towardRad = towardDeg * Math.PI / 180;
-      var d = 0.005;
-      var dlat = d * Math.cos(towardRad);
-      var dlng = d * Math.sin(towardRad) / Math.cos(lat * Math.PI / 180);
-      _windLine = L.polyline([[lat, lng], [lat + dlat, lng + dlng]], {
-        color: '#56b3f0', weight: 3, opacity: 0.85, dashArray: '6,5'
-      }).bindTooltip('Windward shore →', { permanent: false }).addTo(_map);
-    }
-    setTimeout(function () { if (_map) _map.invalidateSize(); }, 200);
+      if (_windLine) { _windLine.remove(); _windLine = null; }
+      if (towardDeg !== null && windSpeed > 4) {
+        var towardRad = towardDeg * Math.PI / 180;
+        var d = 0.005;
+        var dlat = d * Math.cos(towardRad);
+        var dlng = d * Math.sin(towardRad) / Math.cos(lat * Math.PI / 180);
+        _windLine = L.polyline([[lat, lng], [lat + dlat, lng + dlng]], {
+          color: '#56b3f0', weight: 3, opacity: 0.85, dashArray: '6,5'
+        }).bindTooltip('Windward shore →', { permanent: false }).addTo(_map);
+      }
+      setTimeout(function () { if (_map) { _map.invalidateSize(); refreshDNRLayer(); } }, 200);
     } catch(e) { /* map unavailable in non-visual environment */ }
   }
 
@@ -333,7 +485,6 @@
   function bearing8(deg) { return DIRS8[Math.round(deg / 45) % 8]; }
 
   function computeAdvice(delta, windSpeed, windDir, airTemp) {
-    // Pressure → depth zone & activity base score
     var depth, structure, presentation, pressureStr, pScore;
     if (delta > 3) {
       depth = '18–28 ft'; pressureStr = 'rising fast'; pScore = 1;
@@ -357,7 +508,6 @@
       presentation = 'fast crankbait, reaction jig';
     }
 
-    // Wind modifier
     var windScore = 0, windNote;
     var fromDir = bearing8(windDir);
     var towardDeg = (windDir + 180) % 360;
@@ -375,7 +525,6 @@
       windScore = -1;
     }
 
-    // Temperature modifier
     var tempNote;
     if (airTemp < 45) {
       tempNote = 'Cold air — walleye likely lethargic. Fish slow and deep near bottom.';
@@ -389,7 +538,6 @@
       pScore = Math.max(1, pScore - 1);
     }
 
-    // Solunar boost
     var solunarNote = '', solunarBoost = 0;
     var p = nextPeriod();
     var now = Date.now();
@@ -411,14 +559,15 @@
     var dotColor = score >= 4 ? 'var(--good)' : score >= 3 ? 'var(--major)' : 'var(--muted)';
 
     return {
-      score, label: labels[score - 1], dots, dotColor,
-      pressureStr, depth, structure, presentation,
-      windSpeed, fromDir, towardDir, towardDeg,
-      windNote, tempNote, solunarNote
+      score: score, label: labels[score - 1], dots: dots, dotColor: dotColor,
+      pressureStr: pressureStr, depth: depth, structure: structure, presentation: presentation,
+      windSpeed: windSpeed, fromDir: fromDir, towardDir: towardDir, towardDeg: towardDeg,
+      windNote: windNote, tempNote: tempNote, solunarNote: solunarNote
     };
   }
 
   function renderAdvisor(adv, lat, lng) {
+    state.lastAdv = adv;
     initMap(lat, lng, adv.towardDeg, adv.windSpeed);
     var el = document.getElementById('advisor-body');
     if (!el) return;
@@ -438,15 +587,27 @@
       '<div class="adv-note">' + adv.tempNote + '</div>' +
       '<div class="adv-map-footer">' +
         '<span class="adv-dnr-badge">🛰 Satellite · Yellow Lake, WI</span>' +
-        '<a href="https://apps.dnr.wi.gov/doclink/lakes_maps/2675200a.pdf" target="_blank" rel="noopener" class="adv-dnr-btn">DNR depth map ↗</a>' +
+        '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide overlay' : 'Show overlay') + '</button>' +
       '</div>';
+
+    var toggleBtn = document.getElementById('dnr-toggle');
+    if (toggleBtn) toggleBtn.onclick = toggleDNRLayer;
+
+    // Wire the advisor header to expand modal (one-time)
+    var hdEl = document.querySelector('.advisor-hd');
+    if (hdEl && !hdEl._expandWired) {
+      hdEl._expandWired = true;
+      hdEl.innerHTML = '📍 Fishing Advisor <span class="tap-hint" style="float:right;letter-spacing:0">↗ expand</span>';
+      hdEl.style.cursor = 'pointer';
+      hdEl.onclick = openAdvisorModal;
+    }
   }
 
   // ---- weather overlay ----
   function fetchWeather() {
     if (typeof fetch === 'undefined') return;
     var loc = state.loc;
-    var days = Math.min(state.range, 16); // Open-Meteo free tier max
+    var days = Math.min(state.range, 16);
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
       '&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max,weather_code' +
@@ -475,12 +636,10 @@
     return m[code] || 'see forecast';
   }
 
-  // ---- barometer: 4h past + 4h forecast pressure (Open-Meteo, no key) ----
+  // ---- barometer: 4h past + 4h forecast pressure ----
   function hpaToInHg(hpa) { return (hpa * 0.02953).toFixed(2); }
 
-  function pressureTip(delta4h, curHpa) {
-    // Walleye-specific bite guidance based on pressure change over 4h
-    var abs = Math.abs(delta4h);
+  function pressureTip(delta4h) {
     if (delta4h > 3)  return { arrow: '↑↑', label: 'Rising fast',  tip: 'Pressure spiking — walleye may go deep briefly, then turn on' };
     if (delta4h > 1)  return { arrow: '↑',  label: 'Rising',       tip: 'Rising pressure — walleye moving to structure, good bite window' };
     if (delta4h < -3) return { arrow: '↓↓', label: 'Falling fast', tip: 'Pressure dropping fast — aggressive bite now before they shut down' };
@@ -495,14 +654,9 @@
     var n = values.length;
     function px(i) { return (i / (n - 1)) * W; }
     function py(v) { return H - ((v - min) / (max - min)) * H; }
-
-    // Past polyline (solid blue)
     var pastPts = values.slice(0, nowIdx + 1).map(function (v, i) { return px(i) + ',' + py(v); }).join(' ');
-    // Future polyline (dashed amber)
     var futPts  = values.slice(nowIdx).map(function (v, i) { return px(nowIdx + i) + ',' + py(v); }).join(' ');
-    var nowX = px(nowIdx);
-    var nowY = py(values[nowIdx]);
-
+    var nowX = px(nowIdx), nowY = py(values[nowIdx]);
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="baro-spark" aria-hidden="true">' +
       '<polyline points="' + pastPts + '" fill="none" stroke="var(--minor)" stroke-width="2" stroke-linejoin="round"/>' +
       '<polyline points="' + futPts + '" fill="none" stroke="var(--major)" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="4,3" opacity=".75"/>' +
@@ -515,37 +669,37 @@
     var el = document.getElementById('baro');
     if (typeof fetch === 'undefined') return;
     var loc = state.loc;
-    var reqId = ++_pressureReqId; // claim this generation; any older response will be ignored
+    var reqId = ++_pressureReqId;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
       '&current=temperature_2m,wind_speed_10m,wind_direction_10m' +
       '&hourly=surface_pressure&timezone=auto&past_hours=4&forecast_hours=4&timeformat=unixtime' +
       '&temperature_unit=fahrenheit&wind_speed_unit=mph';
     fetch(url).then(function (r) { return r.json(); }).then(function (j) {
-      if (reqId !== _pressureReqId) return; // stale — a newer location fetch is in flight
+      if (reqId !== _pressureReqId) return;
       if (!j.hourly || !j.hourly.surface_pressure) return;
       var cur2 = j.current || {};
       var windSpeed = cur2.wind_speed_10m || 0;
       var windDir = cur2.wind_direction_10m || 0;
       var airTemp = cur2.temperature_2m || 65;
-      var times = j.hourly.time;          // Unix timestamps (s)
+      var times = j.hourly.time;
       var vals  = j.hourly.surface_pressure;
       var nowS  = Math.floor(Date.now() / 1000);
-      // Find closest hour to now
       var nowIdx = 0, minDiff = Infinity;
       times.forEach(function (t, i) {
         var d = Math.abs(t - nowS);
         if (d < minDiff) { minDiff = d; nowIdx = i; }
       });
       var cur = vals[nowIdx];
-      var past = vals[Math.max(0, nowIdx - 4)] || vals[0]; // 4h ago
+      var past = vals[Math.max(0, nowIdx - 4)] || vals[0];
       var delta = cur - past;
       state.pressureDelta = delta;
-      var info = pressureTip(delta, cur);
+      var info = pressureTip(delta);
       var adv = computeAdvice(delta, windSpeed, windDir, airTemp);
       renderAdvisor(adv, loc.lat, loc.lng);
 
-      // Hour labels: "−4h", "now", "+4h"
+      state.baroData = { vals: vals, nowIdx: nowIdx, cur: cur, info: info, delta: delta };
+
       function hLabel(i) {
         var diff = i - nowIdx;
         if (diff === 0) return 'now';
@@ -562,6 +716,7 @@
           '<span class="baro-val">' + hpaToInHg(cur) + ' inHg</span>' +
           '<span class="baro-hpa">(' + Math.round(cur) + ' hPa)</span>' +
           '<span class="baro-arrow baro-' + (delta > 1 ? 'up' : delta < -1 ? 'down' : 'steady') + '">' + info.arrow + ' ' + info.label + '</span>' +
+          '<span class="tap-hint baro-expand-hint">↗ expand</span>' +
         '</div>' +
         '<div class="baro-spark-wrap">' +
           pressureSparkSVG(vals, nowIdx) +
@@ -569,6 +724,9 @@
         '</div>' +
         '<div class="baro-legend"><span class="baro-leg past"></span> Past &nbsp; <span class="baro-leg future"></span> Forecast</div>' +
         '<div class="baro-tip">🎣 ' + info.tip + '</div>';
+
+      el.style.cursor = 'pointer';
+      el.onclick = openBaroModal;
     }).catch(function () {
       if (reqId !== _pressureReqId) return;
       if (el) el.innerHTML = '<span class="note">Barometer unavailable offline.</span>';
@@ -582,9 +740,8 @@
   function onGpsUpdate(pos) {
     var lat = +pos.coords.latitude.toFixed(5);
     var lng = +pos.coords.longitude.toFixed(5);
-    var acc = Math.round(pos.coords.accuracy); // metres
+    var acc = Math.round(pos.coords.accuracy);
 
-    // Always move the map pin immediately — no full recompute needed
     if (_map && _locMarker) {
       _locMarker.setLatLng([lat, lng]);
       if (_accCircle) { _accCircle.remove(); _accCircle = null; }
@@ -599,7 +756,6 @@
       _map.setView([lat, lng], _map.getZoom());
     }
 
-    // Full recompute (refetch weather/pressure) only when location changed >100 m
     var moved = _lastRecomputeLat === null ||
       Math.abs(lat - _lastRecomputeLat) > 0.001 ||
       Math.abs(lng - _lastRecomputeLng) > 0.001;
@@ -627,7 +783,6 @@
 
   function useMyLocation() {
     if (!navigator.geolocation) { alert('Geolocation not available; using Yellow Lake.'); return; }
-    // Force a fresh one-shot fix then re-arm the watch
     navigator.geolocation.getCurrentPosition(
       function(pos) { onGpsUpdate(pos); startGpsWatch(); },
       function() { alert('Could not get location. Using Yellow Lake.'); },
