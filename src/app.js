@@ -9,6 +9,7 @@
 
   // ---- Leaflet map state ----
   var _map = null, _locMarker = null, _windLine = null, _accCircle = null;
+  var _drnLayer = null, _drnOk = null; // WI DNR depth contour overlay
   var _pressureReqId = 0; // incremented on each fetchPressure call; stale responses are dropped
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
@@ -297,6 +298,33 @@
   }
 
   // ---- map ----
+  var DNR_WMS = 'https://dnrmaps.wi.gov/arcgis/services/WT_SWDV/WY_INLAND_WATER_RESOURCES/MapServer/WMSServer';
+
+  function updateDNRBadge(ok) {
+    _drnOk = ok;
+    var el = document.getElementById('dnr-badge');
+    if (!el) return;
+    if (ok) {
+      el.textContent = '🗺 Depth contours: WI DNR';
+      el.style.color = 'var(--good)';
+    } else {
+      el.textContent = 'Depth contours unavailable';
+      el.style.color = 'var(--muted)';
+    }
+  }
+
+  function toggleDNRLayer() {
+    if (!_map || !_drnLayer) return;
+    var btn = document.getElementById('dnr-toggle');
+    if (_map.hasLayer(_drnLayer)) {
+      _map.removeLayer(_drnLayer);
+      if (btn) btn.textContent = 'Show depth layer';
+    } else {
+      _drnLayer.addTo(_map);
+      if (btn) btn.textContent = 'Hide depth layer';
+    }
+  }
+
   function initMap(lat, lng, towardDeg, windSpeed) {
     if (typeof L === 'undefined' || !L.map) return;
     var el = document.getElementById('advisor-map');
@@ -307,7 +335,24 @@
       L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 18
       }).addTo(_map);
-      L.control.attribution({ prefix: '© Esri' }).addTo(_map);
+      L.control.attribution({ prefix: '© Esri · WI DNR' }).addTo(_map);
+
+      // WI DNR depth contour overlay (best effort — graceful fallback if unavailable)
+      _drnLayer = L.tileLayer.wms(DNR_WMS, {
+        layers: 'show:all',  // ArcGIS WMS: show all sublayers
+        format: 'image/png',
+        transparent: true,
+        version: '1.3.0',
+        opacity: 0.65
+      });
+      var _drnTileOk = false, _drnChecked = false;
+      _drnLayer.on('tileload', function () {
+        if (!_drnChecked) { _drnChecked = true; _drnTileOk = true; updateDNRBadge(true); }
+      });
+      _drnLayer.on('tileerror', function () {
+        if (!_drnChecked) { _drnChecked = true; updateDNRBadge(false); }
+      });
+      _drnLayer.addTo(_map);
     }
     _map.setView([lat, lng], 14);
     if (_locMarker) _locMarker.remove();
@@ -436,7 +481,19 @@
       '</div>' +
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
       '<div class="adv-note">' + adv.windNote + '</div>' +
-      '<div class="adv-note">' + adv.tempNote + '</div>';
+      '<div class="adv-note">' + adv.tempNote + '</div>' +
+      '<div class="adv-map-footer">' +
+        '<span id="dnr-badge" class="adv-dnr-badge">⏳ Loading depth layer…</span>' +
+        '<button id="dnr-toggle" class="adv-dnr-btn">Hide depth layer</button>' +
+      '</div>';
+    var toggleBtn = document.getElementById('dnr-toggle');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', toggleDNRLayer);
+      // Sync toggle label with current layer state
+      if (_map && _drnLayer && !_map.hasLayer(_drnLayer)) toggleBtn.textContent = 'Show depth layer';
+    }
+    // Sync badge if we already know the status
+    if (_drnOk !== null) updateDNRBadge(_drnOk);
   }
 
   // ---- weather overlay ----
