@@ -298,7 +298,9 @@
   }
 
   // ---- map ----
-  var DNR_WMS = 'https://dnrmaps.wi.gov/arcgis/services/WT_SWDV/WY_INLAND_WATER_RESOURCES/MapServer/WMSServer';
+  // ArcGIS REST export endpoint — handles reprojection server-side, no WMS needed
+  var DNR_EXPORT = 'https://dnrmaps.wi.gov/arcgis/rest/services/WT_SWDV/WY_INLAND_WATER_RESOURCES/MapServer/export';
+  var _drnOverlay = null, _drnEnabled = true;
 
   function updateDNRBadge(ok) {
     _drnOk = ok;
@@ -313,14 +315,37 @@
     }
   }
 
+  function refreshDNRLayer() {
+    if (!_map || !_drnEnabled) return;
+    var b = _map.getBounds();
+    var sz = _map.getSize();
+    var url = DNR_EXPORT +
+      '?bbox=' + b.getWest() + ',' + b.getSouth() + ',' + b.getEast() + ',' + b.getNorth() +
+      '&bboxSR=4326&size=' + sz.x + ',' + sz.y +
+      '&imageSR=4326&format=png32&transparent=true&f=image';
+    var snapB = b;
+    var img = new Image();
+    img.onload = function () {
+      if (!_map || !_drnEnabled) return;
+      if (_drnOverlay) _map.removeLayer(_drnOverlay);
+      _drnOverlay = L.imageOverlay(url, snapB, { opacity: 0.65, interactive: false }).addTo(_map);
+      if (_drnOk !== true) updateDNRBadge(true);
+    };
+    img.onerror = function () {
+      if (_drnOk !== false) updateDNRBadge(false);
+    };
+    img.src = url;
+  }
+
   function toggleDNRLayer() {
-    if (!_map || !_drnLayer) return;
     var btn = document.getElementById('dnr-toggle');
-    if (_map.hasLayer(_drnLayer)) {
-      _map.removeLayer(_drnLayer);
+    if (_drnEnabled) {
+      _drnEnabled = false;
+      if (_drnOverlay && _map) _map.removeLayer(_drnOverlay);
       if (btn) btn.textContent = 'Show depth layer';
     } else {
-      _drnLayer.addTo(_map);
+      _drnEnabled = true;
+      refreshDNRLayer();
       if (btn) btn.textContent = 'Hide depth layer';
     }
   }
@@ -336,23 +361,8 @@
         maxZoom: 18
       }).addTo(_map);
       L.control.attribution({ prefix: '© Esri · WI DNR' }).addTo(_map);
-
-      // WI DNR depth contour overlay (best effort — graceful fallback if unavailable)
-      _drnLayer = L.tileLayer.wms(DNR_WMS, {
-        layers: 'show:all',  // ArcGIS WMS: show all sublayers
-        format: 'image/png',
-        transparent: true,
-        version: '1.3.0',
-        opacity: 0.65
-      });
-      var _drnTileOk = false, _drnChecked = false;
-      _drnLayer.on('tileload', function () {
-        if (!_drnChecked) { _drnChecked = true; _drnTileOk = true; updateDNRBadge(true); }
-      });
-      _drnLayer.on('tileerror', function () {
-        if (!_drnChecked) { _drnChecked = true; updateDNRBadge(false); }
-      });
-      _drnLayer.addTo(_map);
+      // Refresh DNR overlay when user pans/zooms
+      _map.on('moveend zoomend', refreshDNRLayer);
     }
     _map.setView([lat, lng], 14);
     if (_locMarker) _locMarker.remove();
@@ -370,7 +380,7 @@
         color: '#56b3f0', weight: 3, opacity: 0.85, dashArray: '6,5'
       }).bindTooltip('Windward shore →', { permanent: false }).addTo(_map);
     }
-    setTimeout(function () { if (_map) _map.invalidateSize(); }, 150);
+    setTimeout(function () { if (_map) { _map.invalidateSize(); refreshDNRLayer(); } }, 200);
     } catch(e) { /* map unavailable in non-visual environment */ }
   }
 
@@ -489,8 +499,8 @@
     var toggleBtn = document.getElementById('dnr-toggle');
     if (toggleBtn) {
       toggleBtn.addEventListener('click', toggleDNRLayer);
-      // Sync toggle label with current layer state
-      if (_map && _drnLayer && !_map.hasLayer(_drnLayer)) toggleBtn.textContent = 'Show depth layer';
+      // Sync toggle label with current enabled state
+      if (!_drnEnabled) toggleBtn.textContent = 'Show depth layer';
     }
     // Sync badge if we already know the status
     if (_drnOk !== null) updateDNRBadge(_drnOk);
