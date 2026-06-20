@@ -9,7 +9,7 @@
 
   // ---- Leaflet map state ----
   var _map = null, _locMarker = null, _windLine = null, _accCircle = null;
-  var _drnLayer = null, _drnOk = null; // WI DNR depth contour overlay
+  var _drnOk = null;
   var _pressureReqId = 0; // incremented on each fetchPressure call; stale responses are dropped
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
@@ -297,52 +297,40 @@
     }
   }
 
-  // ---- map ----
-  // ArcGIS REST export endpoint — handles reprojection server-side, no WMS needed
-  var DNR_EXPORT = 'https://dnrmaps.wi.gov/arcgis/rest/services/WT_SWDV/WY_INLAND_WATER_RESOURCES/MapServer/export';
-  var _drnOverlay = null, _drnEnabled = true;
+  // ---- map depth overlay (USGS Topo tile layer) ----
+  var _topoLayer = null, _drnEnabled = true;
 
   function updateDNRBadge(ok) {
     _drnOk = ok;
     var el = document.getElementById('dnr-badge');
     if (!el) return;
     if (ok) {
-      el.textContent = '🗺 Depth contours: WI DNR';
+      el.textContent = '🗺 Depth layer: USGS Topo';
       el.style.color = 'var(--good)';
     } else {
-      el.textContent = 'Depth contours unavailable';
+      el.textContent = 'Depth layer hidden';
       el.style.color = 'var(--muted)';
     }
   }
 
   function refreshDNRLayer() {
     if (!_map || !_drnEnabled) return;
-    var b = _map.getBounds();
-    var sz = _map.getSize();
-    var url = DNR_EXPORT +
-      '?bbox=' + b.getWest() + ',' + b.getSouth() + ',' + b.getEast() + ',' + b.getNorth() +
-      '&bboxSR=4326&size=' + sz.x + ',' + sz.y +
-      '&imageSR=4326&format=png32&transparent=true&f=image';
-    var snapB = b;
-    var img = new Image();
-    img.onload = function () {
-      if (!_map || !_drnEnabled) return;
-      if (_drnOverlay) _map.removeLayer(_drnOverlay);
-      _drnOverlay = L.imageOverlay(url, snapB, { opacity: 0.65, interactive: false }).addTo(_map);
-      if (_drnOk !== true) updateDNRBadge(true);
-    };
-    img.onerror = function () {
-      if (_drnOk !== false) updateDNRBadge(false);
-    };
-    img.src = url;
+    if (!_topoLayer) {
+      _topoLayer = L.tileLayer(
+        'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+        { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' }
+      ).addTo(_map);
+      updateDNRBadge(true);
+    }
   }
 
   function toggleDNRLayer() {
     var btn = document.getElementById('dnr-toggle');
     if (_drnEnabled) {
       _drnEnabled = false;
-      if (_drnOverlay && _map) _map.removeLayer(_drnOverlay);
+      if (_topoLayer && _map) { _map.removeLayer(_topoLayer); _topoLayer = null; }
       if (btn) btn.textContent = 'Show depth layer';
+      updateDNRBadge(false);
     } else {
       _drnEnabled = true;
       refreshDNRLayer();
@@ -360,9 +348,7 @@
       L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 18
       }).addTo(_map);
-      L.control.attribution({ prefix: '© Esri · WI DNR' }).addTo(_map);
-      // Refresh DNR overlay when user pans/zooms
-      _map.on('moveend zoomend', refreshDNRLayer);
+      L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_map);
     }
     _map.setView([lat, lng], 14);
     if (_locMarker) _locMarker.remove();
