@@ -88,12 +88,16 @@
 
   function dayCard(d, isFirst, idx) {
     var tz = d.tz;
-    var sub = 'Sunrise ' + fmtTime(d.sunrise, tz) + ' · Sunset ' + fmtTime(d.sunset, tz) +
-              ' · ' + d.moon.phaseName + ' (' + Math.round(d.moon.illumination * 100) + '%)';
+    var sunTimes = '<div class="sun-times">' +
+      '<span>🌅 Sunrise <strong>' + fmtTime(d.sunrise, tz) + '</strong></span>' +
+      '<span>🌇 Sunset <strong>' + fmtTime(d.sunset, tz) + '</strong></span>' +
+      '</div>';
+    var sub = phaseIcon(d.moon.phase) + ' ' + d.moon.phaseName + ' · ' + Math.round(d.moon.illumination * 100) + '% lit';
     var rows = d.periods.map(function (p) { return periodRow(p, tz); }).join('');
     return '<div class="card' + (isFirst ? ' today' : '') + '" data-idx="' + idx + '" role="button" tabindex="0" aria-label="Open details for ' + fmtDayLabel(d.date, tz) + '">' +
       '<div class="day-head"><span class="date">' + fmtDayLabel(d.date, tz) + '</span>' +
         '<span class="stars" title="' + d.rating.stars + '/5">' + stars(d.rating.stars) + ' <span class="tap-hint">tap for details</span></span></div>' +
+      sunTimes +
       '<div class="day-sub">' + sub + '</div>' +
       '<div class="periods">' + rows + '</div>' +
       '<div class="weather" id="weather-' + idx + '"></div>' +
@@ -389,6 +393,15 @@
     });
 
     renderNext();
+  }
+
+  function renderClock() {
+    var el = document.getElementById('clock');
+    if (!el) return;
+    el.textContent = new Intl.DateTimeFormat('en-US', {
+      timeZone: state.loc.tz, weekday: 'short', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true
+    }).format(new Date());
   }
 
   function renderNext() {
@@ -802,7 +815,8 @@
   function init() {
     document.getElementById('notify-btn').onclick = enableNotifications;
     recompute();
-    setInterval(renderNext, 1000);
+    renderClock();
+    setInterval(function () { renderNext(); renderClock(); }, 1000);
     startGpsWatch();
   }
 

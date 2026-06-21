@@ -28,6 +28,7 @@ html, body {
 header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 header h1 { font-size: 20px; margin: 0; }
 .loc { color: var(--muted); font-size: 13px; }
+.clock { color: var(--ink); font-size: 17px; font-weight: 600; letter-spacing: 0.01em; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
 .loc button {
   background: none; border: 1px solid var(--line); color: var(--muted);
   border-radius: 8px; padding: 3px 8px; font-size: 12px; margin-left: 6px; cursor: pointer;
@@ -72,6 +73,8 @@ header h1 { font-size: 20px; margin: 0; }
 .day-head .stars { color: var(--major); letter-spacing: 2px; }
 .tap-hint { font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0; vertical-align: middle; }
 .day-sub { color: var(--muted); font-size: 13px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 10px; }
+.sun-times { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin: 6px 0 3px; }
+.sun-times strong { color: var(--ink); }
 
 .periods { margin-top: 10px; display: grid; gap: 8px; }
 .period {
