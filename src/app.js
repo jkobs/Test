@@ -39,7 +39,7 @@
     }).format(new Date()).split('-');
     return { year: +p[0], month: +p[1], day: +p[2] };
   }
-  function stars(n) { return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n); }
+  function stars(n) { return '🐟'.repeat(n) + '·'.repeat(5 - n); }
   var KIND = { overhead: 'Moon overhead', underfoot: 'Moon underfoot', moonrise: 'Moonrise', moonset: 'Moonset' };
   var PHASE_ICON = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
 
