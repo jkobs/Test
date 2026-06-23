@@ -278,6 +278,8 @@ button.toggle {
 
 /* ---- species outlook ---- */
 .species-section { margin-top: 14px; }
+.species-source-badge { font-size: 10px; font-weight: 600; color: var(--major); background: rgba(255,210,100,0.12); border: 1px solid rgba(255,210,100,0.3); border-radius: 4px; padding: 2px 6px; margin-left: 6px; white-space: nowrap; }
+.species-source-badge.muted { color: var(--muted); background: transparent; border-color: var(--line); }
 .species-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .species-filter { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 12px; padding: 4px 8px; width: 90px; outline: none; }
 .species-filter:focus { border-color: var(--minor); }

@@ -952,6 +952,8 @@ button.toggle {
 
 /* ---- species outlook ---- */
 .species-section { margin-top: 14px; }
+.species-source-badge { font-size: 10px; font-weight: 600; color: var(--major); background: rgba(255,210,100,0.12); border: 1px solid rgba(255,210,100,0.3); border-radius: 4px; padding: 2px 6px; margin-left: 6px; white-space: nowrap; }
+.species-source-badge.muted { color: var(--muted); background: transparent; border-color: var(--line); }
 .species-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .species-filter { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 12px; padding: 4px 8px; width: 90px; outline: none; }
 .species-filter:focus { border-color: var(--minor); }
@@ -1517,7 +1519,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [] };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null };
 
   // ---- Leaflet map state ----
   var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
@@ -1837,9 +1839,23 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     '</div>';
   }
 
+  function _speciesInWater(sp) {
+    if (!state.knownSpecies) return true;
+    // Split "Rainbow/Brown Trout" → ["rainbow", "brown trout"] so either half matches
+    var names = sp.name.toLowerCase().split('/').map(function(s) { return s.trim(); });
+    return state.knownSpecies.some(function(k) {
+      var kl = k.toLowerCase();
+      return names.some(function(n) {
+        return n.indexOf(kl) !== -1 || kl.indexOf(n) !== -1;
+      });
+    });
+  }
+
   function _speciesRowsHtml(delta, airTemp, solBoost) {
     var f = _speciesFilter.toLowerCase();
-    var list = f ? SPECIES.filter(function(sp) { return sp.name.toLowerCase().indexOf(f) !== -1; }) : SPECIES;
+    var list = SPECIES.filter(function(sp) {
+      return _speciesInWater(sp) && (!f || sp.name.toLowerCase().indexOf(f) !== -1);
+    });
     if (!list.length) return '<div class="species-no-match">No species match "' + _speciesFilter + '"</div>';
     return list.map(function(sp) {
       var sc = _speciesScore(sp, delta, airTemp, solBoost);
@@ -1861,9 +1877,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   }
 
   function speciesOutlookHtml(delta, airTemp, solBoost) {
+    var sourceBadge = state.knownSpecies
+      ? '<span class="species-source-badge">📋 ' + state.loc.name + '</span>'
+      : '<span class="species-source-badge muted">All species</span>';
     return '<div class="species-section">' +
       '<div class="species-header">' +
-        '<span class="modal-section-label">Species Outlook</span>' +
+        '<span class="modal-section-label">Species Outlook ' + sourceBadge + '</span>' +
         '<input type="search" class="species-filter" id="species-filter" placeholder="Filter…" value="' + _speciesFilter + '">' +
       '</div>' +
       '<div id="species-rows">' + _speciesRowsHtml(delta, airTemp, solBoost) + '</div>' +
@@ -1893,7 +1912,9 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var depth     = sp.depth(adv.delta, adv.airTemp);
     var structure = sp.structure(adv.delta, adv.airTemp, adv.solunarBoost);
     var gear      = sp.gear(adv.delta, adv.airTemp, adv.solunarBoost);
-    var opts = SPECIES.map(function(s) {
+    var visibleSpecies = SPECIES.filter(_speciesInWater);
+    if (!_speciesInWater(sp)) { sp = visibleSpecies[0] || SPECIES[0]; _selectedSpeciesName = sp.name; }
+    var opts = visibleSpecies.map(function(s) {
       return '<option value="' + s.name + '"' + (s.name === sp.name ? ' selected' : '') + '>' + s.name + '</option>';
     }).join('');
     return '<div class="conditions-head">' +
@@ -1938,7 +1959,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     el.innerHTML = '<div class="nearby-scroll">' + chips + '</div>';
     el.querySelectorAll('.nearby-chip').forEach(function(chip) {
       chip.onclick = function() {
-        state.loc = { name: chip.dataset.name, lat: +chip.dataset.lat, lng: +chip.dataset.lng, tz: state.loc.tz };
+        var wName = chip.dataset.name;
+        var wLat = +chip.dataset.lat;
+        var wLng = +chip.dataset.lng;
+        state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
+        state.knownSpecies = null;
+        _speciesReqKey = null;
         var locEl = document.getElementById('loc');
         if (locEl) {
           locEl.innerHTML = state.loc.name + ' · ' + state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
@@ -1947,6 +1973,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         }
         renderNearbyWaters();
         recompute();
+        fetchSpeciesForWater(wName, wLat, wLng);
       };
     });
   }
@@ -2726,6 +2753,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         document.getElementById('useloc').onclick = useMyLocation;
       }
       renderNearbyWaters();
+      fetchSpeciesForWater(best.name, best.lat, best.lng);
     }).catch(function() {});
   }
 
@@ -2800,6 +2828,83 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         (tempF !== null ? '<span class="gauge-temp">' + tempF + '°F water</span>' : '') +
       '</div>' +
       '<div class="gauge-tip">' + flowTip + '</div>';
+  }
+
+  // ---- species-by-water lookup (WI DNR ArcGIS + iNaturalist fallback) ----
+  var _speciesReqKey = null;
+  function fetchSpeciesForWater(name, lat, lng) {
+    if (typeof fetch === 'undefined') return;
+    var key = name + '|' + lat.toFixed(3) + '|' + lng.toFixed(3);
+    if (_speciesReqKey === key) return;
+    _speciesReqKey = key;
+    state.knownSpecies = null;
+
+    var collected = [];
+    var pending = 2;
+
+    function finish() {
+      pending--;
+      if (pending > 0) return;
+      var seen = {};
+      var unique = collected.filter(function(s) {
+        var k = s.toLowerCase();
+        if (seen[k]) return false;
+        seen[k] = true;
+        return true;
+      });
+      state.knownSpecies = unique.length ? unique : null;
+      // Patch advisor DOM without full recompute
+      var condEl = document.getElementById('species-conditions');
+      if (condEl && state.lastAdv) {
+        condEl.innerHTML = _speciesBiteHtml(state.lastAdv);
+        rewireSpeciesDropdown();
+      }
+      var rowsEl = document.getElementById('species-rows');
+      if (rowsEl && state.lastAdv) {
+        var adv = state.lastAdv;
+        rowsEl.innerHTML = _speciesRowsHtml(adv.delta, adv.airTemp, adv.solunarBoost);
+      }
+      // Update source badge text
+      document.querySelectorAll('.species-source-badge').forEach(function(b) {
+        if (state.knownSpecies) {
+          b.textContent = '📋 ' + name;
+          b.classList.remove('muted');
+        } else {
+          b.textContent = 'All species';
+          b.classList.add('muted');
+        }
+      });
+    }
+
+    // Source 1: WI DNR ArcGIS fish stocking — stocked species for this water body
+    var lakeName = name.replace(/,.*/, '').trim();
+    var safeQ = "UPPER(WATER_BODY_NAME) LIKE UPPER('%" + lakeName.replace(/'/g, "''") + "%')";
+    var dnrUrl = 'https://dnrmaps.wi.gov/arcgis/rest/services/FM_Fisheries/FM_Fish_Stocking_Public/MapServer/0/query' +
+      '?where=' + encodeURIComponent(safeQ) +
+      '&outFields=SPECIES_NAME&returnDistinctValues=true&resultRecordCount=200&f=json';
+    fetch(dnrUrl).then(function(r) { return r.json(); }).then(function(j) {
+      if (j.features) {
+        j.features.forEach(function(feat) {
+          var s = feat.attributes && (feat.attributes.SPECIES_NAME || feat.attributes.COMMON_NAME);
+          if (s) collected.push(s);
+        });
+      }
+      finish();
+    }).catch(function() { finish(); });
+
+    // Source 2: iNaturalist citizen-science observations within 3 km radius
+    var inatUrl = 'https://api.inaturalist.org/v1/observations' +
+      '?taxon_id=47178&lat=' + lat + '&lng=' + lng + '&radius=3&per_page=200&order_by=observed_on';
+    fetch(inatUrl).then(function(r) { return r.json(); }).then(function(j) {
+      if (j.results) {
+        var seen = {};
+        j.results.forEach(function(obs) {
+          var cn = obs.taxon && obs.taxon.preferred_common_name;
+          if (cn && !seen[cn]) { seen[cn] = true; collected.push(cn); }
+        });
+      }
+      finish();
+    }).catch(function() { finish(); });
   }
 
   // ---- geolocation ----
