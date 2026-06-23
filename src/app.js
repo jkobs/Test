@@ -876,11 +876,16 @@
     }
   }
 
-  // ---- map depth overlay (USGS Topo tile layer) ----
+  // ---- map depth overlay (WI DNR bathymetry WMS, falls back to USGS topo) ----
+  var DNR_BATHY_WMS = 'https://dnrmaps.wi.gov/arcgis/services/WT_SWDV/WT_Lake_Bathymetry_WTM_Ext_v2/MapServer/WMSServer';
+
   function refreshDNRLayer() {
     if (!_map || !_drnEnabled) return;
     if (!_topoLayer) {
-      _topoLayer = L.tileLayer(TOPO_URL, { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' }).addTo(_map);
+      _topoLayer = L.tileLayer.wms(DNR_BATHY_WMS, {
+        layers: '0', format: 'image/png', transparent: true,
+        opacity: 0.65, attribution: '© WI DNR'
+      }).addTo(_map);
     }
   }
 
@@ -889,11 +894,11 @@
     if (_drnEnabled) {
       _drnEnabled = false;
       if (_topoLayer && _map) { _map.removeLayer(_topoLayer); _topoLayer = null; }
-      if (btn) btn.textContent = 'Show overlay';
+      if (btn) btn.textContent = 'Show depth';
     } else {
       _drnEnabled = true;
       refreshDNRLayer();
-      if (btn) btn.textContent = 'Hide overlay';
+      if (btn) btn.textContent = 'Hide depth';
     }
   }
 
@@ -1081,7 +1086,7 @@
       speciesOutlookHtml(adv.delta, adv.airTemp, adv.solunarBoost) +
       '<div class="adv-map-footer">' +
         '<span class="adv-dnr-badge">🛰 Satellite · ' + state.loc.name + '</span>' +
-        '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide overlay' : 'Show overlay') + '</button>' +
+        '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide depth' : 'Show depth') + '</button>' +
       '</div>';
     renderLakeInfo();
 
@@ -1321,12 +1326,23 @@
         }
       });
       var best = null, bestDist = Infinity;
+      var MAX_GAUGE_DIST = 0.013; // ~8 miles in degree²
       Object.keys(sites).forEach(function(k) {
         var s = sites[k];
-        if (s.flow !== null && s.dist < bestDist) { bestDist = s.dist; best = s; }
+        if (s.flow !== null && s.dist < bestDist && s.dist < MAX_GAUGE_DIST) { bestDist = s.dist; best = s; }
       });
       if (best) renderGauge(best);
+      else { var gc = document.getElementById('gauge-card'); if (gc) gc.innerHTML = ''; }
     }).catch(function() {});
+  }
+
+  function cleanGaugeName(raw) {
+    return raw
+      .replace(/\s+\d{6,}\s*/g, ' ')   // strip USGS station ID numbers
+      .replace(/\s+/g, ' ').trim()
+      .toLowerCase()
+      .replace(/(?:^|\s)\S/g, function(c) { return c.toUpperCase(); }) // title case
+      .replace(/, Wi$/i, ', WI');        // fix state abbrev capitalisation
   }
 
   function renderGauge(gauge) {
@@ -1348,7 +1364,7 @@
     }
     el.innerHTML =
       '<div class="gauge-head">' +
-        '<span class="gauge-name">💧 ' + gauge.name + '</span>' +
+        '<span class="gauge-name">💧 ' + cleanGaugeName(gauge.name) + '</span>' +
         '<span class="gauge-dist">' + dist + ' away</span>' +
       '</div>' +
       '<div class="gauge-vals">' +
