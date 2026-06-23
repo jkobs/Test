@@ -236,6 +236,36 @@ button.toggle {
 }
 .adv-dots { font-size: 15px; letter-spacing: 3px; }
 .adv-level { font-weight: 700; font-size: 16px; }
+
+/* ---- bite scale ---- */
+.bite-scale-wrap { margin-bottom: 12px; }
+.bite-scale-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 5px; }
+.bite-bar { display: flex; gap: 3px; }
+.bite-seg { flex: 1; padding: 5px 2px; border-radius: 5px; font-size: 10px; text-align: center; color: var(--muted); background: var(--bg2); border: 1px solid transparent; }
+.bite-1 { color: #a05555; }
+.bite-2 { color: #b07840; }
+.bite-3 { color: #a0a040; }
+.bite-4 { color: #40a060; }
+.bite-5 { color: #30c060; }
+.bite-current { font-weight: 700; border: 1px solid currentColor !important; }
+.bite-1.bite-current { background: rgba(160,85,85,.15); }
+.bite-2.bite-current { background: rgba(176,120,64,.15); }
+.bite-3.bite-current { background: rgba(160,160,64,.15); }
+.bite-4.bite-current { background: rgba(64,160,96,.15); }
+.bite-5.bite-current { background: rgba(48,192,96,.15); }
+
+/* ---- species outlook ---- */
+.species-section { margin-top: 14px; }
+.species-row { display: grid; grid-template-columns: 110px 74px 1fr; gap: 6px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.species-row:last-child { border-bottom: none; }
+.species-name { font-weight: 600; color: var(--ink); }
+.species-badge { font-weight: 700; font-size: 11px; }
+.score-1 { color: #a05555; }
+.score-2 { color: #b07840; }
+.score-3 { color: #a0a040; }
+.score-4 { color: #40a060; }
+.score-5 { color: #30c060; }
+.species-tip { color: var(--muted); }
 .adv-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;
 }

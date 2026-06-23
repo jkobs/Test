@@ -43,6 +43,59 @@
   var KIND = { overhead: 'Moon overhead', underfoot: 'Moon underfoot', moonrise: 'Moonrise', moonset: 'Moonset' };
   var PHASE_ICON = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
 
+  // ---- bite scale + species outlook ----
+  var BITE_LABELS = ['No Bite', 'Slow', 'Moderate', 'Active', 'Hot Bite'];
+
+  var SPECIES = [
+    { name: 'Walleye',          tempLo: 55, tempHi: 75, pref:  1,
+      depth: function(d) { return d > 1 ? '12–20 ft' : d < -1 ? '6–14 ft' : '10–18 ft'; },
+      gear:  function(d) { return d < -1 ? 'Crankbait, spinner' : 'Slow jig, drop-shot'; } },
+    { name: 'Largemouth Bass',  tempLo: 65, tempHi: 85, pref: -1,
+      depth: function()  { return '3–10 ft'; },
+      gear:  function()  { return 'Topwater at dusk/dawn, Texas rig weeds'; } },
+    { name: 'Northern Pike',    tempLo: 48, tempHi: 68, pref: -1,
+      depth: function()  { return '4–14 ft'; },
+      gear:  function()  { return 'Large spoon or bucktail, weed edges'; } },
+    { name: 'Crappie',          tempLo: 62, tempHi: 78, pref:  0,
+      depth: function()  { return '8–15 ft (suspended)'; },
+      gear:  function()  { return '1/16 oz jig or small minnow near brush'; } },
+    { name: 'Yellow Perch',     tempLo: 58, tempHi: 72, pref:  1,
+      depth: function()  { return '10–20 ft'; },
+      gear:  function()  { return 'Small jigging spoon over sand/gravel'; } },
+  ];
+
+  function _speciesScore(sp, delta, airTemp, solBoost) {
+    var t = (airTemp >= sp.tempLo && airTemp <= sp.tempHi) ? 2
+          : (airTemp < sp.tempLo - 10 || airTemp > sp.tempHi + 10) ? 0 : 1;
+    var p = sp.pref === 1  ? (delta > 1 ? 2 : delta < -1 ? 0 : 1)
+          : sp.pref === -1 ? (delta < -1 ? 2 : delta > 1 ? 0 : 1)
+          : (Math.abs(delta) < 1 ? 2 : 1);
+    return Math.max(1, Math.min(5, t + p + solBoost));
+  }
+
+  function biteScaleHtml(score) {
+    return '<div class="bite-bar">' +
+      BITE_LABELS.map(function(label, i) {
+        var n = i + 1;
+        return '<div class="bite-seg bite-' + n + (n === score ? ' bite-current' : '') + '">' + label + '</div>';
+      }).join('') +
+    '</div>';
+  }
+
+  function speciesOutlookHtml(delta, airTemp, solBoost) {
+    return '<div class="species-section">' +
+      '<div class="modal-section-label" style="margin-bottom:6px">Species Outlook</div>' +
+      SPECIES.map(function(sp) {
+        var sc = _speciesScore(sp, delta, airTemp, solBoost);
+        return '<div class="species-row">' +
+          '<div class="species-name">' + sp.name + '</div>' +
+          '<div class="species-badge score-' + sc + '">' + BITE_LABELS[sc - 1] + '</div>' +
+          '<div class="species-tip">' + sp.depth(delta) + ' · ' + sp.gear(delta) + '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  }
+
   function phaseIcon(phase) {
     return PHASE_ICON[Math.floor((phase * 8) + 0.5) % 8];
   }
@@ -575,7 +628,8 @@
       score: score, label: labels[score - 1], dots: dots, dotColor: dotColor,
       pressureStr: pressureStr, depth: depth, structure: structure, presentation: presentation,
       windSpeed: windSpeed, fromDir: fromDir, towardDir: towardDir, towardDeg: towardDeg,
-      windNote: windNote, tempNote: tempNote, solunarNote: solunarNote
+      windNote: windNote, tempNote: tempNote, solunarNote: solunarNote,
+      delta: delta, airTemp: airTemp, solunarBoost: solunarBoost
     };
   }
 
@@ -585,9 +639,9 @@
     var el = document.getElementById('advisor-body');
     if (!el) return;
     el.innerHTML =
-      '<div class="adv-activity">' +
-        '<span class="adv-dots" style="color:' + adv.dotColor + '">' + adv.dots + '</span>' +
-        '<span class="adv-level">' + adv.label + '</span>' +
+      '<div class="bite-scale-wrap">' +
+        '<div class="bite-scale-label">Bite Conditions — Walleye</div>' +
+        biteScaleHtml(adv.score) +
       '</div>' +
       '<div class="adv-grid">' +
         '<div class="adv-item"><div class="adv-label">Pressure</div><div class="adv-val">' + adv.pressureStr + '</div></div>' +
@@ -598,6 +652,7 @@
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
       '<div class="adv-note">' + adv.windNote + '</div>' +
       '<div class="adv-note">' + adv.tempNote + '</div>' +
+      speciesOutlookHtml(adv.delta, adv.airTemp, adv.solunarBoost) +
       '<div class="adv-map-footer">' +
         '<span class="adv-dnr-badge">🛰 Satellite · Yellow Lake, WI</span>' +
         '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide overlay' : 'Show overlay') + '</button>' +
