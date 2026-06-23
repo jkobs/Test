@@ -1535,120 +1535,260 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
   var SPECIES = [
     { name: 'Walleye',         tempLo: 55, tempHi: 75, pref:  1,
-      depth:     function(d, t) { return d > 3 ? '18–28 ft' : d > 1 ? '12–20 ft' : d < -1 ? '6–14 ft' : '10–18 ft'; },
-      structure: function(d, t) {
-        if (d > 3)  return 'Main basin, deep rock piles, river channel edges';
-        if (d > 1)  return 'Outside points dropping to deep water, rock humps';
-        if (d < -3) return 'Windward shore, emergent weeds, rocky shoals';
-        if (d < -1) return 'Windward shoreline, weed edges, shallow rock flats';
-        return 'Mid-depth points, rock piles, weed-to-hard-bottom breaks';
+      depth: function(d, t) {
+        if (t < 55) return '3–15 ft (post-spawn/spring shallow)';
+        if (d > 1)  return '15–25 ft (post-front, deep rock/humps)';
+        if (d < -1) return '6–15 ft (pre-front, wind-blown shallows)';
+        if (t > 78) return '15–25 ft (thermocline break, offshore)';
+        return '10–18 ft';
       },
-      gear:      function(d, t, s) {
-        if (d > 3)  return 'Dead-stick jig near bottom — fish deep and lethargic';
-        if (d > 1)  return 'Slow jig on bottom, finesse drop-shot near structure';
-        if (d < -3) return 'Fast crankbait or inline spinner — aggressive pre-front feed';
-        if (d < -1) return 'Crankbait along shallow edges, inline spinner';
-        return s >= 2 ? 'Jig aggressively during this active period' : 'Slow jig, paddle tail, dead-stick drop-shot';
+      structure: function(d, t) {
+        if (d > 1)  return 'Steep inside turns 10–30 ft, deep rock humps, channel edges — post-front retreat';
+        if (d < -1) return 'Wind-blown points and shorelines, weed edge with hard bottom underneath';
+        if (t > 78) return 'Thermocline break 15–25 ft; offshore humps; open-water edges';
+        return 'Weed-to-hard-bottom break, rocky reefs and points; outer cabbage edge at 8–12 ft';
+      },
+      gear: function(d, t, s) {
+        if (d > 3)  return 'Lindy rig dragged very slowly, or dead-stick jig — fish lethargic, deep';
+        if (d > 1)  return 'Slow jig (leech/crawler tip) or Lindy rig; quiet long-line presentation';
+        if (d < -3) return 'Crankbait or spinner on wind-blown points — feeding frenzy pre-front';
+        if (d < -1) return 'Crankbait along wind-blown points; jig + minnow on shallow rock edges';
+        if (t < 55) return 'Live-bait jig tipped with minnow; slow snap-jig 2 in. off bottom';
+        if (t > 78) return 'Troll crankbait 1.5–2.5 mph over thermocline break; planer boards to spread';
+        return s >= 2 ? 'Snap-jig aggressively — solunar period active, low-light edge nearby' : 'Jig (leech in warm water, minnow in cold) or crankbait along drop-off edge';
       }},
     { name: 'Largemouth Bass', tempLo: 65, tempHi: 85, pref: -1,
-      depth:     function(d, t) { return t > 80 ? '8–18 ft (midday)' : d > 1 ? '6–14 ft' : '3–10 ft'; },
-      structure: function(d, t) {
-        if (t > 80) return 'Shaded docks, deep timber, submerged weed pockets';
-        if (d < -1) return 'Sparse weed edges, emergent cover, shallow laydowns';
-        if (d > 1)  return 'Deeper weed edges, points with drop to basin';
-        if (t < 62) return 'Hard-bottom transitions, dock posts, submerged brush';
-        return 'Submerged weed beds, wood, dock structure';
+      depth: function(d, t) {
+        if (t > 82) return '2–6 ft at dawn/dusk; 12–20 ft midday near thermocline';
+        if (d > 1)  return '10–20 ft (post-front; deep ledges and offshore humps)';
+        if (d < -1) return '3–8 ft (pre-front; feeding up in shallows)';
+        if (t < 62) return '5–12 ft (transitional structure, docks, wood)';
+        return '5–15 ft';
       },
-      gear:      function(d, t, s) {
-        if (t > 80) return 'Topwater at dawn/dusk only; deep drop-shot or swimbait midday';
-        if (d < -1) return 'Buzzbait or fast crankbait — aggressive pre-front window';
-        if (d > 1)  return 'Football jig or Carolina rig, slow bottom crawl';
-        if (t < 62) return 'Slow-roll spinnerbait, football jig on hard bottom';
-        return 'Texas rig in weeds, topwater at low light';
+      structure: function(d, t) {
+        if (t > 82) return 'Lily pad mats, dock shade, and grass mat edges at low light; deep timber midday';
+        if (d < -1) return 'Sparse weed edges, emergent cover, shallow laydowns and wood — pre-front active';
+        if (d > 1)  return 'Deep weed edges, offshore humps, creek channel bends; thermocline layer';
+        if (t < 62) return 'Dock posts, submerged brush piles, hard-bottom transitions near heavy cover';
+        return 'Aquatic vegetation (milfoil, cabbage, lily pads), laydowns, docks';
+      },
+      gear: function(d, t, s) {
+        if (t > 82) return 'Topwater frog or walking bait at dawn/dusk; drop-shot or deep swimbait midday';
+        if (d < -1) return 'Buzzbait or fast crankbait — aggressive pre-front; punch frog over grass mats';
+        if (d > 1)  return 'Wacky/Ned rig Senko or Texas rig (finesse); slow football jig on bottom';
+        if (t < 62) return 'Slow-roll spinnerbait through cover; flipping jig in dock pockets; square-bill off wood';
+        return 'Texas rig through weeds, swim jig along weed edge, topwater at low light';
       }},
     { name: 'Northern Pike',   tempLo: 48, tempHi: 68, pref: -1,
-      depth:     function(d, t) { return t < 50 ? '8–16 ft' : d < -1 ? '3–10 ft' : d > 1 ? '6–14 ft' : '4–14 ft'; },
-      structure: function(d, t) {
-        if (d < -1) return 'Inside weed edges, shallow bays and flats';
-        if (t < 50) return 'Deeper channel weeds, basin margins near bottom';
-        if (d > 1)  return 'Outside weed lines, long points extending into basin';
-        return 'Weed edges with pockets, channel edges adjacent to weeds';
+      depth: function(d, t) {
+        if (t < 50) return '1–6 ft (dark-bottom shallow bays, spring staging)';
+        if (t > 68) return '15–30 ft (deep weed edge, thermocline break)';
+        if (d < -1) return '3–12 ft (active, cruising weed edges pre-front)';
+        if (d > 1)  return '8–18 ft (outer weed line, post-front retreat)';
+        return '6–15 ft';
       },
-      gear:      function(d, t, s) {
-        if (d < -1) return 'Fast jerkbait or large bucktail — pike turn on pre-front';
-        if (t < 50) return 'Large spoon or dead sucker bait, very slow retrieve';
-        if (d > 1)  return 'Slow-roll large swimbait along outer weed lines';
-        return 'Large bucktail or spoon, steady retrieve; figure-8 at boat';
+      structure: function(d, t) {
+        if (t < 50) return 'Dark-bottom shallow bays absorbing heat, flooded backwaters, tributary inflows';
+        if (t > 68) return 'Deep cabbage outer edge 15–30 ft; rocky humps adjacent to weeds';
+        if (d < -1) return 'Inside weed-bed pockets and points; shallow flat bays with weed cover';
+        if (d > 1)  return 'Outer cabbage weed line; long points extending into basin';
+        return 'Cabbage weed-bed edges and pockets (primary ambush habitat); weed points and cups';
+      },
+      gear: function(d, t, s) {
+        if (t < 50) return 'Slow twitch-pause jerkbait or inline spinner in cold shallow bays — fish won\'t chase';
+        if (t > 68) return 'Large spoon or swimbait trolled/burned along deep weed edge 2.8–3.5 mph';
+        if (d < -1) return 'Blue Fox inline spinner (sz6) or large spoon burned across weed tops — reaction strikes';
+        if (d > 1)  return 'Slow-roll large swimbait along outer weed line; figure-8 at boat after every cast';
+        return 'Blue Fox inline spinner, spoon, or jerkbait with twitch-pause along weed edge; cast parallel to edge';
       }},
     { name: 'Crappie',         tempLo: 62, tempHi: 78, pref:  0,
-      depth:     function(d, t) { return t < 60 ? '12–18 ft' : d > 1 ? '10–15 ft' : '6–12 ft'; },
-      structure: function(d, t) {
-        if (t < 60) return 'Deep brush piles, submerged timber near channel';
-        if (d > 1)  return 'Brush piles or submerged timber at 10–15 ft';
-        if (d < -1) return 'Shallower brush 6–10 ft, dock edges, laydowns';
-        return 'Brush piles, submerged timber, dock structure (suspended)';
+      depth: function(d, t) {
+        if (t < 55) return '12–20 ft (staging near brush/creek channels)';
+        if (t < 65) return '1–6 ft (spawn over hard bottom/brush)';
+        if (t > 78) return '15–25 ft (deep brush/timber in summer heat)';
+        if (d > 1)  return '10–18 ft (suspended above deep brush)';
+        return '6–15 ft (suspended)';
       },
-      gear:      function(d, t, s) {
-        if (t < 60) return '1/32 oz jig, very slow vertical drop near brush piles';
-        if (d > 1)  return 'Vertical jig 10–15 ft on brush pile or suspended timber';
-        if (d < -1) return 'Slip float with small minnow on shallower structure edges';
-        return s >= 2 ? 'Active period — swim small jig through brush, steady retrieve' : '1/16 oz jig or small minnow near brush piles';
+      structure: function(d, t) {
+        if (t < 55) return 'Brush piles and submerged timber 12–20 ft; creek channel staging edges';
+        if (t < 65) return 'Shallow spawning flats 1–6 ft; sparse brush, dock edges, protected coves';
+        if (t > 78) return 'Deep brush piles 15–25 ft; standing timber, submerged structure in basin';
+        if (d > 1)  return 'Brush piles and submerged timber 10–18 ft — crappie feed upward, stay above school';
+        return 'Brush piles (top structure), dock pilings, weed edges with perch-fry activity';
+      },
+      gear: function(d, t, s) {
+        if (t < 55) return 'Spider rig troll at 0.2 mph — 1/16 oz jig + small minnow; double rig over deep brush';
+        if (t < 65) return 'Small jig or minnow under slip float near spawning cover; 1/32 oz for slow fall';
+        if (t > 78) return 'Vertical jig or Slab Rap over deep brush 15–25 ft — fish feed upward, never drop below them';
+        if (d > 1)  return 'Vertical 1/16 oz jig just above brush pile — crappie always feed up; light jig = slow fall';
+        return s >= 2 ? 'Active period — swim small jig through brush at steady pace' : '1/16 oz jig (orange/chartreuse) or small minnow near brush; vary color until they react';
       }},
-    { name: 'Yellow Perch',    tempLo: 58, tempHi: 72, pref:  1,
-      depth:     function(d, t) { return t > 72 ? '15–22 ft' : d > 1 ? '14–20 ft' : '10–18 ft'; },
-      structure: function(d, t) {
-        if (t > 72) return 'Deep sandy/gravel basin flats, subtle bottom irregularities';
-        if (d > 1)  return 'Flat sandy/gravel bottom in main basin, hold position';
-        if (d < -1) return 'Gravel points, rock-to-sand transitions';
-        return 'Sand/gravel flats and subtle bottom irregularities';
+    { name: 'Yellow Perch',    tempLo: 58, tempHi: 74, pref:  1,
+      depth: function(d, t) {
+        if (t < 58) return '4–10 ft (spring spawn, rocky/weed flats)';
+        if (t > 74) return '20–35 ft (rocky humps, above thermocline)';
+        if (d > 1)  return '15–25 ft (tight to rocky structure)';
+        return '10–20 ft';
       },
-      gear:      function(d, t, s) {
-        if (d > 1)  return 'Bottom rig with nightcrawler over sand/gravel, hold position';
-        if (d < -1) return 'Small jigging spoon to trigger reaction bites on structure';
-        if (t > 72) return 'Go deeper 15–22 ft; dawn and dusk most productive';
-        return 'Perch rig with worm or small minnow over hard bottom';
+      structure: function(d, t) {
+        if (t < 58) return 'Hard-bottom flats with scattered vegetation; rocky shorelines 4–10 ft; spawn at 45–55°F';
+        if (t > 74) return 'Rocky humps and offshore reefs 20–35 ft — move holes frequently, school by size';
+        if (d > 1)  return 'Rocky humps and offshore reefs; locate school with sonar before dropping';
+        if (d < -1) return 'Gravel points, wind-blown rocky shorelines, rock-to-sand transitions';
+        return 'Rocky humps, reefs, and drop-offs (primary); weed edges and pilings in spring/fall';
+      },
+      gear: function(d, t, s) {
+        if (t < 58) return 'Small minnow or nightcrawler piece on light jig near hard bottom; 4–6 lb line';
+        if (t > 74) return 'Swedish Pimple or small jigging spoon over rocky humps 20–35 ft; dawn/dusk best';
+        if (d > 1)  return 'Bottom rig (nightcrawler or small minnow) over sand/gravel; use sonar to find school first';
+        if (d < -1) return 'Small blade bait or jigging spoon to trigger reaction bites; cover water until school found';
+        return 'Small jig + maggot/waxworm/minnow; nightcrawler on dropper rig over rocky hard bottom';
       }},
-    { name: 'Smallmouth Bass', tempLo: 60, tempHi: 72, pref:  0,
-      depth:     function(d, t) { return t < 60 ? '12–20 ft' : d < -1 ? '3–10 ft' : d > 1 ? '10–18 ft' : '5–18 ft'; },
-      structure: function(d, t) {
-        if (t < 60) return 'Deep rocky ledges, channel edges, gravel depressions';
-        if (d < -1) return 'Shallow rocky points, boulder shoals, gravel flats';
-        if (d > 1)  return 'Base of deep rock piles, rocky ledge drop-offs';
-        return 'Rock humps, gravel points, cobble bottom transitions';
+    { name: 'Smallmouth Bass', tempLo: 58, tempHi: 72, pref:  0,
+      depth: function(d, t) {
+        if (t < 55) return '5–15 ft (prespawn staging, gravel/pea-gravel flats)';
+        if (t > 75) return '20–40 ft (isolated boulders on flat basin bottom)';
+        if (d < -1) return '5–12 ft (rocky points and shoals, pre-front aggressive)';
+        if (d > 1)  return '15–30 ft (deep rock ledges — most pressure-sensitive fish)';
+        return '8–20 ft';
       },
-      gear:      function(d, t, s) {
-        if (t < 60) return 'Very slow tube or ned rig crawled on rocky bottom';
-        if (d < -1) return 'Topwater or fast swimbait along rocky points pre-front';
-        if (d > 1)  return 'Tube jig or drop-shot, dead-slow on rocky structure';
-        return s >= 2 ? 'Ned rig or drop-shot — work actively during solunar period' : 'Tube jig or drop-shot on rocky points and gravel';
+      structure: function(d, t) {
+        if (t < 55) return 'Gravel and pea-gravel flats near future spawn sites; chunk rock and boulder fields';
+        if (t > 75) return 'Isolated boulders on flat basin bottom 20–40 ft; main-lake rocky humps';
+        if (d < -1) return 'Shallow boulder shoals, chunk rock banks, rocky points — pre-front aggressive';
+        if (d > 1)  return 'Base of deep rock piles and ledge drop-offs; retreats hard from shallow post-front';
+        return 'Rock and chunk rock (crayfish habitat), gravel points, rocky shorelines — clear water primary';
+      },
+      gear: function(d, t, s) {
+        if (t < 55) return 'Jerkbait (Shad Rap/X-Rap) with long pause; tube bait crawled on gravel — prespawn magic';
+        if (t > 75) return 'Drop shot or Ned rig near isolated boulders 20–40 ft; football jig on deep ledge';
+        if (d < -1) return 'Topwater or crankbait deflecting off rocks — pre-front aggression; cast parallel to rocky bank';
+        if (d > 1)  return 'Ned rig or tube dead-slow on deep rock — smallmouth most pressure-sensitive freshwater fish';
+        return s >= 2 ? 'Crankbait (Shad Rap) over gravel or drop-shot near boulder in solunar window' : 'Plastic grub or tube dragged on gravel/rock — top crayfish imitation; 4–6 lb line';
       }},
-    { name: 'Lake Sturgeon',   tempLo: 55, tempHi: 70, pref:  0,
-      depth:     function(d, t) { return (t < 50 || t > 78) ? '20–35 ft' : d > 1 ? '15–25 ft' : '15–30 ft'; },
-      structure: function(d, t) {
-        if (t < 50 || t > 78) return 'Deepest channel holes, river mouths, basin floor';
-        if (d > 1)  return 'Gravel/sand flats adjacent to deep water, channel edges';
-        if (d < -1) return 'Main river channel, deep basin holes, channel bends';
-        return 'Gravel/sand bottom, river mouths, channel edges';
+    { name: 'Lake Sturgeon',   tempLo: 50, tempHi: 72, pref:  0,
+      depth: function(d, t) {
+        if (t < 50) return '20–35 ft (deep channel holes, slow current)';
+        if (t > 72) return '20–30 ft (deepest river channel holes)';
+        if (d > 1)  return '15–22 ft (main channel, gravel/sand flats)';
+        return '15–22 ft (best consistent productive depth)';
       },
-      gear:      function(d, t, s) {
-        if (t < 50 || t > 78) return 'Deepest holes 20–35 ft, nightcrawler or crayfish; long wait';
-        if (d > 1)  return 'Fresh nightcrawler or crayfish on bottom, hold position and wait';
-        if (d < -1) return 'Add scent attractant, move to deeper channel holes';
-        return 'Bottom rig with nightcrawler, crayfish, or cut sucker — patience required';
+      structure: function(d, t) {
+        if (t < 50 || t > 72) return 'Deepest river channel holes and current seams; river bends where invertebrates concentrate';
+        if (d > 1)  return 'Gravel/sand flats adjacent to deep channel — anchor perpendicular, spread baits across hole';
+        if (d < -1) return 'Main river channel, deep basin holes, channel bends with silt/gravel bottom';
+        return 'Deep river holes with moderate current; sandy/silty/gravel bottom; channel edges near current seams';
+      },
+      gear: function(d, t, s) {
+        if (t < 50 || t > 72) return 'Sucker meat (cut bait) on 6/0 hook; 2–3 oz no-roll sinker; soak at sunset in deepest hole';
+        if (d > 1)  return 'Fresh nightcrawler (golf-ball gob) on 6/0 hook; hold position, re-anchor every 30 min';
+        if (d < -1) return 'Crawler or sucker meat + scent; glass-bead clacker ahead of hook; anchor in deepest channel hole';
+        return 'Nightcrawler gob or sucker meat; no-roll sinker 2–3 oz; move every 30 min; best action at sunset';
       }},
     { name: 'Muskellunge',     tempLo: 60, tempHi: 72, pref: -1,
-      depth:     function(d, t) { return t > 75 ? '12–24 ft' : d > 1 ? '10–20 ft' : '6–18 ft'; },
-      structure: function(d, t, s) {
-        if (d < -1) return 'Primary weed edges and points with deep-water access';
-        if (t > 75) return 'Deep structural edges adjacent to basin, weed-basin transitions';
-        if (d > 1)  return 'Secondary weed lines, hard-bottom humps away from shore';
-        return s >= 2 ? 'Your highest-percentage known muskie spot — get there now' : 'Weed edges, hard-bottom transitions, outside points';
+      depth: function(d, t) {
+        if (t < 58) return '10–20 ft (deep weed edge, rock transitions — jerkbait/live bait)';
+        if (t > 75) return '10–25 ft (thermocline layer; above oxygen break)';
+        if (d < -1) return '5–15 ft (active on weed edges pre-front)';
+        if (d > 1)  return '10–20 ft (deeper structural edges post-front)';
+        return '6–18 ft';
       },
-      gear:      function(d, t, s) {
-        if (d < -1) return 'Prime window — large jerkbait or bucktail, fast aggressive retrieve';
-        if (t > 75) return 'Dawn/dusk only; large glide bait near deep structural edges';
-        if (d > 1)  return 'Slow-roll large swimbait or glide bait along structural edges';
-        return s >= 2 ? 'Solunar period active — run large bucktail fast, figure-8 every cast' : 'Large bucktail or jerkbait; figure-8 at the boat on every retrieve';
+      structure: function(d, t, s) {
+        if (t < 58) return 'Rocky points, deep weed-to-rock transitions, inside turns on main-lake structure';
+        if (t > 75) return 'Cabbage outer edge near thermocline 10–25 ft; shady inside turns; September = peak feeding';
+        if (d < -1) return 'Primary cabbage weed edges and points with deep-water access — best muskie window';
+        if (d > 1)  return 'Secondary weed lines, hard-bottom humps; fish neutral, need slow presentations';
+        return s >= 2 ? 'Your highest-percentage muskie spot NOW — active solunar period, fish are catchable' : 'Cabbage weed edge, inside turns on breaks, creek mouths, weed-to-rock transitions';
+      },
+      gear: function(d, t, s) {
+        if (t < 58) return 'Large jerkbait (Suick, Reef Hawg) — jerk-down, glide-up, LONG pause; or live sucker slow drift';
+        if (t > 75) return 'Dawn/dusk only; topwater prop bait or walking bait near thermocline structure; overcast = all day';
+        if (d < -1) return 'Double-bladed bucktail fast retrieve — best window; topwater at low light; figure-8 EVERY cast';
+        if (d > 1)  return 'Large rubber swimbait or glide bait, very slow — fish are neutral; wide deep figure-8 at boat';
+        return s >= 2 ? 'Bucktail fast on prime edges — solunar period active; figure-8 every cast without exception' : 'Bucktail or jerkbait; vary retrieve speed until fish reacts; always figure-8 at boatside';
+      }},
+    { name: 'Channel Catfish', tempLo: 72, tempHi: 90, pref: -1,
+      depth: function(d, t) {
+        if (t < 65) return '15–30 ft (deep holes and channel bends — cold = lethargic)';
+        if (t > 85) return '3–10 ft at night; 20–30 ft daytime in summer heat';
+        if (d < -1) return '3–10 ft (pre-front, move to shallows at dusk)';
+        if (d > 1)  return '18–30 ft (post-front, retreat to deepest holes)';
+        return '10–20 ft (channel edges and timber pockets)';
+      },
+      structure: function(d, t) {
+        if (t < 65) return 'Deepest channel holes, submerged timber, river bends — fish lethargic in cold';
+        if (d < -1) return 'Current seams below timber; outside channel bends; dam tailwaters — pre-front active';
+        if (d > 1)  return 'Deepest holes 15–30 ft, main channel bottom, submerged brush near deep water';
+        return 'Channel bends with current, submerged timber and brush, log jams, riprap edges';
+      },
+      gear: function(d, t, s) {
+        if (t < 65) return 'Cut sucker meat or chicken liver on slip sinker — soak bottom of deepest hole, barely move';
+        if (d < -1) return 'Punch bait or stink bait dip worm in current seam below snag; dusk to 2 am peak window';
+        if (d > 1)  return 'Nightcrawler or live minnow on slip sinker 20–30 ft; fish lethargic post-front, soak longer';
+        return s >= 2 ? 'Cut shad on slip sinker at dusk in current seam — solunar window aligns with catfish feeding time' : 'Cut shad, chicken liver, or commercial stink bait; 2/0–4/0 hook, no-roll sinker; patience';
+      }},
+    { name: 'Flathead Catfish', tempLo: 70, tempHi: 88, pref:  0,
+      depth: function(d, t) {
+        if (t < 60) return '20–40 ft (deep woody pools — inactive in cold)';
+        if (t > 85) return '5–15 ft at night only; deepest pool daytime';
+        if (d > 1)  return '12–25 ft (tight to deep woody structure post-front)';
+        return '8–18 ft (woody pools with slow current — purely nocturnal)';
+      },
+      structure: function(d, t) {
+        if (t < 60) return 'Deepest pool in system with woody debris; minimal movement';
+        if (d > 1)  return 'Undercut banks with root wads, submerged logs 12–25 ft; post-front retreat to deepest wood';
+        if (d < -1) return 'Slow-current eddies below log jams; woody pool exits — cruising and active pre-front';
+        return 'Submerged logs and root wads, undercut banks, slow-current eddies, deep river bends';
+      },
+      gear: function(d, t, s) {
+        if (t < 60) return 'Large live bream or sucker head under slip float near woody snag — extremely slow; fish barely active';
+        if (d < -1) return 'Large live sunfish or bullhead (6–10 in.) under heavy float near snag — pre-front activity window';
+        if (d > 1)  return 'Live bait on slip sinker near deepest wood; 5/0–7/0 hook; soak 10–15 min before moving';
+        return 'Live sunfish, bullhead, perch, or chub (5–10 in.) ONLY — flatheads rarely strike cut bait; 10 pm–3 am prime';
+      }},
+    { name: 'Lake Trout',      tempLo: 48, tempHi: 60, pref: -1,
+      depth: function(d, t) {
+        if (t > 65) return '45–100 ft (below thermocline; track with downrigger)';
+        if (t < 45) return '10–30 ft (shallows during ice-out and fall turnover)';
+        if (d < -1) return '20–50 ft (pre-front active, may rise toward surface)';
+        if (d > 1)  return '50–100 ft (post-front; very lethargic, hug bottom)';
+        return '20–60 ft';
+      },
+      structure: function(d, t) {
+        if (t > 65) return 'Deep main-lake basin below thermocline 45–100 ft; rocky humps at thermocline break';
+        if (t < 45) return 'Shallow rocky shorelines and reefs 10–30 ft — active during fall/spring turnover';
+        if (d > 1)  return 'Deepest rocky basin; coldest water; fish bottom-hugging post-front';
+        if (d < -1) return 'Thermocline break 20–50 ft; rocky offshore humps; chase cisco and smelt schools';
+        return 'Main-lake rocky humps and reefs 20–60 ft; cold clear oligotrophic basin';
+      },
+      gear: function(d, t, s) {
+        if (t > 65) return 'Downrigger troll spoon or cisco-imitating flasher 45–100 ft; 2–2.5 mph; match thermocline depth exactly';
+        if (t < 45) return 'Swedish Pimple jigged vertically or flutter spoon on shallow rock 10–30 ft';
+        if (d > 1)  return 'Bladebait (Sonar) or tube jig dead-slow on deep rock bottom — fish barely active post-front';
+        if (d < -1) return 'Troll spoon near thermocline or jig aggressively — pre-front window, highest activity';
+        return s >= 2 ? 'Jig aggressively over rocky hump in solunar window — lakers respond well to periods' : 'Downrigger troll with spoon or tube jig; 1.5–2.5 mph over main-lake rocky structure';
+      }},
+    { name: 'Rainbow/Brown Trout', tempLo: 50, tempHi: 66, pref: -1,
+      depth: function(d, t) {
+        if (t > 68) return '10–25 ft (cold inflow zones or thermocline layer)';
+        if (t < 45) return '5–15 ft near bottom (sluggish; slow presentations)';
+        if (d < -1) return 'Surface to 8 ft (active pre-front; rising to feed)';
+        if (d > 1)  return '8–20 ft (post-front retreat near cold inflows)';
+        return '3–12 ft';
+      },
+      structure: function(d, t) {
+        if (t > 68) return 'Cold spring inflows, thermocline break, dam tailwaters, deep shaded pools';
+        if (t < 45) return 'Deep slow pools and runs; low light only — brown trout especially reluctant in cold';
+        if (d < -1) return 'Riffles and current seams near surface — pre-front feeding window, most active';
+        if (d > 1)  return 'Deep pools and undercut banks near cold spring inflows — post-front neutral';
+        return 'Current seams, pool-riffle transitions, rocky points, undercut banks; overcast prime';
+      },
+      gear: function(d, t, s) {
+        if (t > 68) return 'Small spoon or jig near cold inflow or thermocline depth — trout schooled deep in heat';
+        if (t < 45) return 'Slow drift nymph or PowerBait on slip sinker near bottom — barely twitch the rod';
+        if (d < -1) return 'Inline spinner (Rooster Tail/Mepps), small crankbait, or dry fly — peak pre-front aggression';
+        if (d > 1)  return 'PowerBait or nightcrawler under float near pool bottom — finesse only, post-front lockup';
+        return s >= 2 ? 'Inline spinner or streamer in solunar window — trout timing correlates well with moon periods' : 'Inline spinner, leech or worm under bobber, or soft-hackle wet fly; dawn/dusk/overcast best';
       }},
   ];
 
