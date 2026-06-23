@@ -5,7 +5,7 @@
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null, lakeInfo: null };
 
   // ---- Leaflet map state ----
   var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
@@ -13,6 +13,7 @@
   var _pressureReqId = 0;
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
+  var _manualLoc = false; // true when user picked a chip/map-click; suppresses GPS overrides
   var _speciesFilter = '';
   var _selectedSpeciesName = 'Walleye';
 
@@ -450,7 +451,10 @@
         var wLng = +chip.dataset.lng;
         state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
         state.knownSpecies = null;
+        state.lakeInfo = null;
         _speciesReqKey = null;
+        _lakeInfoKey = null;
+        _manualLoc = true;
         var locEl = document.getElementById('loc');
         if (locEl) {
           locEl.innerHTML = state.loc.name + ' · ' + state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
@@ -459,6 +463,7 @@
         }
         renderNearbyWaters();
         recompute();
+        fetchLakeInfo(wName, wLat, wLng);
         fetchSpeciesForWater(wName, wLat, wLng);
       };
     });
@@ -901,6 +906,40 @@
         _map = L.map('advisor-map', { zoomControl: true, attributionControl: false });
         L.tileLayer(SATELLITE_URL, { maxZoom: 18 }).addTo(_map);
         L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_map);
+        _map.on('click', function(e) {
+          var clat = e.latlng.lat, clng = e.latlng.lng;
+          var q = '[out:json][timeout:8];(' +
+            'way["natural"="water"](around:400,' + clat + ',' + clng + ');' +
+            'relation["natural"="water"](around:400,' + clat + ',' + clng + ');' +
+          ');out tags center;';
+          fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'data=' + encodeURIComponent(q)
+          }).then(function(r) { return r.json(); }).then(function(j) {
+            if (!j.elements || !j.elements.length) return;
+            var elem = j.elements.find(function(e2) { return e2.tags && e2.tags.name; }) || j.elements[0];
+            if (!elem || !elem.tags) return;
+            var wName = elem.tags.name || 'Unknown Water';
+            var center = elem.center || elem;
+            var wLat = (center.lat || clat), wLng = (center.lon || center.lng || clng);
+            state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
+            state.knownSpecies = null;
+            state.lakeInfo = null;
+            _speciesReqKey = null;
+            _lakeInfoKey = null;
+            _manualLoc = true;
+            var locEl = document.getElementById('loc');
+            if (locEl) {
+              locEl.innerHTML = wName + ' · ' + wLat.toFixed(2) + ', ' + wLng.toFixed(2) +
+                '<button id="useloc">Use my location</button>';
+              document.getElementById('useloc').onclick = useMyLocation;
+            }
+            recompute();
+            fetchLakeInfo(wName, wLat, wLng);
+            fetchSpeciesForWater(wName, wLat, wLng);
+          }).catch(function() {});
+        });
       }
       _map.setView([lat, lng], 14);
       if (_locMarker) _locMarker.remove();
@@ -1033,6 +1072,7 @@
     var el = document.getElementById('advisor-body');
     if (!el) return;
     el.innerHTML =
+      '<div id="lake-info"></div>' +
       '<div id="species-conditions">' + _speciesBiteHtml(adv) + '</div>' +
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
       (adv.lightNote  ? '<div class="adv-note adv-light">'   + adv.lightNote  + '</div>' : '') +
@@ -1043,6 +1083,7 @@
         '<span class="adv-dnr-badge">🛰 Satellite · ' + state.loc.name + '</span>' +
         '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide overlay' : 'Show overlay') + '</button>' +
       '</div>';
+    renderLakeInfo();
 
     var toggleBtn = document.getElementById('dnr-toggle');
     if (toggleBtn) toggleBtn.onclick = toggleDNRLayer;
@@ -1239,6 +1280,7 @@
         document.getElementById('useloc').onclick = useMyLocation;
       }
       renderNearbyWaters();
+      fetchLakeInfo(best.name, best.lat, best.lng);
       fetchSpeciesForWater(best.name, best.lat, best.lng);
     }).catch(function() {});
   }
@@ -1314,6 +1356,112 @@
         (tempF !== null ? '<span class="gauge-temp">' + tempF + '°F water</span>' : '') +
       '</div>' +
       '<div class="gauge-tip">' + flowTip + '</div>';
+  }
+
+  // ---- lake info fetch (Overpass OSM tags + Wikidata depth/area/trophic) ----
+  var _lakeInfoKey = null;
+  function fetchLakeInfo(name, lat, lng) {
+    if (typeof fetch === 'undefined') return;
+    var key = lat.toFixed(4) + '|' + lng.toFixed(4);
+    if (_lakeInfoKey === key) return;
+    _lakeInfoKey = key;
+    state.lakeInfo = null;
+    var liEl = document.getElementById('lake-info');
+    if (liEl) liEl.innerHTML = '<div class="lake-info-loading">Fetching lake data…</div>';
+
+    var safeName = name.replace(/,.*/, '').trim().replace(/['"]/g, '');
+    var q = '[out:json][timeout:10];(' +
+      'way["natural"="water"]["name"~"' + safeName + '",i](around:3000,' + lat + ',' + lng + ');' +
+      'relation["natural"="water"]["name"~"' + safeName + '",i](around:3000,' + lat + ',' + lng + ');' +
+    ');out tags;';
+    fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(q)
+    }).then(function(r) { return r.json(); }).then(function(j) {
+      var elem = j.elements && j.elements[0];
+      var tags = (elem && elem.tags) || {};
+      var info = { name: tags.name || name, type: tags.water || null, wikidata: tags.wikidata || null };
+      if (tags.ele) info.elevation = Math.round(+tags.ele * 3.281) + ' ft';
+
+      if (info.wikidata) {
+        fetch('https://www.wikidata.org/wiki/Special:EntityData/' + info.wikidata + '.json')
+          .then(function(r) { return r.json(); })
+          .then(function(wd) {
+            var entity = wd.entities && wd.entities[info.wikidata];
+            var claims = (entity && entity.claims) || {};
+
+            function getNum(pid) {
+              var c = claims[pid] && claims[pid][0];
+              var dv = c && c.mainsnak && c.mainsnak.datavalue;
+              return dv ? { amount: parseFloat(dv.value.amount), unit: dv.value.unit || '' } : null;
+            }
+            function getItem(pid) {
+              var c = claims[pid] && claims[pid][0];
+              var dv = c && c.mainsnak && c.mainsnak.datavalue;
+              return dv && dv.value && dv.value.id;
+            }
+
+            var area = getNum('P2046');
+            if (area) {
+              if (area.unit.indexOf('Q712226') !== -1)      info.area = Math.round(area.amount * 247.105) + ' acres';
+              else if (area.unit.indexOf('Q35852') !== -1)  info.area = Math.round(area.amount * 2.471) + ' acres';
+              else if (area.unit.indexOf('Q81292') !== -1)  info.area = Math.round(area.amount) + ' acres';
+            }
+            var depth = getNum('P4511');
+            if (depth) {
+              if (depth.unit.indexOf('Q11573') !== -1)      { info.maxDepth = Math.round(depth.amount * 3.281) + ' ft'; info.maxDepthM = depth.amount; }
+              else if (depth.unit.indexOf('Q3710') !== -1)  { info.maxDepth = Math.round(depth.amount) + ' ft'; info.maxDepthM = depth.amount / 3.281; }
+            }
+            var elev = getNum('P2044');
+            if (elev && !info.elevation) {
+              if (elev.unit.indexOf('Q11573') !== -1) info.elevation = Math.round(elev.amount * 3.281) + ' ft';
+            }
+            var trophicId = getItem('P6526');
+            var trophicMap = { 'Q1250464': 'Oligotrophic', 'Q1250467': 'Mesotrophic', 'Q1250479': 'Eutrophic', 'Q20892765': 'Hypereutrophic' };
+            if (trophicId && trophicMap[trophicId]) info.trophic = trophicMap[trophicId];
+
+            state.lakeInfo = info;
+            renderLakeInfo();
+          }).catch(function() { state.lakeInfo = info; renderLakeInfo(); });
+      } else {
+        state.lakeInfo = info;
+        renderLakeInfo();
+      }
+    }).catch(function() { state.lakeInfo = { name: name }; renderLakeInfo(); });
+  }
+
+  function _trophicFishingNote(info) {
+    if (info.trophic === 'Oligotrophic')   return 'Clear, cold, low-nutrient — prime habitat for trout, walleye, and lake sturgeon; target deep structure in summer.';
+    if (info.trophic === 'Mesotrophic')    return 'Moderate clarity and nutrients — good mixed fishery; walleye on break lines, bass and pike in weeds.';
+    if (info.trophic === 'Eutrophic')      return 'Nutrient-rich with reduced clarity — excellent bass, crappie, catfish; target vegetation edges and deep holes.';
+    if (info.trophic === 'Hypereutrophic') return 'Very high nutrients, low oxygen in depths — concentrate on shallow vegetation; carp, catfish, panfish.';
+    if (info.maxDepthM) {
+      if (info.maxDepthM > 30) return 'Deep lake — likely thermally stratified in summer; target thermocline 20–40 ft for walleye and trout.';
+      if (info.maxDepthM < 4)  return 'Shallow lake — weed-based fishery; bass, panfish, and pike in vegetation edges.';
+    }
+    return '';
+  }
+
+  function renderLakeInfo() {
+    var el = document.getElementById('lake-info');
+    if (!el) return;
+    var info = state.lakeInfo;
+    if (!info) { el.innerHTML = ''; return; }
+    var rows = [];
+    if (info.type) rows.push(['Type', info.type.charAt(0).toUpperCase() + info.type.slice(1)]);
+    if (info.area) rows.push(['Surface area', info.area]);
+    if (info.maxDepth) rows.push(['Max depth', info.maxDepth]);
+    if (info.elevation) rows.push(['Elevation', info.elevation]);
+    if (info.trophic) rows.push(['Trophic status', info.trophic]);
+    var note = _trophicFishingNote(info);
+    if (!rows.length && !note) { el.innerHTML = ''; return; }
+    el.innerHTML =
+      (rows.length ? '<div class="lake-info-grid">' +
+        rows.map(function(r) {
+          return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + r[1] + '</div></div>';
+        }).join('') + '</div>' : '') +
+      (note ? '<div class="lake-info-note">' + note + '</div>' : '');
   }
 
   // ---- species-by-water lookup (WI DNR ArcGIS + iNaturalist fallback) ----
@@ -1410,8 +1558,12 @@
           }).addTo(_map);
         } catch(e) {}
       }
-      _map.setView([lat, lng], _map.getZoom());
+      // Only recenter map if the user hasn't manually picked a water body
+      if (!_manualLoc) _map.setView([lat, lng], _map.getZoom());
     }
+
+    // Skip location + recompute overrides when user has a manual selection
+    if (_manualLoc) return;
 
     var moved = _lastRecomputeLat === null ||
       Math.abs(lat - _lastRecomputeLat) > 0.001 ||
@@ -1441,6 +1593,13 @@
 
   function useMyLocation() {
     if (!navigator.geolocation) { alert('Geolocation not available; using Yellow Lake.'); return; }
+    _manualLoc = false;
+    state.knownSpecies = null;
+    state.lakeInfo = null;
+    _speciesReqKey = null;
+    _lakeInfoKey = null;
+    _lastRecomputeLat = null; // force recompute on next GPS tick
+    _lastRecomputeLng = null;
     navigator.geolocation.getCurrentPosition(
       function(pos) { onGpsUpdate(pos); startGpsWatch(); },
       function() { alert('Could not get location. Using Yellow Lake.'); },
