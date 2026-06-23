@@ -1040,7 +1040,7 @@
       '<div class="adv-note">' + adv.tempNote + '</div>' +
       speciesOutlookHtml(adv.delta, adv.airTemp, adv.solunarBoost) +
       '<div class="adv-map-footer">' +
-        '<span class="adv-dnr-badge">🛰 Satellite · Yellow Lake, WI</span>' +
+        '<span class="adv-dnr-badge">🛰 Satellite · ' + state.loc.name + '</span>' +
         '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide overlay' : 'Show overlay') + '</button>' +
       '</div>';
 
