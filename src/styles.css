@@ -256,6 +256,10 @@ button.toggle {
 
 /* ---- species outlook ---- */
 .species-section { margin-top: 14px; }
+.species-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.species-filter { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 12px; padding: 4px 8px; width: 90px; outline: none; }
+.species-filter:focus { border-color: var(--minor); }
+.species-no-match { color: var(--muted); font-size: 12px; padding: 8px 0; }
 .species-row { padding: 7px 0; border-bottom: 1px solid var(--line); }
 .species-row:last-child { border-bottom: none; }
 .species-row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }

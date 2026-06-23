@@ -13,6 +13,7 @@
   var _pressureReqId = 0;
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
+  var _speciesFilter = '';
 
   var SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   var TOPO_URL = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}';
@@ -183,27 +184,50 @@
     '</div>';
   }
 
+  function _speciesRowsHtml(delta, airTemp, solBoost) {
+    var f = _speciesFilter.toLowerCase();
+    var list = f ? SPECIES.filter(function(sp) { return sp.name.toLowerCase().indexOf(f) !== -1; }) : SPECIES;
+    if (!list.length) return '<div class="species-no-match">No species match "' + _speciesFilter + '"</div>';
+    return list.map(function(sp) {
+      var sc = _speciesScore(sp, delta, airTemp, solBoost);
+      var depth     = sp.depth(delta, airTemp);
+      var structure = sp.structure(delta, airTemp, solBoost);
+      var gear      = sp.gear(delta, airTemp, solBoost);
+      return '<div class="species-row">' +
+        '<div class="species-row-head">' +
+          '<div class="species-name">' + sp.name + '</div>' +
+          '<div class="species-badge score-' + sc + '">' + BITE_LABELS[sc - 1] + '</div>' +
+        '</div>' +
+        '<div class="species-detail">' +
+          '<b>Depth</b> ' + depth + ' · ' +
+          '<b>Structure</b> ' + structure + ' · ' +
+          '<b>Presentation</b> ' + gear +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
   function speciesOutlookHtml(delta, airTemp, solBoost) {
     return '<div class="species-section">' +
-      '<div class="modal-section-label" style="margin-bottom:6px">Species Outlook</div>' +
-      SPECIES.map(function(sp) {
-        var sc = _speciesScore(sp, delta, airTemp, solBoost);
-        var depth     = sp.depth(delta, airTemp);
-        var structure = sp.structure(delta, airTemp, solBoost);
-        var gear      = sp.gear(delta, airTemp, solBoost);
-        return '<div class="species-row">' +
-          '<div class="species-row-head">' +
-            '<div class="species-name">' + sp.name + '</div>' +
-            '<div class="species-badge score-' + sc + '">' + BITE_LABELS[sc - 1] + '</div>' +
-          '</div>' +
-          '<div class="species-detail">' +
-            '<b>Depth</b> ' + depth + ' · ' +
-            '<b>Structure</b> ' + structure + ' · ' +
-            '<b>Presentation</b> ' + gear +
-          '</div>' +
-        '</div>';
-      }).join('') +
+      '<div class="species-header">' +
+        '<span class="modal-section-label">Species Outlook</span>' +
+        '<input type="search" class="species-filter" id="species-filter" placeholder="Filter…" value="' + _speciesFilter + '">' +
+      '</div>' +
+      '<div id="species-rows">' + _speciesRowsHtml(delta, airTemp, solBoost) + '</div>' +
     '</div>';
+  }
+
+  function rewireSpeciesFilter() {
+    var el = document.getElementById('species-filter');
+    if (!el) return;
+    el.oninput = function() {
+      _speciesFilter = el.value;
+      var rows = document.getElementById('species-rows');
+      if (rows && state.lastAdv) {
+        var adv = state.lastAdv;
+        rows.innerHTML = _speciesRowsHtml(adv.delta, adv.airTemp, adv.solunarBoost);
+      }
+    };
   }
 
   function phaseIcon(phase) {
@@ -770,6 +794,7 @@
 
     var toggleBtn = document.getElementById('dnr-toggle');
     if (toggleBtn) toggleBtn.onclick = toggleDNRLayer;
+    rewireSpeciesFilter();
 
     // Wire the advisor header to expand modal (one-time)
     var hdEl = document.querySelector('.advisor-hd');
@@ -914,6 +939,45 @@
     });
   }
 
+  // ---- nearest lake lookup (Overpass API) ----
+  var _lakeReqLat = null, _lakeReqLng = null;
+  function fetchNearestLake(lat, lng) {
+    if (typeof fetch === 'undefined') return;
+    // Only re-query if moved more than ~500 m
+    if (_lakeReqLat !== null &&
+        Math.abs(lat - _lakeReqLat) < 0.005 &&
+        Math.abs(lng - _lakeReqLng) < 0.005) return;
+    _lakeReqLat = lat; _lakeReqLng = lng;
+    var q = '[out:json][timeout:8];(way["natural"="water"]["name"](around:20000,' +
+      lat + ',' + lng + ');relation["natural"="water"]["name"](around:20000,' +
+      lat + ',' + lng + '););out center;';
+    fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(q)
+    }).then(function(r) { return r.json(); }).then(function(j) {
+      if (!j.elements || !j.elements.length) return;
+      var best = null, bestDist = Infinity;
+      j.elements.forEach(function(e) {
+        if (!e.tags || !e.tags.name) return;
+        var c = e.center || e;
+        if (c.lat == null) return;
+        var dlat = c.lat - lat, dlng = (c.lon || c.lng || 0) - lng;
+        var dist = dlat * dlat + dlng * dlng;
+        if (dist < bestDist) { bestDist = dist; best = e.tags.name; }
+      });
+      if (!best) return;
+      state.loc.name = best;
+      var locEl = document.getElementById('loc');
+      if (locEl) {
+        locEl.innerHTML = best + ' · ' +
+          state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
+          '<button id="useloc">Use my location</button>';
+        document.getElementById('useloc').onclick = useMyLocation;
+      }
+    }).catch(function() {});
+  }
+
   // ---- geolocation ----
   function onGpsUpdate(pos) {
     var lat = +pos.coords.latitude.toFixed(5);
@@ -946,6 +1010,7 @@
         tz: Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT.tz
       };
       recompute();
+      fetchNearestLake(lat, lng);
     }
   }
 
