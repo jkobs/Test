@@ -415,12 +415,12 @@
     if (!el || !state.nearbyWaters.length) return;
     var chips = state.nearbyWaters.map(function(w) {
       var active = w.name === state.loc.name;
-      var km = Math.round(Math.sqrt(w.dist) * 111);
+      var dist = fmtDist(w.dist);
       var icon = w.type === 'river' ? '🏞' : '🫧';
       return '<div class="nearby-chip' + (active ? ' active' : '') + '" ' +
         'data-lat="' + w.lat + '" data-lng="' + w.lng + '" ' +
         'data-name="' + w.name.replace(/"/g, '&quot;') + '">' +
-        icon + ' ' + w.name + ' <span class="nearby-km">' + km + ' km</span>' +
+        icon + ' ' + w.name + ' <span class="nearby-dist">' + dist + '</span>' +
       '</div>';
     }).join('');
     el.innerHTML = '<div class="nearby-scroll">' + chips + '</div>';
@@ -437,6 +437,13 @@
         recompute();
       };
     });
+  }
+
+  function fmtDist(degDist) {
+    var mi = Math.sqrt(degDist) * 69;
+    if (mi < 0.1) return '< 0.1 mi';
+    if (mi < 10)  return mi.toFixed(1) + ' mi';
+    return Math.round(mi) + ' mi';
   }
 
   function phaseIcon(phase) {
@@ -1257,7 +1264,7 @@
   function renderGauge(gauge) {
     var el = document.getElementById('gauge-card');
     if (!el) return;
-    var km = Math.round(Math.sqrt(gauge.dist) * 111);
+    var dist = fmtDist(gauge.dist);
     var flowStr = Math.round(gauge.flow).toLocaleString() + ' cfs';
     var tempF   = gauge.temp !== null ? Math.round(gauge.temp * 9 / 5 + 32) : null;
     var flowTip = '';
@@ -1274,7 +1281,7 @@
     el.innerHTML =
       '<div class="gauge-head">' +
         '<span class="gauge-name">💧 ' + gauge.name + '</span>' +
-        '<span class="gauge-dist">' + km + ' km away</span>' +
+        '<span class="gauge-dist">' + dist + ' away</span>' +
       '</div>' +
       '<div class="gauge-vals">' +
         '<span class="gauge-flow">' + flowStr + '</span>' +
@@ -1310,7 +1317,7 @@
     if (moved) {
       _lastRecomputeLat = lat; _lastRecomputeLng = lng;
       state.loc = {
-        name: 'Current location ±' + acc + ' m',
+        name: 'Current location ±' + Math.round(acc * 3.281) + ' ft',
         lat: lat, lng: lng,
         tz: Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT.tz
       };
