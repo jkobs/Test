@@ -907,12 +907,12 @@
 
     var tempNote;
     if (airTemp < 45) {
-      tempNote = 'Cold air — walleye likely lethargic. Fish slow and deep near bottom.';
+      tempNote = 'Cold air — fish likely lethargic. Slow presentations deep near bottom.';
       pScore = Math.max(1, pScore - 1);
     } else if (airTemp < 60) {
-      tempNote = 'Cool conditions — transition period; expect fish on rock and gravel structure.';
+      tempNote = 'Cool conditions — transition period; fish active on rock and gravel structure.';
     } else if (airTemp <= 80) {
-      tempNote = 'Comfortable temps — walleye in their active range; run a full structure sweep.';
+      tempNote = 'Comfortable temps — most species in their active range; run a full structure sweep.';
     } else {
       tempNote = 'Hot air — midday fish likely deep or suspended; focus early/late on shallows.';
       pScore = Math.max(1, pScore - 1);
