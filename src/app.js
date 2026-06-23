@@ -62,6 +62,15 @@
     { name: 'Yellow Perch',     tempLo: 58, tempHi: 72, pref:  1,
       depth: function()  { return '10–20 ft'; },
       gear:  function()  { return 'Small jigging spoon over sand/gravel'; } },
+    { name: 'Smallmouth Bass', tempLo: 60, tempHi: 72, pref:  0,
+      depth: function()  { return '5–18 ft'; },
+      gear:  function()  { return 'Tube jig or drop-shot on rocky points'; } },
+    { name: 'Lake Sturgeon',   tempLo: 55, tempHi: 70, pref:  0,
+      depth: function()  { return '15–30 ft (bottom)'; },
+      gear:  function()  { return 'Bottom rig with nightcrawler or crayfish'; } },
+    { name: 'Muskellunge',     tempLo: 60, tempHi: 72, pref: -1,
+      depth: function()  { return '8–20 ft'; },
+      gear:  function()  { return 'Large bucktail or jerkbait; figure-8 at boat'; } },
   ];
 
   function _speciesScore(sp, delta, airTemp, solBoost) {
