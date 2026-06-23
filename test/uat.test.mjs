@@ -84,7 +84,7 @@ check('AC5 next-period block visible', next && next.style.display !== 'none');
 check('AC5 countdown is a timer', next && /\d?\d:\d\d/.test(next.querySelector('.countdown')?.textContent || ''));
 
 // AC6 — rating
-check('AC6 star rating rendered', /[★☆]{5}/.test(today));
+check('AC6 fish rating rendered', /🐟/.test(today));
 
 // AC7 — offline weather degraded, app still rendered
 check('AC7 app rendered without network', cards.length === 7);

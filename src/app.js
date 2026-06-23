@@ -5,14 +5,19 @@
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null };
 
   // ---- Leaflet map state ----
-  var _map = null, _locMarker = null, _windLine = null, _accCircle = null;
-  var _drnOk = null;
-  var _pressureReqId = 0; // incremented on each fetchPressure call; stale responses are dropped
+  var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
+  var _topoLayer = null, _drnEnabled = true;
+  var _pressureReqId = 0;
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
+  var _speciesFilter = '';
+  var _selectedSpeciesName = 'Walleye';
+
+  var SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  var TOPO_URL = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}';
 
   // ---- formatting ----
   function fmtTime(date, tz) {
@@ -36,9 +41,374 @@
     }).format(new Date()).split('-');
     return { year: +p[0], month: +p[1], day: +p[2] };
   }
-  function stars(n) { return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n); }
+  function stars(n) { return '🐟'.repeat(n) + '·'.repeat(5 - n); }
   var KIND = { overhead: 'Moon overhead', underfoot: 'Moon underfoot', moonrise: 'Moonrise', moonset: 'Moonset' };
   var PHASE_ICON = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
+
+  // ---- bite scale + species outlook ----
+  var BITE_LABELS = ['No Bite', 'Slow', 'Moderate', 'Active', 'Hot Bite'];
+
+  var SPECIES = [
+    { name: 'Walleye',         tempLo: 55, tempHi: 75, pref:  1,
+      depth: function(d, t) {
+        if (t < 55) return '3–15 ft (post-spawn/spring shallow)';
+        if (d > 1)  return '15–25 ft (post-front, deep rock/humps)';
+        if (d < -1) return '6–15 ft (pre-front, wind-blown shallows)';
+        if (t > 78) return '15–25 ft (thermocline break, offshore)';
+        return '10–18 ft';
+      },
+      structure: function(d, t) {
+        if (d > 1)  return 'Steep inside turns 10–30 ft, deep rock humps, channel edges — post-front retreat';
+        if (d < -1) return 'Wind-blown points and shorelines, weed edge with hard bottom underneath';
+        if (t > 78) return 'Thermocline break 15–25 ft; offshore humps; open-water edges';
+        return 'Weed-to-hard-bottom break, rocky reefs and points; outer cabbage edge at 8–12 ft';
+      },
+      gear: function(d, t, s) {
+        if (d > 3)  return 'Lindy rig dragged very slowly, or dead-stick jig — fish lethargic, deep';
+        if (d > 1)  return 'Slow jig (leech/crawler tip) or Lindy rig; quiet long-line presentation';
+        if (d < -3) return 'Crankbait or spinner on wind-blown points — feeding frenzy pre-front';
+        if (d < -1) return 'Crankbait along wind-blown points; jig + minnow on shallow rock edges';
+        if (t < 55) return 'Live-bait jig tipped with minnow; slow snap-jig 2 in. off bottom';
+        if (t > 78) return 'Troll crankbait 1.5–2.5 mph over thermocline break; planer boards to spread';
+        return s >= 2 ? 'Snap-jig aggressively — solunar period active, low-light edge nearby' : 'Jig (leech in warm water, minnow in cold) or crankbait along drop-off edge';
+      }},
+    { name: 'Largemouth Bass', tempLo: 65, tempHi: 85, pref: -1,
+      depth: function(d, t) {
+        if (t > 82) return '2–6 ft at dawn/dusk; 12–20 ft midday near thermocline';
+        if (d > 1)  return '10–20 ft (post-front; deep ledges and offshore humps)';
+        if (d < -1) return '3–8 ft (pre-front; feeding up in shallows)';
+        if (t < 62) return '5–12 ft (transitional structure, docks, wood)';
+        return '5–15 ft';
+      },
+      structure: function(d, t) {
+        if (t > 82) return 'Lily pad mats, dock shade, and grass mat edges at low light; deep timber midday';
+        if (d < -1) return 'Sparse weed edges, emergent cover, shallow laydowns and wood — pre-front active';
+        if (d > 1)  return 'Deep weed edges, offshore humps, creek channel bends; thermocline layer';
+        if (t < 62) return 'Dock posts, submerged brush piles, hard-bottom transitions near heavy cover';
+        return 'Aquatic vegetation (milfoil, cabbage, lily pads), laydowns, docks';
+      },
+      gear: function(d, t, s) {
+        if (t > 82) return 'Topwater frog or walking bait at dawn/dusk; drop-shot or deep swimbait midday';
+        if (d < -1) return 'Buzzbait or fast crankbait — aggressive pre-front; punch frog over grass mats';
+        if (d > 1)  return 'Wacky/Ned rig Senko or Texas rig (finesse); slow football jig on bottom';
+        if (t < 62) return 'Slow-roll spinnerbait through cover; flipping jig in dock pockets; square-bill off wood';
+        return 'Texas rig through weeds, swim jig along weed edge, topwater at low light';
+      }},
+    { name: 'Northern Pike',   tempLo: 48, tempHi: 68, pref: -1,
+      depth: function(d, t) {
+        if (t < 50) return '1–6 ft (dark-bottom shallow bays, spring staging)';
+        if (t > 68) return '15–30 ft (deep weed edge, thermocline break)';
+        if (d < -1) return '3–12 ft (active, cruising weed edges pre-front)';
+        if (d > 1)  return '8–18 ft (outer weed line, post-front retreat)';
+        return '6–15 ft';
+      },
+      structure: function(d, t) {
+        if (t < 50) return 'Dark-bottom shallow bays absorbing heat, flooded backwaters, tributary inflows';
+        if (t > 68) return 'Deep cabbage outer edge 15–30 ft; rocky humps adjacent to weeds';
+        if (d < -1) return 'Inside weed-bed pockets and points; shallow flat bays with weed cover';
+        if (d > 1)  return 'Outer cabbage weed line; long points extending into basin';
+        return 'Cabbage weed-bed edges and pockets (primary ambush habitat); weed points and cups';
+      },
+      gear: function(d, t, s) {
+        if (t < 50) return 'Slow twitch-pause jerkbait or inline spinner in cold shallow bays — fish won\'t chase';
+        if (t > 68) return 'Large spoon or swimbait trolled/burned along deep weed edge 2.8–3.5 mph';
+        if (d < -1) return 'Blue Fox inline spinner (sz6) or large spoon burned across weed tops — reaction strikes';
+        if (d > 1)  return 'Slow-roll large swimbait along outer weed line; figure-8 at boat after every cast';
+        return 'Blue Fox inline spinner, spoon, or jerkbait with twitch-pause along weed edge; cast parallel to edge';
+      }},
+    { name: 'Crappie',         tempLo: 62, tempHi: 78, pref:  0,
+      depth: function(d, t) {
+        if (t < 55) return '12–20 ft (staging near brush/creek channels)';
+        if (t < 65) return '1–6 ft (spawn over hard bottom/brush)';
+        if (t > 78) return '15–25 ft (deep brush/timber in summer heat)';
+        if (d > 1)  return '10–18 ft (suspended above deep brush)';
+        return '6–15 ft (suspended)';
+      },
+      structure: function(d, t) {
+        if (t < 55) return 'Brush piles and submerged timber 12–20 ft; creek channel staging edges';
+        if (t < 65) return 'Shallow spawning flats 1–6 ft; sparse brush, dock edges, protected coves';
+        if (t > 78) return 'Deep brush piles 15–25 ft; standing timber, submerged structure in basin';
+        if (d > 1)  return 'Brush piles and submerged timber 10–18 ft — crappie feed upward, stay above school';
+        return 'Brush piles (top structure), dock pilings, weed edges with perch-fry activity';
+      },
+      gear: function(d, t, s) {
+        if (t < 55) return 'Spider rig troll at 0.2 mph — 1/16 oz jig + small minnow; double rig over deep brush';
+        if (t < 65) return 'Small jig or minnow under slip float near spawning cover; 1/32 oz for slow fall';
+        if (t > 78) return 'Vertical jig or Slab Rap over deep brush 15–25 ft — fish feed upward, never drop below them';
+        if (d > 1)  return 'Vertical 1/16 oz jig just above brush pile — crappie always feed up; light jig = slow fall';
+        return s >= 2 ? 'Active period — swim small jig through brush at steady pace' : '1/16 oz jig (orange/chartreuse) or small minnow near brush; vary color until they react';
+      }},
+    { name: 'Yellow Perch',    tempLo: 58, tempHi: 74, pref:  1,
+      depth: function(d, t) {
+        if (t < 58) return '4–10 ft (spring spawn, rocky/weed flats)';
+        if (t > 74) return '20–35 ft (rocky humps, above thermocline)';
+        if (d > 1)  return '15–25 ft (tight to rocky structure)';
+        return '10–20 ft';
+      },
+      structure: function(d, t) {
+        if (t < 58) return 'Hard-bottom flats with scattered vegetation; rocky shorelines 4–10 ft; spawn at 45–55°F';
+        if (t > 74) return 'Rocky humps and offshore reefs 20–35 ft — move holes frequently, school by size';
+        if (d > 1)  return 'Rocky humps and offshore reefs; locate school with sonar before dropping';
+        if (d < -1) return 'Gravel points, wind-blown rocky shorelines, rock-to-sand transitions';
+        return 'Rocky humps, reefs, and drop-offs (primary); weed edges and pilings in spring/fall';
+      },
+      gear: function(d, t, s) {
+        if (t < 58) return 'Small minnow or nightcrawler piece on light jig near hard bottom; 4–6 lb line';
+        if (t > 74) return 'Swedish Pimple or small jigging spoon over rocky humps 20–35 ft; dawn/dusk best';
+        if (d > 1)  return 'Bottom rig (nightcrawler or small minnow) over sand/gravel; use sonar to find school first';
+        if (d < -1) return 'Small blade bait or jigging spoon to trigger reaction bites; cover water until school found';
+        return 'Small jig + maggot/waxworm/minnow; nightcrawler on dropper rig over rocky hard bottom';
+      }},
+    { name: 'Smallmouth Bass', tempLo: 58, tempHi: 72, pref:  0,
+      depth: function(d, t) {
+        if (t < 55) return '5–15 ft (prespawn staging, gravel/pea-gravel flats)';
+        if (t > 75) return '20–40 ft (isolated boulders on flat basin bottom)';
+        if (d < -1) return '5–12 ft (rocky points and shoals, pre-front aggressive)';
+        if (d > 1)  return '15–30 ft (deep rock ledges — most pressure-sensitive fish)';
+        return '8–20 ft';
+      },
+      structure: function(d, t) {
+        if (t < 55) return 'Gravel and pea-gravel flats near future spawn sites; chunk rock and boulder fields';
+        if (t > 75) return 'Isolated boulders on flat basin bottom 20–40 ft; main-lake rocky humps';
+        if (d < -1) return 'Shallow boulder shoals, chunk rock banks, rocky points — pre-front aggressive';
+        if (d > 1)  return 'Base of deep rock piles and ledge drop-offs; retreats hard from shallow post-front';
+        return 'Rock and chunk rock (crayfish habitat), gravel points, rocky shorelines — clear water primary';
+      },
+      gear: function(d, t, s) {
+        if (t < 55) return 'Jerkbait (Shad Rap/X-Rap) with long pause; tube bait crawled on gravel — prespawn magic';
+        if (t > 75) return 'Drop shot or Ned rig near isolated boulders 20–40 ft; football jig on deep ledge';
+        if (d < -1) return 'Topwater or crankbait deflecting off rocks — pre-front aggression; cast parallel to rocky bank';
+        if (d > 1)  return 'Ned rig or tube dead-slow on deep rock — smallmouth most pressure-sensitive freshwater fish';
+        return s >= 2 ? 'Crankbait (Shad Rap) over gravel or drop-shot near boulder in solunar window' : 'Plastic grub or tube dragged on gravel/rock — top crayfish imitation; 4–6 lb line';
+      }},
+    { name: 'Lake Sturgeon',   tempLo: 50, tempHi: 72, pref:  0,
+      depth: function(d, t) {
+        if (t < 50) return '20–35 ft (deep channel holes, slow current)';
+        if (t > 72) return '20–30 ft (deepest river channel holes)';
+        if (d > 1)  return '15–22 ft (main channel, gravel/sand flats)';
+        return '15–22 ft (best consistent productive depth)';
+      },
+      structure: function(d, t) {
+        if (t < 50 || t > 72) return 'Deepest river channel holes and current seams; river bends where invertebrates concentrate';
+        if (d > 1)  return 'Gravel/sand flats adjacent to deep channel — anchor perpendicular, spread baits across hole';
+        if (d < -1) return 'Main river channel, deep basin holes, channel bends with silt/gravel bottom';
+        return 'Deep river holes with moderate current; sandy/silty/gravel bottom; channel edges near current seams';
+      },
+      gear: function(d, t, s) {
+        if (t < 50 || t > 72) return 'Sucker meat (cut bait) on 6/0 hook; 2–3 oz no-roll sinker; soak at sunset in deepest hole';
+        if (d > 1)  return 'Fresh nightcrawler (golf-ball gob) on 6/0 hook; hold position, re-anchor every 30 min';
+        if (d < -1) return 'Crawler or sucker meat + scent; glass-bead clacker ahead of hook; anchor in deepest channel hole';
+        return 'Nightcrawler gob or sucker meat; no-roll sinker 2–3 oz; move every 30 min; best action at sunset';
+      }},
+    { name: 'Muskellunge',     tempLo: 60, tempHi: 72, pref: -1,
+      depth: function(d, t) {
+        if (t < 58) return '10–20 ft (deep weed edge, rock transitions — jerkbait/live bait)';
+        if (t > 75) return '10–25 ft (thermocline layer; above oxygen break)';
+        if (d < -1) return '5–15 ft (active on weed edges pre-front)';
+        if (d > 1)  return '10–20 ft (deeper structural edges post-front)';
+        return '6–18 ft';
+      },
+      structure: function(d, t, s) {
+        if (t < 58) return 'Rocky points, deep weed-to-rock transitions, inside turns on main-lake structure';
+        if (t > 75) return 'Cabbage outer edge near thermocline 10–25 ft; shady inside turns; September = peak feeding';
+        if (d < -1) return 'Primary cabbage weed edges and points with deep-water access — best muskie window';
+        if (d > 1)  return 'Secondary weed lines, hard-bottom humps; fish neutral, need slow presentations';
+        return s >= 2 ? 'Your highest-percentage muskie spot NOW — active solunar period, fish are catchable' : 'Cabbage weed edge, inside turns on breaks, creek mouths, weed-to-rock transitions';
+      },
+      gear: function(d, t, s) {
+        if (t < 58) return 'Large jerkbait (Suick, Reef Hawg) — jerk-down, glide-up, LONG pause; or live sucker slow drift';
+        if (t > 75) return 'Dawn/dusk only; topwater prop bait or walking bait near thermocline structure; overcast = all day';
+        if (d < -1) return 'Double-bladed bucktail fast retrieve — best window; topwater at low light; figure-8 EVERY cast';
+        if (d > 1)  return 'Large rubber swimbait or glide bait, very slow — fish are neutral; wide deep figure-8 at boat';
+        return s >= 2 ? 'Bucktail fast on prime edges — solunar period active; figure-8 every cast without exception' : 'Bucktail or jerkbait; vary retrieve speed until fish reacts; always figure-8 at boatside';
+      }},
+    { name: 'Channel Catfish', tempLo: 72, tempHi: 90, pref: -1,
+      depth: function(d, t) {
+        if (t < 65) return '15–30 ft (deep holes and channel bends — cold = lethargic)';
+        if (t > 85) return '3–10 ft at night; 20–30 ft daytime in summer heat';
+        if (d < -1) return '3–10 ft (pre-front, move to shallows at dusk)';
+        if (d > 1)  return '18–30 ft (post-front, retreat to deepest holes)';
+        return '10–20 ft (channel edges and timber pockets)';
+      },
+      structure: function(d, t) {
+        if (t < 65) return 'Deepest channel holes, submerged timber, river bends — fish lethargic in cold';
+        if (d < -1) return 'Current seams below timber; outside channel bends; dam tailwaters — pre-front active';
+        if (d > 1)  return 'Deepest holes 15–30 ft, main channel bottom, submerged brush near deep water';
+        return 'Channel bends with current, submerged timber and brush, log jams, riprap edges';
+      },
+      gear: function(d, t, s) {
+        if (t < 65) return 'Cut sucker meat or chicken liver on slip sinker — soak bottom of deepest hole, barely move';
+        if (d < -1) return 'Punch bait or stink bait dip worm in current seam below snag; dusk to 2 am peak window';
+        if (d > 1)  return 'Nightcrawler or live minnow on slip sinker 20–30 ft; fish lethargic post-front, soak longer';
+        return s >= 2 ? 'Cut shad on slip sinker at dusk in current seam — solunar window aligns with catfish feeding time' : 'Cut shad, chicken liver, or commercial stink bait; 2/0–4/0 hook, no-roll sinker; patience';
+      }},
+    { name: 'Flathead Catfish', tempLo: 70, tempHi: 88, pref:  0,
+      depth: function(d, t) {
+        if (t < 60) return '20–40 ft (deep woody pools — inactive in cold)';
+        if (t > 85) return '5–15 ft at night only; deepest pool daytime';
+        if (d > 1)  return '12–25 ft (tight to deep woody structure post-front)';
+        return '8–18 ft (woody pools with slow current — purely nocturnal)';
+      },
+      structure: function(d, t) {
+        if (t < 60) return 'Deepest pool in system with woody debris; minimal movement';
+        if (d > 1)  return 'Undercut banks with root wads, submerged logs 12–25 ft; post-front retreat to deepest wood';
+        if (d < -1) return 'Slow-current eddies below log jams; woody pool exits — cruising and active pre-front';
+        return 'Submerged logs and root wads, undercut banks, slow-current eddies, deep river bends';
+      },
+      gear: function(d, t, s) {
+        if (t < 60) return 'Large live bream or sucker head under slip float near woody snag — extremely slow; fish barely active';
+        if (d < -1) return 'Large live sunfish or bullhead (6–10 in.) under heavy float near snag — pre-front activity window';
+        if (d > 1)  return 'Live bait on slip sinker near deepest wood; 5/0–7/0 hook; soak 10–15 min before moving';
+        return 'Live sunfish, bullhead, perch, or chub (5–10 in.) ONLY — flatheads rarely strike cut bait; 10 pm–3 am prime';
+      }},
+    { name: 'Lake Trout',      tempLo: 48, tempHi: 60, pref: -1,
+      depth: function(d, t) {
+        if (t > 65) return '45–100 ft (below thermocline; track with downrigger)';
+        if (t < 45) return '10–30 ft (shallows during ice-out and fall turnover)';
+        if (d < -1) return '20–50 ft (pre-front active, may rise toward surface)';
+        if (d > 1)  return '50–100 ft (post-front; very lethargic, hug bottom)';
+        return '20–60 ft';
+      },
+      structure: function(d, t) {
+        if (t > 65) return 'Deep main-lake basin below thermocline 45–100 ft; rocky humps at thermocline break';
+        if (t < 45) return 'Shallow rocky shorelines and reefs 10–30 ft — active during fall/spring turnover';
+        if (d > 1)  return 'Deepest rocky basin; coldest water; fish bottom-hugging post-front';
+        if (d < -1) return 'Thermocline break 20–50 ft; rocky offshore humps; chase cisco and smelt schools';
+        return 'Main-lake rocky humps and reefs 20–60 ft; cold clear oligotrophic basin';
+      },
+      gear: function(d, t, s) {
+        if (t > 65) return 'Downrigger troll spoon or cisco-imitating flasher 45–100 ft; 2–2.5 mph; match thermocline depth exactly';
+        if (t < 45) return 'Swedish Pimple jigged vertically or flutter spoon on shallow rock 10–30 ft';
+        if (d > 1)  return 'Bladebait (Sonar) or tube jig dead-slow on deep rock bottom — fish barely active post-front';
+        if (d < -1) return 'Troll spoon near thermocline or jig aggressively — pre-front window, highest activity';
+        return s >= 2 ? 'Jig aggressively over rocky hump in solunar window — lakers respond well to periods' : 'Downrigger troll with spoon or tube jig; 1.5–2.5 mph over main-lake rocky structure';
+      }},
+    { name: 'Rainbow/Brown Trout', tempLo: 50, tempHi: 66, pref: -1,
+      depth: function(d, t) {
+        if (t > 68) return '10–25 ft (cold inflow zones or thermocline layer)';
+        if (t < 45) return '5–15 ft near bottom (sluggish; slow presentations)';
+        if (d < -1) return 'Surface to 8 ft (active pre-front; rising to feed)';
+        if (d > 1)  return '8–20 ft (post-front retreat near cold inflows)';
+        return '3–12 ft';
+      },
+      structure: function(d, t) {
+        if (t > 68) return 'Cold spring inflows, thermocline break, dam tailwaters, deep shaded pools';
+        if (t < 45) return 'Deep slow pools and runs; low light only — brown trout especially reluctant in cold';
+        if (d < -1) return 'Riffles and current seams near surface — pre-front feeding window, most active';
+        if (d > 1)  return 'Deep pools and undercut banks near cold spring inflows — post-front neutral';
+        return 'Current seams, pool-riffle transitions, rocky points, undercut banks; overcast prime';
+      },
+      gear: function(d, t, s) {
+        if (t > 68) return 'Small spoon or jig near cold inflow or thermocline depth — trout schooled deep in heat';
+        if (t < 45) return 'Slow drift nymph or PowerBait on slip sinker near bottom — barely twitch the rod';
+        if (d < -1) return 'Inline spinner (Rooster Tail/Mepps), small crankbait, or dry fly — peak pre-front aggression';
+        if (d > 1)  return 'PowerBait or nightcrawler under float near pool bottom — finesse only, post-front lockup';
+        return s >= 2 ? 'Inline spinner or streamer in solunar window — trout timing correlates well with moon periods' : 'Inline spinner, leech or worm under bobber, or soft-hackle wet fly; dawn/dusk/overcast best';
+      }},
+  ];
+
+  function _speciesScore(sp, delta, airTemp, solBoost) {
+    var t = (airTemp >= sp.tempLo && airTemp <= sp.tempHi) ? 2
+          : (airTemp < sp.tempLo - 10 || airTemp > sp.tempHi + 10) ? 0 : 1;
+    var p = sp.pref === 1  ? (delta > 1 ? 2 : delta < -1 ? 0 : 1)
+          : sp.pref === -1 ? (delta < -1 ? 2 : delta > 1 ? 0 : 1)
+          : (Math.abs(delta) < 1 ? 2 : 1);
+    return Math.max(1, Math.min(5, t + p + solBoost));
+  }
+
+  function biteScaleHtml(score) {
+    return '<div class="bite-bar">' +
+      BITE_LABELS.map(function(label, i) {
+        var n = i + 1;
+        return '<div class="bite-seg bite-' + n + (n === score ? ' bite-current' : '') + '">' + label + '</div>';
+      }).join('') +
+    '</div>';
+  }
+
+  function _speciesRowsHtml(delta, airTemp, solBoost) {
+    var f = _speciesFilter.toLowerCase();
+    var list = f ? SPECIES.filter(function(sp) { return sp.name.toLowerCase().indexOf(f) !== -1; }) : SPECIES;
+    if (!list.length) return '<div class="species-no-match">No species match "' + _speciesFilter + '"</div>';
+    return list.map(function(sp) {
+      var sc = _speciesScore(sp, delta, airTemp, solBoost);
+      var depth     = sp.depth(delta, airTemp);
+      var structure = sp.structure(delta, airTemp, solBoost);
+      var gear      = sp.gear(delta, airTemp, solBoost);
+      return '<div class="species-row">' +
+        '<div class="species-row-head">' +
+          '<div class="species-name">' + sp.name + '</div>' +
+          '<div class="species-badge score-' + sc + '">' + BITE_LABELS[sc - 1] + '</div>' +
+        '</div>' +
+        '<div class="species-detail">' +
+          '<b>Depth</b> ' + depth + ' · ' +
+          '<b>Structure</b> ' + structure + ' · ' +
+          '<b>Presentation</b> ' + gear +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function speciesOutlookHtml(delta, airTemp, solBoost) {
+    return '<div class="species-section">' +
+      '<div class="species-header">' +
+        '<span class="modal-section-label">Species Outlook</span>' +
+        '<input type="search" class="species-filter" id="species-filter" placeholder="Filter…" value="' + _speciesFilter + '">' +
+      '</div>' +
+      '<div id="species-rows">' + _speciesRowsHtml(delta, airTemp, solBoost) + '</div>' +
+    '</div>';
+  }
+
+  function rewireSpeciesFilter() {
+    var el = document.getElementById('species-filter');
+    if (!el) return;
+    el.oninput = function() {
+      _speciesFilter = el.value;
+      var rows = document.getElementById('species-rows');
+      if (rows && state.lastAdv) {
+        var adv = state.lastAdv;
+        rows.innerHTML = _speciesRowsHtml(adv.delta, adv.airTemp, adv.solunarBoost);
+      }
+    };
+  }
+
+  function _speciesBiteHtml(adv) {
+    var sp = null;
+    for (var i = 0; i < SPECIES.length; i++) {
+      if (SPECIES[i].name === _selectedSpeciesName) { sp = SPECIES[i]; break; }
+    }
+    if (!sp) sp = SPECIES[0];
+    var sc = _speciesScore(sp, adv.delta, adv.airTemp, adv.solunarBoost);
+    var depth     = sp.depth(adv.delta, adv.airTemp);
+    var structure = sp.structure(adv.delta, adv.airTemp, adv.solunarBoost);
+    var gear      = sp.gear(adv.delta, adv.airTemp, adv.solunarBoost);
+    var opts = SPECIES.map(function(s) {
+      return '<option value="' + s.name + '"' + (s.name === sp.name ? ' selected' : '') + '>' + s.name + '</option>';
+    }).join('');
+    return '<div class="conditions-head">' +
+        '<div class="bite-scale-label">Bite Conditions</div>' +
+        '<select id="conditions-species-select" class="conditions-species-select">' + opts + '</select>' +
+      '</div>' +
+      '<div class="bite-scale-wrap">' + biteScaleHtml(sc) + '</div>' +
+      '<div class="adv-grid">' +
+        '<div class="adv-item"><div class="adv-label">Pressure</div><div class="adv-val">' + adv.pressureStr + '</div></div>' +
+        '<div class="adv-item"><div class="adv-label">Target depth</div><div class="adv-val">' + depth + '</div></div>' +
+        '<div class="adv-item adv-wide"><div class="adv-label">Structure</div><div class="adv-val">' + structure + '</div></div>' +
+        '<div class="adv-item adv-wide"><div class="adv-label">Presentation</div><div class="adv-val">' + gear + '</div></div>' +
+      '</div>';
+  }
+
+  function rewireSpeciesDropdown() {
+    var el = document.getElementById('conditions-species-select');
+    if (!el) return;
+    el.onchange = function() {
+      _selectedSpeciesName = el.value;
+      var wrap = document.getElementById('species-conditions');
+      if (wrap && state.lastAdv) {
+        wrap.innerHTML = _speciesBiteHtml(state.lastAdv);
+        rewireSpeciesDropdown();
+      }
+    };
+  }
 
   function phaseIcon(phase) {
     return PHASE_ICON[Math.floor((phase * 8) + 0.5) % 8];
@@ -54,7 +424,6 @@
     render();
     fetchWeather();
     fetchPressure();
-    // Update map pin immediately — don't wait for pressure fetch
     initMap(state.loc.lat, state.loc.lng, null, 0);
   }
 
@@ -86,12 +455,16 @@
 
   function dayCard(d, isFirst, idx) {
     var tz = d.tz;
-    var sub = 'Sunrise ' + fmtTime(d.sunrise, tz) + ' · Sunset ' + fmtTime(d.sunset, tz) +
-              ' · ' + d.moon.phaseName + ' (' + Math.round(d.moon.illumination * 100) + '%)';
+    var sunTimes = '<div class="sun-times">' +
+      '<span>🌅 Sunrise <strong>' + fmtTime(d.sunrise, tz) + '</strong></span>' +
+      '<span>🌇 Sunset <strong>' + fmtTime(d.sunset, tz) + '</strong></span>' +
+      '</div>';
+    var sub = phaseIcon(d.moon.phase) + ' ' + d.moon.phaseName + ' · ' + Math.round(d.moon.illumination * 100) + '% lit';
     var rows = d.periods.map(function (p) { return periodRow(p, tz); }).join('');
     return '<div class="card' + (isFirst ? ' today' : '') + '" data-idx="' + idx + '" role="button" tabindex="0" aria-label="Open details for ' + fmtDayLabel(d.date, tz) + '">' +
       '<div class="day-head"><span class="date">' + fmtDayLabel(d.date, tz) + '</span>' +
         '<span class="stars" title="' + d.rating.stars + '/5">' + stars(d.rating.stars) + ' <span class="tap-hint">tap for details</span></span></div>' +
+      sunTimes +
       '<div class="day-sub">' + sub + '</div>' +
       '<div class="periods">' + rows + '</div>' +
       '<div class="weather" id="weather-' + idx + '"></div>' +
@@ -103,54 +476,73 @@
     var tz = d.tz;
     function pct(date) {
       if (!date) return null;
-      var ms = date.getTime();
-      // position as fraction of the local day
       var parts = new Intl.DateTimeFormat('en-US', {
         timeZone: tz, hour: 'numeric', minute: '2-digit', second: '2-digit',
         hour12: false
       }).formatToParts(date);
-      var hp = {}, pp = {};
+      var hp = {};
       parts.forEach(function (x) { hp[x.type] = +x.value; });
       return ((hp.hour * 3600 + hp.minute * 60 + (hp.second || 0)) / 86400) * 100;
     }
 
-    var W = 100; // percentage-based
     var rows = [];
-
-    // Daylight band
     var srP = pct(d.sunrise), ssP = pct(d.sunset);
     if (srP !== null && ssP !== null) {
       rows.push('<div class="tl-band daylight" style="left:' + srP + '%;width:' + (ssP - srP) + '%"></div>');
     }
-
-    // Period bands
     d.periods.forEach(function (p) {
       var s = pct(p.start), e = pct(p.end), c = pct(p.center);
       if (s === null) return;
-      // handle wrap-around midnight: clamp to 0-100
       if (e < s) e = 100;
       rows.push('<div class="tl-band ' + p.type + (p.sunOverlap ? ' sun' : '') + '" style="left:' + Math.max(0,s) + '%;width:' + Math.min(100-Math.max(0,s), e-Math.max(0,s)) + '%"></div>');
       if (c !== null) rows.push('<div class="tl-tick" style="left:' + c + '%"></div>');
     });
-
-    // Sun markers
     if (srP !== null) rows.push('<div class="tl-sun-mark" style="left:' + srP + '%" title="Sunrise"></div>');
     if (ssP !== null) rows.push('<div class="tl-sun-mark" style="left:' + ssP + '%" title="Sunset"></div>');
 
-    // Hour labels
     var hourLabels = '';
     [6, 12, 18].forEach(function (h) {
       var label = h === 6 ? '6am' : h === 12 ? 'noon' : '6pm';
       hourLabels += '<span style="left:' + (h/24*100) + '%">' + label + '</span>';
     });
-
     return '<div class="tl-wrap">' +
       '<div class="tl-bar">' + rows.join('') + '</div>' +
       '<div class="tl-labels">' + hourLabels + '</div>' +
       '</div>';
   }
 
-  // ---- modal ----
+  // ---- modal infrastructure ----
+  function _showModal(innerHtml, afterAppend) {
+    closeModal();
+    var wrap = document.createElement('div');
+    wrap.innerHTML = '<div class="modal-overlay" id="modal-overlay"><div class="modal" role="dialog" aria-modal="true">' + innerHtml + '</div></div>';
+    document.body.appendChild(wrap.firstChild);
+    document.getElementById('modal-close').onclick = closeModal;
+    document.getElementById('modal-overlay').onclick = function (e) {
+      if (e.target.id === 'modal-overlay') closeModal();
+    };
+    document.addEventListener('keydown', onEsc);
+    if (afterAppend) afterAppend();
+  }
+
+  function closeModal() {
+    if (_modalMap) { try { _modalMap.remove(); } catch (e) {} _modalMap = null; }
+    var el = document.getElementById('modal-overlay');
+    if (el) el.remove();
+    document.removeEventListener('keydown', onEsc);
+  }
+  function onEsc(e) { if (e.key === 'Escape') closeModal(); }
+
+  function _modalHead(title, sub) {
+    return '<div class="modal-head">' +
+      '<div><div class="modal-date">' + title + '</div>' +
+      (sub ? '<div class="modal-section-label" style="margin-top:2px">' + sub + '</div>' : '') +
+      '</div>' +
+      '<button class="modal-close" id="modal-close" aria-label="Close">✕</button>' +
+    '</div>';
+  }
+
+  // ---- day-detail modal ----
   function openModal(idx) {
     var d = state.days[idx];
     if (!d) return;
@@ -165,70 +557,180 @@
         '</div>';
     }).join('');
 
-    var html =
-      '<div class="modal-overlay" id="modal-overlay">' +
-        '<div class="modal" role="dialog" aria-modal="true">' +
-          '<div class="modal-head">' +
-            '<div>' +
-              '<div class="modal-date">' + fmtDayLabel(d.date, tz) + '</div>' +
-              '<div class="modal-stars">' + stars(d.rating.stars) + '</div>' +
-            '</div>' +
-            '<button class="modal-close" id="modal-close" aria-label="Close">✕</button>' +
-          '</div>' +
-
-          '<div class="modal-section">' +
-            '<div class="modal-section-label">Day at a glance</div>' +
-            timelineBar(d) +
-            '<div class="tl-legend">' +
-              '<span class="tl-leg-dot major"></span> Major &nbsp;' +
-              '<span class="tl-leg-dot minor"></span> Minor &nbsp;' +
-              '<span class="tl-leg-dot daylight"></span> Daylight' +
-            '</div>' +
-          '</div>' +
-
-          '<div class="modal-section">' +
-            '<div class="modal-section-label">Solunar periods</div>' +
-            '<div class="periods">' + pRows + '</div>' +
-          '</div>' +
-
-          '<div class="modal-section modal-meta">' +
-            '<div>' +
-              '<div class="modal-section-label">Sun</div>' +
-              '<div>Sunrise &nbsp;<strong>' + fmtTime(d.sunrise, tz) + '</strong></div>' +
-              '<div>Sunset &nbsp;<strong>' + fmtTime(d.sunset, tz) + '</strong></div>' +
-            '</div>' +
-            '<div>' +
-              '<div class="modal-section-label">Moon</div>' +
-              '<div>' + phaseIcon(d.moon.phase) + ' ' + d.moon.phaseName + '</div>' +
-              '<div>' + Math.round(d.moon.illumination * 100) + '% illuminated</div>' +
-            '</div>' +
-            '<div>' +
-              '<div class="modal-section-label">Rating</div>' +
-              '<div>' + stars(d.rating.stars) + ' ' + d.rating.stars + '/5</div>' +
-              '<div class="muted">Phase ' + Math.round(d.rating.phaseScore * 100) + '%' +
-                (d.rating.sunBoost > 0 ? ' + sun overlap' : '') + '</div>' +
-            '</div>' +
-          '</div>' +
+    _showModal(
+      '<div class="modal-head">' +
+        '<div>' +
+          '<div class="modal-date">' + fmtDayLabel(d.date, tz) + '</div>' +
+          '<div class="modal-stars">' + stars(d.rating.stars) + '</div>' +
         '</div>' +
-      '</div>';
-
-    var el = document.createElement('div');
-    el.innerHTML = html;
-    document.body.appendChild(el.firstChild);
-
-    document.getElementById('modal-close').onclick = closeModal;
-    document.getElementById('modal-overlay').onclick = function (e) {
-      if (e.target.id === 'modal-overlay') closeModal();
-    };
-    document.addEventListener('keydown', onEsc);
+        '<button class="modal-close" id="modal-close" aria-label="Close">✕</button>' +
+      '</div>' +
+      '<div class="modal-section">' +
+        '<div class="modal-section-label">Day at a glance</div>' +
+        timelineBar(d) +
+        '<div class="tl-legend">' +
+          '<span class="tl-leg-dot major"></span> Major &nbsp;' +
+          '<span class="tl-leg-dot minor"></span> Minor &nbsp;' +
+          '<span class="tl-leg-dot daylight"></span> Daylight' +
+        '</div>' +
+      '</div>' +
+      '<div class="modal-section">' +
+        '<div class="modal-section-label">Solunar periods</div>' +
+        '<div class="periods">' + pRows + '</div>' +
+      '</div>' +
+      '<div class="modal-section modal-meta">' +
+        '<div>' +
+          '<div class="modal-section-label">Sun</div>' +
+          '<div>Sunrise &nbsp;<strong>' + fmtTime(d.sunrise, tz) + '</strong></div>' +
+          '<div>Sunset &nbsp;<strong>' + fmtTime(d.sunset, tz) + '</strong></div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="modal-section-label">Moon</div>' +
+          '<div>' + phaseIcon(d.moon.phase) + ' ' + d.moon.phaseName + '</div>' +
+          '<div>' + Math.round(d.moon.illumination * 100) + '% illuminated</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="modal-section-label">Rating</div>' +
+          '<div>' + stars(d.rating.stars) + ' ' + d.rating.stars + '/5</div>' +
+          '<div class="muted">Phase ' + Math.round(d.rating.phaseScore * 100) + '%' +
+            (d.rating.sunBoost > 0 ? ' + sun overlap' : '') + '</div>' +
+        '</div>' +
+      '</div>'
+    );
   }
 
-  function closeModal() {
-    var el = document.getElementById('modal-overlay');
-    if (el) el.remove();
-    document.removeEventListener('keydown', onEsc);
+  // ---- next-periods modal ----
+  function openNextModal() {
+    var tz = state.loc.tz;
+    var now = Date.now();
+    var upcoming = allPeriods().filter(function (p) { return p.end.getTime() >= now; }).slice(0, 16);
+    if (!upcoming.length) return;
+
+    var rows = upcoming.map(function (p) {
+      var isActive = now >= p.start.getTime() && now <= p.end.getTime();
+      return '<div class="period ' + p.type + (p.sunOverlap ? ' sun' : '') + (isActive ? ' period-now' : '') + '">' +
+        '<span class="tag">' + p.type + '</span>' +
+        '<span class="kind">' + KIND[p.kind] + (isActive ? ' <span class="sun-badge" style="color:var(--good)">● now</span>' : '') + '</span>' +
+        '<span class="time">' + fmtTime(p.center, tz) +
+          ' <span class="range">' + fmtTime(p.start, tz) + '–' + fmtTime(p.end, tz) + '</span></span>' +
+        '</div>';
+    }).join('');
+
+    _showModal(
+      _modalHead('Upcoming Periods', state.loc.name) +
+      '<div class="modal-section">' +
+        '<div class="modal-section-label">Next ' + upcoming.length + ' solunar periods</div>' +
+        '<div class="periods">' + rows + '</div>' +
+      '</div>'
+    );
   }
-  function onEsc(e) { if (e.key === 'Escape') closeModal(); }
+
+  // ---- barometer modal ----
+  function openBaroModal() {
+    var bd = state.baroData;
+    if (!bd) return;
+    var vals = bd.vals, nowIdx = bd.nowIdx, cur = bd.cur, info = bd.info, delta = bd.delta;
+
+    function sparkLarge(values, nIdx) {
+      var W = 300, H = 80;
+      var min = Math.min.apply(null, values) - 0.3;
+      var max = Math.max.apply(null, values) + 0.3;
+      var n = values.length;
+      function px(i) { return (i / (n - 1)) * W; }
+      function py(v) { return H - ((v - min) / (max - min)) * H; }
+      var pastPts = values.slice(0, nIdx + 1).map(function (v, i) { return px(i) + ',' + py(v); }).join(' ');
+      var futPts  = values.slice(nIdx).map(function (v, i) { return px(nIdx + i) + ',' + py(v); }).join(' ');
+      var nowX = px(nIdx), nowY = py(values[nIdx]);
+      return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="baro-spark" style="height:80px" aria-hidden="true">' +
+        '<polyline points="' + pastPts + '" fill="none" stroke="var(--minor)" stroke-width="2.5" stroke-linejoin="round"/>' +
+        '<polyline points="' + futPts + '" fill="none" stroke="var(--major)" stroke-width="2" stroke-linejoin="round" stroke-dasharray="5,4" opacity=".75"/>' +
+        '<line x1="' + nowX + '" y1="0" x2="' + nowX + '" y2="' + H + '" stroke="rgba(255,255,255,.25)" stroke-width="1"/>' +
+        '<circle cx="' + nowX + '" cy="' + nowY + '" r="4" fill="var(--ink)"/>' +
+        '</svg>';
+    }
+
+    function hLabel(i) {
+      var diff = i - nowIdx;
+      if (diff === 0) return 'now';
+      return (diff > 0 ? '+' : '') + diff + 'h';
+    }
+    var labelHTML = '';
+    [0, nowIdx, vals.length - 1].forEach(function (i) {
+      var pct = (i / (vals.length - 1)) * 100;
+      labelHTML += '<span style="left:' + pct + '%">' + hLabel(i) + '</span>';
+    });
+
+    _showModal(
+      _modalHead('Barometer') +
+      '<div class="modal-section">' +
+        '<div class="baro-head" style="margin-bottom:14px">' +
+          '<span class="baro-val" style="font-size:30px">' + hpaToInHg(cur) + ' inHg</span>' +
+          '<span class="baro-hpa">(' + Math.round(cur) + ' hPa)</span>' +
+          '<span class="baro-arrow baro-' + (delta > 1 ? 'up' : delta < -1 ? 'down' : 'steady') + '" style="font-size:17px">' + info.arrow + ' ' + info.label + '</span>' +
+        '</div>' +
+        '<div class="baro-spark-wrap">' +
+          sparkLarge(vals, nowIdx) +
+          '<div class="baro-spark-labels">' + labelHTML + '</div>' +
+        '</div>' +
+        '<div class="baro-legend" style="margin-top:10px"><span class="baro-leg past"></span> Past &nbsp; <span class="baro-leg future"></span> Forecast</div>' +
+        '<div class="baro-tip" style="font-size:14px;margin-top:14px">🎣 ' + info.tip + '</div>' +
+      '</div>' +
+      '<div class="modal-section">' +
+        '<div class="modal-section-label">Walleye pressure guide</div>' +
+        '<div class="adv-grid">' +
+          '<div class="adv-item"><div class="adv-label">↑↑ Rising fast</div><div class="adv-val">Go deep — then turn on hard</div></div>' +
+          '<div class="adv-item"><div class="adv-label">↑ Rising</div><div class="adv-val">Move to structure — good bite window</div></div>' +
+          '<div class="adv-item"><div class="adv-label">→ Steady</div><div class="adv-val">Slow methodical sweep on structure</div></div>' +
+          '<div class="adv-item"><div class="adv-label">↓ Falling</div><div class="adv-val">Feed up before front — fish edges</div></div>' +
+          '<div class="adv-item adv-wide"><div class="adv-label">↓↓ Falling fast</div><div class="adv-val">Aggressive bite now before shut-down</div></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  // ---- fishing advisor / map modal ----
+  function openAdvisorModal() {
+    var lat = state.loc.lat, lng = state.loc.lng;
+    var adv = state.lastAdv;
+    var bodyEl = document.getElementById('advisor-body');
+    var bodyHtml = bodyEl ? bodyEl.innerHTML : '';
+
+    _showModal(
+      _modalHead('Fishing Advisor', state.loc.name) +
+      '<div id="modal-map" class="modal-map-full"></div>' +
+      '<div class="modal-section" style="padding-top:14px">' + bodyHtml + '</div>',
+      function () {
+        // Remove the inline toggle/footer from modal copy (buttons are wired to main map)
+        var footer = document.querySelector('#modal-overlay .adv-map-footer');
+        if (footer) footer.remove();
+
+        if (typeof L === 'undefined' || !L.map) return;
+        try {
+          _modalMap = L.map('modal-map', { zoomControl: true, attributionControl: false });
+          L.tileLayer(SATELLITE_URL, { maxZoom: 18 }).addTo(_modalMap);
+          L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_modalMap);
+          if (_drnEnabled) {
+            L.tileLayer(TOPO_URL, { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' }).addTo(_modalMap);
+          }
+          var zoom = _map ? _map.getZoom() : 14;
+          _modalMap.setView([lat, lng], zoom);
+          L.circleMarker([lat, lng], {
+            radius: 9, fillColor: '#4fd07a', color: '#fff', weight: 2.5, fillOpacity: 1
+          }).addTo(_modalMap);
+          if (adv && adv.towardDeg !== null && adv.windSpeed > 4) {
+            var towardRad = adv.towardDeg * Math.PI / 180;
+            var dd = 0.005;
+            var dlat = dd * Math.cos(towardRad);
+            var dlng = dd * Math.sin(towardRad) / Math.cos(lat * Math.PI / 180);
+            L.polyline([[lat, lng], [lat + dlat, lng + dlng]], {
+              color: '#56b3f0', weight: 3, opacity: 0.85, dashArray: '6,5'
+            }).bindTooltip('Windward shore →', { permanent: false }).addTo(_modalMap);
+          }
+          setTimeout(function () { if (_modalMap) _modalMap.invalidateSize(); }, 100);
+        } catch (e) {}
+      }
+    );
+  }
 
   function render() {
     var loc = state.loc;
@@ -237,7 +739,6 @@
       '<button id="useloc">Use my location</button>';
     document.getElementById('useloc').onclick = useMyLocation;
 
-    // Range picker
     var rangeHtml = RANGE_OPTIONS.map(function (n) {
       return '<button class="range-btn' + (n === state.range ? ' active' : '') +
         '" data-range="' + n + '">' + n + ' days</button>';
@@ -253,13 +754,21 @@
     var cards = state.days.map(function (d, i) { return dayCard(d, i === 0, i); }).join('');
     document.getElementById('days').innerHTML = cards;
 
-    // Wire card click/keyboard for modal
     document.querySelectorAll('#days .card').forEach(function (card) {
       card.onclick = function () { openModal(+card.dataset.idx); };
       card.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') openModal(+card.dataset.idx); };
     });
 
     renderNext();
+  }
+
+  function renderClock() {
+    var el = document.getElementById('clock');
+    if (!el) return;
+    el.textContent = new Intl.DateTimeFormat('en-US', {
+      timeZone: state.loc.tz, weekday: 'short', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true
+    }).format(new Date());
   }
 
   function renderNext() {
@@ -276,8 +785,11 @@
     var cd = (h > 0 ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
     el.innerHTML =
       '<div><div class="label">' + (active ? 'Active now — ' + p.type : 'Next ' + p.type + ' period') + '</div>' +
-      '<div class="when">' + KIND[p.kind] + ' · ' + fmtTime(p.center, state.loc.tz) + '</div></div>' +
+      '<div class="when">' + KIND[p.kind] + ' · ' + fmtTime(p.center, state.loc.tz) + '</div>' +
+      '<div class="next-hint">tap for all periods</div></div>' +
       '<div class="countdown">' + cd + '</div>';
+    el.style.cursor = 'pointer';
+    el.onclick = openNextModal;
 
     maybeNotify(p, active, secs);
   }
@@ -298,29 +810,10 @@
   }
 
   // ---- map depth overlay (USGS Topo tile layer) ----
-  var _topoLayer = null, _drnEnabled = true;
-
-  function updateDNRBadge(ok) {
-    _drnOk = ok;
-    var el = document.getElementById('dnr-badge');
-    if (!el) return;
-    if (ok) {
-      el.textContent = '🗺 Depth layer: USGS Topo';
-      el.style.color = 'var(--good)';
-    } else {
-      el.textContent = 'Depth layer hidden';
-      el.style.color = 'var(--muted)';
-    }
-  }
-
   function refreshDNRLayer() {
     if (!_map || !_drnEnabled) return;
     if (!_topoLayer) {
-      _topoLayer = L.tileLayer(
-        'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
-        { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' }
-      ).addTo(_map);
-      updateDNRBadge(true);
+      _topoLayer = L.tileLayer(TOPO_URL, { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' }).addTo(_map);
     }
   }
 
@@ -329,12 +822,11 @@
     if (_drnEnabled) {
       _drnEnabled = false;
       if (_topoLayer && _map) { _map.removeLayer(_topoLayer); _topoLayer = null; }
-      if (btn) btn.textContent = 'Show depth layer';
-      updateDNRBadge(false);
+      if (btn) btn.textContent = 'Show overlay';
     } else {
       _drnEnabled = true;
       refreshDNRLayer();
-      if (btn) btn.textContent = 'Hide depth layer';
+      if (btn) btn.textContent = 'Hide overlay';
     }
   }
 
@@ -343,30 +835,28 @@
     var el = document.getElementById('advisor-map');
     if (!el) return;
     try {
-    if (!_map) {
-      _map = L.map('advisor-map', { zoomControl: true, attributionControl: false });
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 18
+      if (!_map) {
+        _map = L.map('advisor-map', { zoomControl: true, attributionControl: false });
+        L.tileLayer(SATELLITE_URL, { maxZoom: 18 }).addTo(_map);
+        L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_map);
+      }
+      _map.setView([lat, lng], 14);
+      if (_locMarker) _locMarker.remove();
+      _locMarker = L.circleMarker([lat, lng], {
+        radius: 9, fillColor: '#4fd07a', color: '#fff', weight: 2.5, fillOpacity: 1
       }).addTo(_map);
-      L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_map);
-    }
-    _map.setView([lat, lng], 14);
-    if (_locMarker) _locMarker.remove();
-    _locMarker = L.circleMarker([lat, lng], {
-      radius: 9, fillColor: '#4fd07a', color: '#fff', weight: 2.5, fillOpacity: 1
-    }).addTo(_map);
 
-    if (_windLine) { _windLine.remove(); _windLine = null; }
-    if (towardDeg !== null && windSpeed > 4) {
-      var towardRad = towardDeg * Math.PI / 180;
-      var d = 0.005;
-      var dlat = d * Math.cos(towardRad);
-      var dlng = d * Math.sin(towardRad) / Math.cos(lat * Math.PI / 180);
-      _windLine = L.polyline([[lat, lng], [lat + dlat, lng + dlng]], {
-        color: '#56b3f0', weight: 3, opacity: 0.85, dashArray: '6,5'
-      }).bindTooltip('Windward shore →', { permanent: false }).addTo(_map);
-    }
-    setTimeout(function () { if (_map) { _map.invalidateSize(); refreshDNRLayer(); } }, 200);
+      if (_windLine) { _windLine.remove(); _windLine = null; }
+      if (towardDeg !== null && windSpeed > 4) {
+        var towardRad = towardDeg * Math.PI / 180;
+        var d = 0.005;
+        var dlat = d * Math.cos(towardRad);
+        var dlng = d * Math.sin(towardRad) / Math.cos(lat * Math.PI / 180);
+        _windLine = L.polyline([[lat, lng], [lat + dlat, lng + dlng]], {
+          color: '#56b3f0', weight: 3, opacity: 0.85, dashArray: '6,5'
+        }).bindTooltip('Windward shore →', { permanent: false }).addTo(_map);
+      }
+      setTimeout(function () { if (_map) { _map.invalidateSize(); refreshDNRLayer(); } }, 200);
     } catch(e) { /* map unavailable in non-visual environment */ }
   }
 
@@ -375,7 +865,6 @@
   function bearing8(deg) { return DIRS8[Math.round(deg / 45) % 8]; }
 
   function computeAdvice(delta, windSpeed, windDir, airTemp) {
-    // Pressure → depth zone & activity base score
     var depth, structure, presentation, pressureStr, pScore;
     if (delta > 3) {
       depth = '18–28 ft'; pressureStr = 'rising fast'; pScore = 1;
@@ -399,7 +888,6 @@
       presentation = 'fast crankbait, reaction jig';
     }
 
-    // Wind modifier
     var windScore = 0, windNote;
     var fromDir = bearing8(windDir);
     var towardDeg = (windDir + 180) % 360;
@@ -417,7 +905,6 @@
       windScore = -1;
     }
 
-    // Temperature modifier
     var tempNote;
     if (airTemp < 45) {
       tempNote = 'Cold air — walleye likely lethargic. Fish slow and deep near bottom.';
@@ -431,7 +918,6 @@
       pScore = Math.max(1, pScore - 1);
     }
 
-    // Solunar boost
     var solunarNote = '', solunarBoost = 0;
     var p = nextPeriod();
     var now = Date.now();
@@ -453,50 +939,50 @@
     var dotColor = score >= 4 ? 'var(--good)' : score >= 3 ? 'var(--major)' : 'var(--muted)';
 
     return {
-      score, label: labels[score - 1], dots, dotColor,
-      pressureStr, depth, structure, presentation,
-      windSpeed, fromDir, towardDir, towardDeg,
-      windNote, tempNote, solunarNote
+      score: score, label: labels[score - 1], dots: dots, dotColor: dotColor,
+      pressureStr: pressureStr, depth: depth, structure: structure, presentation: presentation,
+      windSpeed: windSpeed, fromDir: fromDir, towardDir: towardDir, towardDeg: towardDeg,
+      windNote: windNote, tempNote: tempNote, solunarNote: solunarNote,
+      delta: delta, airTemp: airTemp, solunarBoost: solunarBoost
     };
   }
 
   function renderAdvisor(adv, lat, lng) {
+    state.lastAdv = adv;
     initMap(lat, lng, adv.towardDeg, adv.windSpeed);
     var el = document.getElementById('advisor-body');
     if (!el) return;
     el.innerHTML =
-      '<div class="adv-activity">' +
-        '<span class="adv-dots" style="color:' + adv.dotColor + '">' + adv.dots + '</span>' +
-        '<span class="adv-level">' + adv.label + '</span>' +
-      '</div>' +
-      '<div class="adv-grid">' +
-        '<div class="adv-item"><div class="adv-label">Pressure</div><div class="adv-val">' + adv.pressureStr + '</div></div>' +
-        '<div class="adv-item"><div class="adv-label">Target depth</div><div class="adv-val">' + adv.depth + '</div></div>' +
-        '<div class="adv-item adv-wide"><div class="adv-label">Structure</div><div class="adv-val">' + adv.structure + '</div></div>' +
-        '<div class="adv-item adv-wide"><div class="adv-label">Presentation</div><div class="adv-val">' + adv.presentation + '</div></div>' +
-      '</div>' +
+      '<div id="species-conditions">' + _speciesBiteHtml(adv) + '</div>' +
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
       '<div class="adv-note">' + adv.windNote + '</div>' +
       '<div class="adv-note">' + adv.tempNote + '</div>' +
+      speciesOutlookHtml(adv.delta, adv.airTemp, adv.solunarBoost) +
       '<div class="adv-map-footer">' +
-        '<span id="dnr-badge" class="adv-dnr-badge">⏳ Loading depth layer…</span>' +
-        '<button id="dnr-toggle" class="adv-dnr-btn">Hide depth layer</button>' +
+        '<span class="adv-dnr-badge">🛰 Satellite · Yellow Lake, WI</span>' +
+        '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide overlay' : 'Show overlay') + '</button>' +
       '</div>';
+
     var toggleBtn = document.getElementById('dnr-toggle');
-    if (toggleBtn) {
-      toggleBtn.addEventListener('click', toggleDNRLayer);
-      // Sync toggle label with current enabled state
-      if (!_drnEnabled) toggleBtn.textContent = 'Show depth layer';
+    if (toggleBtn) toggleBtn.onclick = toggleDNRLayer;
+    rewireSpeciesFilter();
+    rewireSpeciesDropdown();
+
+    // Wire the advisor header to expand modal (one-time)
+    var hdEl = document.querySelector('.advisor-hd');
+    if (hdEl && !hdEl._expandWired) {
+      hdEl._expandWired = true;
+      hdEl.innerHTML = '📍 Fishing Advisor <span class="tap-hint" style="float:right;letter-spacing:0">↗ expand</span>';
+      hdEl.style.cursor = 'pointer';
+      hdEl.onclick = openAdvisorModal;
     }
-    // Sync badge if we already know the status
-    if (_drnOk !== null) updateDNRBadge(_drnOk);
   }
 
   // ---- weather overlay ----
   function fetchWeather() {
     if (typeof fetch === 'undefined') return;
     var loc = state.loc;
-    var days = Math.min(state.range, 16); // Open-Meteo free tier max
+    var days = Math.min(state.range, 16);
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
       '&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max,weather_code' +
@@ -525,12 +1011,10 @@
     return m[code] || 'see forecast';
   }
 
-  // ---- barometer: 4h past + 4h forecast pressure (Open-Meteo, no key) ----
+  // ---- barometer: 4h past + 4h forecast pressure ----
   function hpaToInHg(hpa) { return (hpa * 0.02953).toFixed(2); }
 
-  function pressureTip(delta4h, curHpa) {
-    // Walleye-specific bite guidance based on pressure change over 4h
-    var abs = Math.abs(delta4h);
+  function pressureTip(delta4h) {
     if (delta4h > 3)  return { arrow: '↑↑', label: 'Rising fast',  tip: 'Pressure spiking — walleye may go deep briefly, then turn on' };
     if (delta4h > 1)  return { arrow: '↑',  label: 'Rising',       tip: 'Rising pressure — walleye moving to structure, good bite window' };
     if (delta4h < -3) return { arrow: '↓↓', label: 'Falling fast', tip: 'Pressure dropping fast — aggressive bite now before they shut down' };
@@ -545,14 +1029,9 @@
     var n = values.length;
     function px(i) { return (i / (n - 1)) * W; }
     function py(v) { return H - ((v - min) / (max - min)) * H; }
-
-    // Past polyline (solid blue)
     var pastPts = values.slice(0, nowIdx + 1).map(function (v, i) { return px(i) + ',' + py(v); }).join(' ');
-    // Future polyline (dashed amber)
     var futPts  = values.slice(nowIdx).map(function (v, i) { return px(nowIdx + i) + ',' + py(v); }).join(' ');
-    var nowX = px(nowIdx);
-    var nowY = py(values[nowIdx]);
-
+    var nowX = px(nowIdx), nowY = py(values[nowIdx]);
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="baro-spark" aria-hidden="true">' +
       '<polyline points="' + pastPts + '" fill="none" stroke="var(--minor)" stroke-width="2" stroke-linejoin="round"/>' +
       '<polyline points="' + futPts + '" fill="none" stroke="var(--major)" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="4,3" opacity=".75"/>' +
@@ -565,37 +1044,37 @@
     var el = document.getElementById('baro');
     if (typeof fetch === 'undefined') return;
     var loc = state.loc;
-    var reqId = ++_pressureReqId; // claim this generation; any older response will be ignored
+    var reqId = ++_pressureReqId;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
       '&current=temperature_2m,wind_speed_10m,wind_direction_10m' +
       '&hourly=surface_pressure&timezone=auto&past_hours=4&forecast_hours=4&timeformat=unixtime' +
       '&temperature_unit=fahrenheit&wind_speed_unit=mph';
     fetch(url).then(function (r) { return r.json(); }).then(function (j) {
-      if (reqId !== _pressureReqId) return; // stale — a newer location fetch is in flight
+      if (reqId !== _pressureReqId) return;
       if (!j.hourly || !j.hourly.surface_pressure) return;
       var cur2 = j.current || {};
       var windSpeed = cur2.wind_speed_10m || 0;
       var windDir = cur2.wind_direction_10m || 0;
       var airTemp = cur2.temperature_2m || 65;
-      var times = j.hourly.time;          // Unix timestamps (s)
+      var times = j.hourly.time;
       var vals  = j.hourly.surface_pressure;
       var nowS  = Math.floor(Date.now() / 1000);
-      // Find closest hour to now
       var nowIdx = 0, minDiff = Infinity;
       times.forEach(function (t, i) {
         var d = Math.abs(t - nowS);
         if (d < minDiff) { minDiff = d; nowIdx = i; }
       });
       var cur = vals[nowIdx];
-      var past = vals[Math.max(0, nowIdx - 4)] || vals[0]; // 4h ago
+      var past = vals[Math.max(0, nowIdx - 4)] || vals[0];
       var delta = cur - past;
       state.pressureDelta = delta;
-      var info = pressureTip(delta, cur);
+      var info = pressureTip(delta);
       var adv = computeAdvice(delta, windSpeed, windDir, airTemp);
       renderAdvisor(adv, loc.lat, loc.lng);
 
-      // Hour labels: "−4h", "now", "+4h"
+      state.baroData = { vals: vals, nowIdx: nowIdx, cur: cur, info: info, delta: delta };
+
       function hLabel(i) {
         var diff = i - nowIdx;
         if (diff === 0) return 'now';
@@ -612,6 +1091,7 @@
           '<span class="baro-val">' + hpaToInHg(cur) + ' inHg</span>' +
           '<span class="baro-hpa">(' + Math.round(cur) + ' hPa)</span>' +
           '<span class="baro-arrow baro-' + (delta > 1 ? 'up' : delta < -1 ? 'down' : 'steady') + '">' + info.arrow + ' ' + info.label + '</span>' +
+          '<span class="tap-hint baro-expand-hint">↗ expand</span>' +
         '</div>' +
         '<div class="baro-spark-wrap">' +
           pressureSparkSVG(vals, nowIdx) +
@@ -619,6 +1099,9 @@
         '</div>' +
         '<div class="baro-legend"><span class="baro-leg past"></span> Past &nbsp; <span class="baro-leg future"></span> Forecast</div>' +
         '<div class="baro-tip">🎣 ' + info.tip + '</div>';
+
+      el.style.cursor = 'pointer';
+      el.onclick = openBaroModal;
     }).catch(function () {
       if (reqId !== _pressureReqId) return;
       if (el) el.innerHTML = '<span class="note">Barometer unavailable offline.</span>';
@@ -628,13 +1111,51 @@
     });
   }
 
+  // ---- nearest lake lookup (Overpass API) ----
+  var _lakeReqLat = null, _lakeReqLng = null;
+  function fetchNearestLake(lat, lng) {
+    if (typeof fetch === 'undefined') return;
+    // Only re-query if moved more than ~500 m
+    if (_lakeReqLat !== null &&
+        Math.abs(lat - _lakeReqLat) < 0.005 &&
+        Math.abs(lng - _lakeReqLng) < 0.005) return;
+    _lakeReqLat = lat; _lakeReqLng = lng;
+    var q = '[out:json][timeout:8];(way["natural"="water"]["name"](around:20000,' +
+      lat + ',' + lng + ');relation["natural"="water"]["name"](around:20000,' +
+      lat + ',' + lng + '););out center;';
+    fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(q)
+    }).then(function(r) { return r.json(); }).then(function(j) {
+      if (!j.elements || !j.elements.length) return;
+      var best = null, bestDist = Infinity;
+      j.elements.forEach(function(e) {
+        if (!e.tags || !e.tags.name) return;
+        var c = e.center || e;
+        if (c.lat == null) return;
+        var dlat = c.lat - lat, dlng = (c.lon || c.lng || 0) - lng;
+        var dist = dlat * dlat + dlng * dlng;
+        if (dist < bestDist) { bestDist = dist; best = e.tags.name; }
+      });
+      if (!best) return;
+      state.loc.name = best;
+      var locEl = document.getElementById('loc');
+      if (locEl) {
+        locEl.innerHTML = best + ' · ' +
+          state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
+          '<button id="useloc">Use my location</button>';
+        document.getElementById('useloc').onclick = useMyLocation;
+      }
+    }).catch(function() {});
+  }
+
   // ---- geolocation ----
   function onGpsUpdate(pos) {
     var lat = +pos.coords.latitude.toFixed(5);
     var lng = +pos.coords.longitude.toFixed(5);
-    var acc = Math.round(pos.coords.accuracy); // metres
+    var acc = Math.round(pos.coords.accuracy);
 
-    // Always move the map pin immediately — no full recompute needed
     if (_map && _locMarker) {
       _locMarker.setLatLng([lat, lng]);
       if (_accCircle) { _accCircle.remove(); _accCircle = null; }
@@ -649,7 +1170,6 @@
       _map.setView([lat, lng], _map.getZoom());
     }
 
-    // Full recompute (refetch weather/pressure) only when location changed >100 m
     var moved = _lastRecomputeLat === null ||
       Math.abs(lat - _lastRecomputeLat) > 0.001 ||
       Math.abs(lng - _lastRecomputeLng) > 0.001;
@@ -662,6 +1182,7 @@
         tz: Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT.tz
       };
       recompute();
+      fetchNearestLake(lat, lng);
     }
   }
 
@@ -677,7 +1198,6 @@
 
   function useMyLocation() {
     if (!navigator.geolocation) { alert('Geolocation not available; using Yellow Lake.'); return; }
-    // Force a fresh one-shot fix then re-arm the watch
     navigator.geolocation.getCurrentPosition(
       function(pos) { onGpsUpdate(pos); startGpsWatch(); },
       function() { alert('Could not get location. Using Yellow Lake.'); },
@@ -697,7 +1217,8 @@
   function init() {
     document.getElementById('notify-btn').onclick = enableNotifications;
     recompute();
-    setInterval(renderNext, 1000);
+    renderClock();
+    setInterval(function () { renderNext(); renderClock(); }, 1000);
     startGpsWatch();
   }
 
