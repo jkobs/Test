@@ -1527,30 +1527,72 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   var BITE_LABELS = ['No Bite', 'Slow', 'Moderate', 'Active', 'Hot Bite'];
 
   var SPECIES = [
-    { name: 'Walleye',          tempLo: 55, tempHi: 75, pref:  1,
-      depth: function(d) { return d > 1 ? '12–20 ft' : d < -1 ? '6–14 ft' : '10–18 ft'; },
-      gear:  function(d) { return d < -1 ? 'Crankbait, spinner' : 'Slow jig, drop-shot'; } },
-    { name: 'Largemouth Bass',  tempLo: 65, tempHi: 85, pref: -1,
-      depth: function()  { return '3–10 ft'; },
-      gear:  function()  { return 'Topwater at dusk/dawn, Texas rig weeds'; } },
-    { name: 'Northern Pike',    tempLo: 48, tempHi: 68, pref: -1,
-      depth: function()  { return '4–14 ft'; },
-      gear:  function()  { return 'Large spoon or bucktail, weed edges'; } },
-    { name: 'Crappie',          tempLo: 62, tempHi: 78, pref:  0,
-      depth: function()  { return '8–15 ft (suspended)'; },
-      gear:  function()  { return '1/16 oz jig or small minnow near brush'; } },
-    { name: 'Yellow Perch',     tempLo: 58, tempHi: 72, pref:  1,
-      depth: function()  { return '10–20 ft'; },
-      gear:  function()  { return 'Small jigging spoon over sand/gravel'; } },
+    { name: 'Walleye',         tempLo: 55, tempHi: 75, pref:  1,
+      depth: function(d)       { return d > 1 ? '12–20 ft' : d < -1 ? '6–14 ft' : '10–18 ft'; },
+      gear:  function(d, t, s) {
+        if (d > 3)  return 'Dead-stick jig near bottom — fish deep and lethargic';
+        if (d > 1)  return 'Slow jig on bottom, finesse drop-shot near structure';
+        if (d < -3) return 'Fast crankbait or inline spinner — aggressive pre-front feed';
+        if (d < -1) return 'Crankbait along shallow edges, inline spinner';
+        return s >= 2 ? 'Jig aggressively during this active period' : 'Slow jig, paddle tail, dead-stick drop-shot';
+      }},
+    { name: 'Largemouth Bass', tempLo: 65, tempHi: 85, pref: -1,
+      depth: function()        { return '3–10 ft'; },
+      gear:  function(d, t, s) {
+        if (t > 80) return 'Topwater at dawn/dusk only; deep drop-shot or swimbait midday';
+        if (d < -1) return 'Buzzbait or fast crankbait — aggressive pre-front window';
+        if (d > 1)  return 'Football jig or Carolina rig, slow bottom crawl';
+        if (t < 62) return 'Slow-roll spinnerbait, football jig on hard bottom';
+        return 'Texas rig in weeds, topwater at low light';
+      }},
+    { name: 'Northern Pike',   tempLo: 48, tempHi: 68, pref: -1,
+      depth: function()        { return '4–14 ft'; },
+      gear:  function(d, t, s) {
+        if (d < -1) return 'Fast jerkbait or large bucktail — pike turn on pre-front';
+        if (t < 50) return 'Large spoon or dead sucker bait, very slow retrieve';
+        if (d > 1)  return 'Slow-roll large swimbait along outer weed lines';
+        return 'Large bucktail or spoon, steady retrieve; figure-8 at boat';
+      }},
+    { name: 'Crappie',         tempLo: 62, tempHi: 78, pref:  0,
+      depth: function(d)       { return d > 1 ? '10–15 ft (suspended)' : '6–12 ft (suspended)'; },
+      gear:  function(d, t, s) {
+        if (t < 60) return '1/32 oz jig, very slow vertical drop near brush piles';
+        if (d > 1)  return 'Vertical jig 10–15 ft on brush pile or suspended timber';
+        if (d < -1) return 'Slip float with small minnow on shallower structure edges';
+        return s >= 2 ? 'Active period — swim small jig through brush, steady retrieve' : '1/16 oz jig or small minnow near brush piles';
+      }},
+    { name: 'Yellow Perch',    tempLo: 58, tempHi: 72, pref:  1,
+      depth: function()        { return '10–20 ft'; },
+      gear:  function(d, t, s) {
+        if (d > 1)  return 'Bottom rig with nightcrawler over sand/gravel, hold position';
+        if (d < -1) return 'Small jigging spoon to trigger reaction bites on structure';
+        if (t > 72) return 'Go deeper 15–20 ft; dawn and dusk most productive';
+        return 'Perch rig with worm or small minnow over hard bottom';
+      }},
     { name: 'Smallmouth Bass', tempLo: 60, tempHi: 72, pref:  0,
-      depth: function()  { return '5–18 ft'; },
-      gear:  function()  { return 'Tube jig or drop-shot on rocky points'; } },
+      depth: function()        { return '5–18 ft'; },
+      gear:  function(d, t, s) {
+        if (t < 60) return 'Very slow tube or ned rig crawled on rocky bottom';
+        if (d < -1) return 'Topwater or fast swimbait along rocky points pre-front';
+        if (d > 1)  return 'Tube jig or drop-shot, dead-slow on rocky structure';
+        return s >= 2 ? 'Ned rig or drop-shot — work actively during solunar period' : 'Tube jig or drop-shot on rocky points and gravel';
+      }},
     { name: 'Lake Sturgeon',   tempLo: 55, tempHi: 70, pref:  0,
-      depth: function()  { return '15–30 ft (bottom)'; },
-      gear:  function()  { return 'Bottom rig with nightcrawler or crayfish'; } },
+      depth: function()        { return '15–30 ft (bottom)'; },
+      gear:  function(d, t, s) {
+        if (t < 50 || t > 78) return 'Deepest holes 20–30 ft, nightcrawler or crayfish; long wait';
+        if (d > 1)  return 'Fresh nightcrawler or crayfish on bottom, hold position and wait';
+        if (d < -1) return 'Add scent attractant, move to deeper channel holes';
+        return 'Bottom rig with nightcrawler, crayfish, or cut sucker — patience required';
+      }},
     { name: 'Muskellunge',     tempLo: 60, tempHi: 72, pref: -1,
-      depth: function()  { return '8–20 ft'; },
-      gear:  function()  { return 'Large bucktail or jerkbait; figure-8 at boat'; } },
+      depth: function()        { return '8–20 ft'; },
+      gear:  function(d, t, s) {
+        if (d < -1) return 'Prime window — large jerkbait or bucktail, fast aggressive retrieve';
+        if (t > 75) return 'Dawn/dusk only; large glide bait near deep structural edges';
+        if (d > 1)  return 'Slow-roll large swimbait or glide bait along structural edges';
+        return s >= 2 ? 'Solunar period active — run large bucktail fast, figure-8 every cast' : 'Large bucktail or jerkbait; figure-8 at the boat on every retrieve';
+      }},
   ];
 
   function _speciesScore(sp, delta, airTemp, solBoost) {
@@ -1579,7 +1621,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         return '<div class="species-row">' +
           '<div class="species-name">' + sp.name + '</div>' +
           '<div class="species-badge score-' + sc + '">' + BITE_LABELS[sc - 1] + '</div>' +
-          '<div class="species-tip">' + sp.depth(delta) + ' · ' + sp.gear(delta) + '</div>' +
+          '<div class="species-tip">' + sp.depth(delta) + ' · ' + sp.gear(delta, airTemp, solBoost) + '</div>' +
         '</div>';
       }).join('') +
     '</div>';
