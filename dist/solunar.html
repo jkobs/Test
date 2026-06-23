@@ -856,6 +856,25 @@ button.toggle {
 .tl-leg-dot.minor { background: var(--minor); opacity: .65; }
 .tl-leg-dot.daylight { background: rgba(255,200,80,.4); border: 1px solid rgba(255,200,80,.5); }
 
+/* ---- Nearby waters chip strip ---- */
+.nearby-scroll { display: flex; gap: 7px; overflow-x: auto; padding: 5px 0 9px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.nearby-scroll::-webkit-scrollbar { display: none; }
+.nearby-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--card2); border: 1px solid var(--line); border-radius: 20px; padding: 5px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0; color: var(--muted); transition: border-color .15s, color .15s; }
+.nearby-chip:hover, .nearby-chip.active { border-color: var(--minor); color: var(--ink); }
+.nearby-chip.active { font-weight: 600; }
+.nearby-km { color: var(--muted); font-size: 10px; margin-left: 2px; font-weight: 400; }
+
+/* ---- USGS river gauge card ---- */
+.gauge-card { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin: 10px 0; }
+.gauge-card:empty { display: none; }
+.gauge-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
+.gauge-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+.gauge-dist { font-size: 11px; color: var(--muted); }
+.gauge-vals { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+.gauge-flow { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--minor); }
+.gauge-temp { font-size: 13px; color: var(--muted); }
+.gauge-tip { font-size: 12px; color: var(--muted); line-height: 1.45; }
+
 /* ---- Barometer panel ---- */
 .baro-card {
   background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius);
@@ -961,6 +980,7 @@ button.toggle {
 .adv-item.adv-wide { grid-column: 1 / -1; }
 .adv-note { font-size: 13px; color: var(--muted); margin-top: 7px; line-height: 1.5; }
 .adv-solunar { color: var(--good); font-weight: 600; margin-bottom: 4px; }
+.adv-light { color: var(--major); font-weight: 600; margin-bottom: 4px; }
 .adv-offline { font-size: 13px; color: var(--muted); padding: 8px 0; }
 .adv-map-footer {
   display: flex; align-items: center; justify-content: space-between;
@@ -996,6 +1016,7 @@ button.toggle {
       <h1>🎣 Solunar Times</h1>
     </header>
     <div class="loc" id="loc">Locating…</div>
+    <div id="nearby-waters"></div>
     <div class="clock" id="clock"></div>
 
     <div class="next" id="next" style="display:none"></div>
@@ -1005,6 +1026,8 @@ button.toggle {
     <div class="range-picker" id="range-picker"></div>
 
     <div class="baro-card" id="baro"></div>
+
+    <div class="gauge-card" id="gauge-card"></div>
 
     <div class="advisor-card" id="advisor">
       <div class="advisor-hd">📍 Fishing Advisor</div>
@@ -1494,7 +1517,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [] };
 
   // ---- Leaflet map state ----
   var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
@@ -1899,6 +1922,35 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     };
   }
 
+  function renderNearbyWaters() {
+    var el = document.getElementById('nearby-waters');
+    if (!el || !state.nearbyWaters.length) return;
+    var chips = state.nearbyWaters.map(function(w) {
+      var active = w.name === state.loc.name;
+      var km = Math.round(Math.sqrt(w.dist) * 111);
+      var icon = w.type === 'river' ? '🏞' : '🫧';
+      return '<div class="nearby-chip' + (active ? ' active' : '') + '" ' +
+        'data-lat="' + w.lat + '" data-lng="' + w.lng + '" ' +
+        'data-name="' + w.name.replace(/"/g, '&quot;') + '">' +
+        icon + ' ' + w.name + ' <span class="nearby-km">' + km + ' km</span>' +
+      '</div>';
+    }).join('');
+    el.innerHTML = '<div class="nearby-scroll">' + chips + '</div>';
+    el.querySelectorAll('.nearby-chip').forEach(function(chip) {
+      chip.onclick = function() {
+        state.loc = { name: chip.dataset.name, lat: +chip.dataset.lat, lng: +chip.dataset.lng, tz: state.loc.tz };
+        var locEl = document.getElementById('loc');
+        if (locEl) {
+          locEl.innerHTML = state.loc.name + ' · ' + state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
+            '<button id="useloc">Use my location</button>';
+          document.getElementById('useloc').onclick = useMyLocation;
+        }
+        renderNearbyWaters();
+        recompute();
+      };
+    });
+  }
+
   function phaseIcon(phase) {
     return PHASE_ICON[Math.floor((phase * 8) + 0.5) % 8];
   }
@@ -1913,6 +1965,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     render();
     fetchWeather();
     fetchPressure();
+    fetchNearestGauge(state.loc.lat, state.loc.lng);
     initMap(state.loc.lat, state.loc.lng, null, 0);
   }
 
@@ -2396,12 +2449,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
     var tempNote;
     if (airTemp < 45) {
-      tempNote = 'Cold air — walleye likely lethargic. Fish slow and deep near bottom.';
+      tempNote = 'Cold air — fish likely lethargic. Slow presentations deep near bottom.';
       pScore = Math.max(1, pScore - 1);
     } else if (airTemp < 60) {
-      tempNote = 'Cool conditions — transition period; expect fish on rock and gravel structure.';
+      tempNote = 'Cool conditions — transition period; fish active on rock and gravel structure.';
     } else if (airTemp <= 80) {
-      tempNote = 'Comfortable temps — walleye in their active range; run a full structure sweep.';
+      tempNote = 'Comfortable temps — most species in their active range; run a full structure sweep.';
     } else {
       tempNote = 'Hot air — midday fish likely deep or suspended; focus early/late on shallows.';
       pScore = Math.max(1, pScore - 1);
@@ -2422,6 +2475,24 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       }
     }
 
+    var lightNote = '';
+    if (state.days && state.days[0]) {
+      var sr = state.days[0].sunrise, ss = state.days[0].sunset;
+      var nowMs = Date.now();
+      var goldenMs = 45 * 60 * 1000;
+      if (sr && Math.abs(nowMs - sr.getTime()) < goldenMs) {
+        lightNote = '🌅 Sunrise golden hour — one of the strongest feeding triggers; be on the water now.';
+        solunarBoost = Math.min(2, solunarBoost + 1);
+      } else if (ss && Math.abs(nowMs - ss.getTime()) < goldenMs) {
+        lightNote = '🌇 Sunset golden hour — one of the strongest feeding triggers; maximize time on water.';
+        solunarBoost = Math.min(2, solunarBoost + 1);
+      } else if (ss && nowMs > ss.getTime() + goldenMs) {
+        lightNote = '🌙 Night — low-light predators shift shallow; catfish, walleye, and bass most active on points and edges.';
+      } else if (sr && nowMs < sr.getTime() - goldenMs) {
+        lightNote = '🌙 Pre-dawn — nocturnal feeders winding down; walleye and perch beginning to activate.';
+      }
+    }
+
     var score = Math.max(1, Math.min(5, pScore + windScore + solunarBoost));
     var labels = ['Very Slow', 'Slow', 'Moderate', 'Active', 'Hot Bite'];
     var dots = '●'.repeat(score) + '○'.repeat(5 - score);
@@ -2431,7 +2502,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       score: score, label: labels[score - 1], dots: dots, dotColor: dotColor,
       pressureStr: pressureStr, depth: depth, structure: structure, presentation: presentation,
       windSpeed: windSpeed, fromDir: fromDir, towardDir: towardDir, towardDeg: towardDeg,
-      windNote: windNote, tempNote: tempNote, solunarNote: solunarNote,
+      windNote: windNote, tempNote: tempNote, solunarNote: solunarNote, lightNote: lightNote,
       delta: delta, airTemp: airTemp, solunarBoost: solunarBoost
     };
   }
@@ -2444,6 +2515,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     el.innerHTML =
       '<div id="species-conditions">' + _speciesBiteHtml(adv) + '</div>' +
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
+      (adv.lightNote  ? '<div class="adv-note adv-light">'   + adv.lightNote  + '</div>' : '') +
       '<div class="adv-note">' + adv.windNote + '</div>' +
       '<div class="adv-note">' + adv.tempNote + '</div>' +
       speciesOutlookHtml(adv.delta, adv.airTemp, adv.solunarBoost) +
@@ -2600,43 +2672,127 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     });
   }
 
-  // ---- nearest lake lookup (Overpass API) ----
+  // ---- nearest lake/river lookup (Overpass API) ----
   var _lakeReqLat = null, _lakeReqLng = null;
   function fetchNearestLake(lat, lng) {
     if (typeof fetch === 'undefined') return;
-    // Only re-query if moved more than ~500 m
     if (_lakeReqLat !== null &&
         Math.abs(lat - _lakeReqLat) < 0.005 &&
         Math.abs(lng - _lakeReqLng) < 0.005) return;
     _lakeReqLat = lat; _lakeReqLng = lng;
-    var q = '[out:json][timeout:8];(way["natural"="water"]["name"](around:20000,' +
-      lat + ',' + lng + ');relation["natural"="water"]["name"](around:20000,' +
-      lat + ',' + lng + '););out center;';
+    var q = '[out:json][timeout:10];(' +
+      'way["natural"="water"]["name"](around:25000,' + lat + ',' + lng + ');' +
+      'relation["natural"="water"]["name"](around:25000,' + lat + ',' + lng + ');' +
+      'way["waterway"~"river|stream"]["name"](around:25000,' + lat + ',' + lng + ');' +
+      'relation["waterway"~"river|stream"]["name"](around:25000,' + lat + ',' + lng + ');' +
+    ');out center;';
     fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'data=' + encodeURIComponent(q)
     }).then(function(r) { return r.json(); }).then(function(j) {
       if (!j.elements || !j.elements.length) return;
-      var best = null, bestDist = Infinity;
+      var waters = [];
       j.elements.forEach(function(e) {
         if (!e.tags || !e.tags.name) return;
         var c = e.center || e;
         if (c.lat == null) return;
-        var dlat = c.lat - lat, dlng = (c.lon || c.lng || 0) - lng;
+        var wlat = c.lat, wlng = c.lon || c.lng || 0;
+        var dlat = wlat - lat, dlng = wlng - lng;
         var dist = dlat * dlat + dlng * dlng;
-        if (dist < bestDist) { bestDist = dist; best = e.tags.name; }
+        var type = e.tags.waterway ? 'river' : 'lake';
+        var existing = null;
+        for (var i = 0; i < waters.length; i++) { if (waters[i].name === e.tags.name) { existing = waters[i]; break; } }
+        if (existing) { if (dist < existing.dist) { existing.dist = dist; existing.lat = wlat; existing.lng = wlng; } }
+        else waters.push({ name: e.tags.name, lat: wlat, lng: wlng, dist: dist, type: type });
       });
+      waters.sort(function(a, b) { return a.dist - b.dist; });
+      state.nearbyWaters = waters.slice(0, 10);
+      var best = state.nearbyWaters[0];
       if (!best) return;
-      state.loc.name = best;
+      state.loc.name = best.name;
       var locEl = document.getElementById('loc');
       if (locEl) {
-        locEl.innerHTML = best + ' · ' +
+        locEl.innerHTML = best.name + ' · ' +
           state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
           '<button id="useloc">Use my location</button>';
         document.getElementById('useloc').onclick = useMyLocation;
       }
+      renderNearbyWaters();
     }).catch(function() {});
+  }
+
+  // ---- USGS river gauge ----
+  var _gaugeReqLat = null, _gaugeReqLng = null;
+  function fetchNearestGauge(lat, lng) {
+    if (typeof fetch === 'undefined') return;
+    if (_gaugeReqLat !== null &&
+        Math.abs(lat - _gaugeReqLat) < 0.05 &&
+        Math.abs(lng - _gaugeReqLng) < 0.05) return;
+    _gaugeReqLat = lat; _gaugeReqLng = lng;
+    var pad = 0.5;
+    var url = 'https://waterservices.usgs.gov/nwis/iv/?format=json' +
+      '&bBox=' + (lng - pad).toFixed(4) + ',' + (lat - pad).toFixed(4) + ',' +
+                (lng + pad).toFixed(4) + ',' + (lat + pad).toFixed(4) +
+      '&parameterCd=00060,00010&period=PT2H&siteStatus=active&siteType=ST';
+    fetch(url).then(function(r) { return r.json(); }).then(function(j) {
+      var ts = (j.value && j.value.timeSeries) || [];
+      if (!ts.length) return;
+      var sites = {};
+      ts.forEach(function(s) {
+        var info = s.sourceInfo;
+        var code = info.siteCode[0].value;
+        var slat = info.geoLocation.geogLocation.latitude;
+        var slng = info.geoLocation.geogLocation.longitude;
+        var dlat = slat - lat, dlng = slng - lng;
+        if (!sites[code]) sites[code] = { name: info.siteName, code: code, lat: slat, lng: slng, dist: dlat*dlat + dlng*dlng, flow: null, temp: null };
+        var varCode = s.variable.variableCode[0].value;
+        var vals = s.values[0] && s.values[0].value;
+        var latest = vals && vals[vals.length - 1];
+        if (latest && latest.value !== '-999999') {
+          var v = parseFloat(latest.value);
+          if (!isNaN(v)) {
+            if (varCode === '00060') sites[code].flow = v;
+            if (varCode === '00010') sites[code].temp = v;
+          }
+        }
+      });
+      var best = null, bestDist = Infinity;
+      Object.keys(sites).forEach(function(k) {
+        var s = sites[k];
+        if (s.flow !== null && s.dist < bestDist) { bestDist = s.dist; best = s; }
+      });
+      if (best) renderGauge(best);
+    }).catch(function() {});
+  }
+
+  function renderGauge(gauge) {
+    var el = document.getElementById('gauge-card');
+    if (!el) return;
+    var km = Math.round(Math.sqrt(gauge.dist) * 111);
+    var flowStr = Math.round(gauge.flow).toLocaleString() + ' cfs';
+    var tempF   = gauge.temp !== null ? Math.round(gauge.temp * 9 / 5 + 32) : null;
+    var flowTip = '';
+    if (gauge.flow < 200)       flowTip = 'Low flow — catfish in deep pools, trout in slower runs';
+    else if (gauge.flow < 800)  flowTip = 'Moderate flow — good catfish and smallmouth conditions';
+    else if (gauge.flow < 2500) flowTip = 'High flow — target current breaks and eddies below structure';
+    else                        flowTip = 'Near flood stage — wait for flow to drop';
+    if (tempF !== null) {
+      if (tempF < 50)      flowTip += ' · cold water (' + tempF + '°F) — trout peak, catfish slow';
+      else if (tempF < 65) flowTip += ' · cool (' + tempF + '°F) — walleye and smallmouth prime';
+      else if (tempF < 75) flowTip += ' · warm (' + tempF + '°F) — catfish and bass active';
+      else                 flowTip += ' · hot water (' + tempF + '°F) — go deep or target cold inflows';
+    }
+    el.innerHTML =
+      '<div class="gauge-head">' +
+        '<span class="gauge-name">💧 ' + gauge.name + '</span>' +
+        '<span class="gauge-dist">' + km + ' km away</span>' +
+      '</div>' +
+      '<div class="gauge-vals">' +
+        '<span class="gauge-flow">' + flowStr + '</span>' +
+        (tempF !== null ? '<span class="gauge-temp">' + tempF + '°F water</span>' : '') +
+      '</div>' +
+      '<div class="gauge-tip">' + flowTip + '</div>';
   }
 
   // ---- geolocation ----
