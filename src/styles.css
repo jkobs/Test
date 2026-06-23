@@ -239,7 +239,10 @@ button.toggle {
 
 /* ---- bite scale ---- */
 .bite-scale-wrap { margin-bottom: 12px; }
-.bite-scale-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 5px; }
+.conditions-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+.bite-scale-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.conditions-species-select { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 12px; padding: 3px 7px; outline: none; cursor: pointer; max-width: 150px; }
+.conditions-species-select:focus { border-color: var(--minor); }
 .bite-bar { display: flex; gap: 3px; }
 .bite-seg { flex: 1; padding: 5px 2px; border-radius: 5px; font-size: 10px; text-align: center; color: var(--muted); background: var(--bg2); border: 1px solid transparent; }
 .bite-1 { color: #a05555; }

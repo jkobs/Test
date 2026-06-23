@@ -14,6 +14,7 @@
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
   var _speciesFilter = '';
+  var _selectedSpeciesName = 'Walleye';
 
   var SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   var TOPO_URL = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}';
@@ -366,6 +367,45 @@
       if (rows && state.lastAdv) {
         var adv = state.lastAdv;
         rows.innerHTML = _speciesRowsHtml(adv.delta, adv.airTemp, adv.solunarBoost);
+      }
+    };
+  }
+
+  function _speciesBiteHtml(adv) {
+    var sp = null;
+    for (var i = 0; i < SPECIES.length; i++) {
+      if (SPECIES[i].name === _selectedSpeciesName) { sp = SPECIES[i]; break; }
+    }
+    if (!sp) sp = SPECIES[0];
+    var sc = _speciesScore(sp, adv.delta, adv.airTemp, adv.solunarBoost);
+    var depth     = sp.depth(adv.delta, adv.airTemp);
+    var structure = sp.structure(adv.delta, adv.airTemp, adv.solunarBoost);
+    var gear      = sp.gear(adv.delta, adv.airTemp, adv.solunarBoost);
+    var opts = SPECIES.map(function(s) {
+      return '<option value="' + s.name + '"' + (s.name === sp.name ? ' selected' : '') + '>' + s.name + '</option>';
+    }).join('');
+    return '<div class="conditions-head">' +
+        '<div class="bite-scale-label">Bite Conditions</div>' +
+        '<select id="conditions-species-select" class="conditions-species-select">' + opts + '</select>' +
+      '</div>' +
+      '<div class="bite-scale-wrap">' + biteScaleHtml(sc) + '</div>' +
+      '<div class="adv-grid">' +
+        '<div class="adv-item"><div class="adv-label">Pressure</div><div class="adv-val">' + adv.pressureStr + '</div></div>' +
+        '<div class="adv-item"><div class="adv-label">Target depth</div><div class="adv-val">' + depth + '</div></div>' +
+        '<div class="adv-item adv-wide"><div class="adv-label">Structure</div><div class="adv-val">' + structure + '</div></div>' +
+        '<div class="adv-item adv-wide"><div class="adv-label">Presentation</div><div class="adv-val">' + gear + '</div></div>' +
+      '</div>';
+  }
+
+  function rewireSpeciesDropdown() {
+    var el = document.getElementById('conditions-species-select');
+    if (!el) return;
+    el.onchange = function() {
+      _selectedSpeciesName = el.value;
+      var wrap = document.getElementById('species-conditions');
+      if (wrap && state.lastAdv) {
+        wrap.innerHTML = _speciesBiteHtml(state.lastAdv);
+        rewireSpeciesDropdown();
       }
     };
   }
@@ -913,16 +953,7 @@
     var el = document.getElementById('advisor-body');
     if (!el) return;
     el.innerHTML =
-      '<div class="bite-scale-wrap">' +
-        '<div class="bite-scale-label">Bite Conditions — Walleye</div>' +
-        biteScaleHtml(adv.score) +
-      '</div>' +
-      '<div class="adv-grid">' +
-        '<div class="adv-item"><div class="adv-label">Pressure</div><div class="adv-val">' + adv.pressureStr + '</div></div>' +
-        '<div class="adv-item"><div class="adv-label">Target depth</div><div class="adv-val">' + adv.depth + '</div></div>' +
-        '<div class="adv-item adv-wide"><div class="adv-label">Structure</div><div class="adv-val">' + adv.structure + '</div></div>' +
-        '<div class="adv-item adv-wide"><div class="adv-label">Presentation</div><div class="adv-val">' + adv.presentation + '</div></div>' +
-      '</div>' +
+      '<div id="species-conditions">' + _speciesBiteHtml(adv) + '</div>' +
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
       '<div class="adv-note">' + adv.windNote + '</div>' +
       '<div class="adv-note">' + adv.tempNote + '</div>' +
@@ -935,6 +966,7 @@
     var toggleBtn = document.getElementById('dnr-toggle');
     if (toggleBtn) toggleBtn.onclick = toggleDNRLayer;
     rewireSpeciesFilter();
+    rewireSpeciesDropdown();
 
     // Wire the advisor header to expand modal (one-time)
     var hdEl = document.querySelector('.advisor-hd');
