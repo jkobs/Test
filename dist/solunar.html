@@ -930,16 +930,18 @@ button.toggle {
 
 /* ---- species outlook ---- */
 .species-section { margin-top: 14px; }
-.species-row { display: grid; grid-template-columns: 110px 74px 1fr; gap: 6px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.species-row { padding: 7px 0; border-bottom: 1px solid var(--line); }
 .species-row:last-child { border-bottom: none; }
-.species-name { font-weight: 600; color: var(--ink); }
+.species-row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+.species-name { font-weight: 600; color: var(--ink); font-size: 13px; }
 .species-badge { font-weight: 700; font-size: 11px; }
 .score-1 { color: #a05555; }
 .score-2 { color: #b07840; }
 .score-3 { color: #a0a040; }
 .score-4 { color: #40a060; }
 .score-5 { color: #30c060; }
-.species-tip { color: var(--muted); }
+.species-detail { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.species-detail b { color: var(--ink); font-weight: 600; }
 .adv-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;
 }
@@ -1528,8 +1530,15 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
   var SPECIES = [
     { name: 'Walleye',         tempLo: 55, tempHi: 75, pref:  1,
-      depth: function(d)       { return d > 1 ? '12–20 ft' : d < -1 ? '6–14 ft' : '10–18 ft'; },
-      gear:  function(d, t, s) {
+      depth:     function(d, t) { return d > 3 ? '18–28 ft' : d > 1 ? '12–20 ft' : d < -1 ? '6–14 ft' : '10–18 ft'; },
+      structure: function(d, t) {
+        if (d > 3)  return 'Main basin, deep rock piles, river channel edges';
+        if (d > 1)  return 'Outside points dropping to deep water, rock humps';
+        if (d < -3) return 'Windward shore, emergent weeds, rocky shoals';
+        if (d < -1) return 'Windward shoreline, weed edges, shallow rock flats';
+        return 'Mid-depth points, rock piles, weed-to-hard-bottom breaks';
+      },
+      gear:      function(d, t, s) {
         if (d > 3)  return 'Dead-stick jig near bottom — fish deep and lethargic';
         if (d > 1)  return 'Slow jig on bottom, finesse drop-shot near structure';
         if (d < -3) return 'Fast crankbait or inline spinner — aggressive pre-front feed';
@@ -1537,8 +1546,15 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         return s >= 2 ? 'Jig aggressively during this active period' : 'Slow jig, paddle tail, dead-stick drop-shot';
       }},
     { name: 'Largemouth Bass', tempLo: 65, tempHi: 85, pref: -1,
-      depth: function()        { return '3–10 ft'; },
-      gear:  function(d, t, s) {
+      depth:     function(d, t) { return t > 80 ? '8–18 ft (midday)' : d > 1 ? '6–14 ft' : '3–10 ft'; },
+      structure: function(d, t) {
+        if (t > 80) return 'Shaded docks, deep timber, submerged weed pockets';
+        if (d < -1) return 'Sparse weed edges, emergent cover, shallow laydowns';
+        if (d > 1)  return 'Deeper weed edges, points with drop to basin';
+        if (t < 62) return 'Hard-bottom transitions, dock posts, submerged brush';
+        return 'Submerged weed beds, wood, dock structure';
+      },
+      gear:      function(d, t, s) {
         if (t > 80) return 'Topwater at dawn/dusk only; deep drop-shot or swimbait midday';
         if (d < -1) return 'Buzzbait or fast crankbait — aggressive pre-front window';
         if (d > 1)  return 'Football jig or Carolina rig, slow bottom crawl';
@@ -1546,48 +1562,84 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         return 'Texas rig in weeds, topwater at low light';
       }},
     { name: 'Northern Pike',   tempLo: 48, tempHi: 68, pref: -1,
-      depth: function()        { return '4–14 ft'; },
-      gear:  function(d, t, s) {
+      depth:     function(d, t) { return t < 50 ? '8–16 ft' : d < -1 ? '3–10 ft' : d > 1 ? '6–14 ft' : '4–14 ft'; },
+      structure: function(d, t) {
+        if (d < -1) return 'Inside weed edges, shallow bays and flats';
+        if (t < 50) return 'Deeper channel weeds, basin margins near bottom';
+        if (d > 1)  return 'Outside weed lines, long points extending into basin';
+        return 'Weed edges with pockets, channel edges adjacent to weeds';
+      },
+      gear:      function(d, t, s) {
         if (d < -1) return 'Fast jerkbait or large bucktail — pike turn on pre-front';
         if (t < 50) return 'Large spoon or dead sucker bait, very slow retrieve';
         if (d > 1)  return 'Slow-roll large swimbait along outer weed lines';
         return 'Large bucktail or spoon, steady retrieve; figure-8 at boat';
       }},
     { name: 'Crappie',         tempLo: 62, tempHi: 78, pref:  0,
-      depth: function(d)       { return d > 1 ? '10–15 ft (suspended)' : '6–12 ft (suspended)'; },
-      gear:  function(d, t, s) {
+      depth:     function(d, t) { return t < 60 ? '12–18 ft' : d > 1 ? '10–15 ft' : '6–12 ft'; },
+      structure: function(d, t) {
+        if (t < 60) return 'Deep brush piles, submerged timber near channel';
+        if (d > 1)  return 'Brush piles or submerged timber at 10–15 ft';
+        if (d < -1) return 'Shallower brush 6–10 ft, dock edges, laydowns';
+        return 'Brush piles, submerged timber, dock structure (suspended)';
+      },
+      gear:      function(d, t, s) {
         if (t < 60) return '1/32 oz jig, very slow vertical drop near brush piles';
         if (d > 1)  return 'Vertical jig 10–15 ft on brush pile or suspended timber';
         if (d < -1) return 'Slip float with small minnow on shallower structure edges';
         return s >= 2 ? 'Active period — swim small jig through brush, steady retrieve' : '1/16 oz jig or small minnow near brush piles';
       }},
     { name: 'Yellow Perch',    tempLo: 58, tempHi: 72, pref:  1,
-      depth: function()        { return '10–20 ft'; },
-      gear:  function(d, t, s) {
+      depth:     function(d, t) { return t > 72 ? '15–22 ft' : d > 1 ? '14–20 ft' : '10–18 ft'; },
+      structure: function(d, t) {
+        if (t > 72) return 'Deep sandy/gravel basin flats, subtle bottom irregularities';
+        if (d > 1)  return 'Flat sandy/gravel bottom in main basin, hold position';
+        if (d < -1) return 'Gravel points, rock-to-sand transitions';
+        return 'Sand/gravel flats and subtle bottom irregularities';
+      },
+      gear:      function(d, t, s) {
         if (d > 1)  return 'Bottom rig with nightcrawler over sand/gravel, hold position';
         if (d < -1) return 'Small jigging spoon to trigger reaction bites on structure';
-        if (t > 72) return 'Go deeper 15–20 ft; dawn and dusk most productive';
+        if (t > 72) return 'Go deeper 15–22 ft; dawn and dusk most productive';
         return 'Perch rig with worm or small minnow over hard bottom';
       }},
     { name: 'Smallmouth Bass', tempLo: 60, tempHi: 72, pref:  0,
-      depth: function()        { return '5–18 ft'; },
-      gear:  function(d, t, s) {
+      depth:     function(d, t) { return t < 60 ? '12–20 ft' : d < -1 ? '3–10 ft' : d > 1 ? '10–18 ft' : '5–18 ft'; },
+      structure: function(d, t) {
+        if (t < 60) return 'Deep rocky ledges, channel edges, gravel depressions';
+        if (d < -1) return 'Shallow rocky points, boulder shoals, gravel flats';
+        if (d > 1)  return 'Base of deep rock piles, rocky ledge drop-offs';
+        return 'Rock humps, gravel points, cobble bottom transitions';
+      },
+      gear:      function(d, t, s) {
         if (t < 60) return 'Very slow tube or ned rig crawled on rocky bottom';
         if (d < -1) return 'Topwater or fast swimbait along rocky points pre-front';
         if (d > 1)  return 'Tube jig or drop-shot, dead-slow on rocky structure';
         return s >= 2 ? 'Ned rig or drop-shot — work actively during solunar period' : 'Tube jig or drop-shot on rocky points and gravel';
       }},
     { name: 'Lake Sturgeon',   tempLo: 55, tempHi: 70, pref:  0,
-      depth: function()        { return '15–30 ft (bottom)'; },
-      gear:  function(d, t, s) {
-        if (t < 50 || t > 78) return 'Deepest holes 20–30 ft, nightcrawler or crayfish; long wait';
+      depth:     function(d, t) { return (t < 50 || t > 78) ? '20–35 ft' : d > 1 ? '15–25 ft' : '15–30 ft'; },
+      structure: function(d, t) {
+        if (t < 50 || t > 78) return 'Deepest channel holes, river mouths, basin floor';
+        if (d > 1)  return 'Gravel/sand flats adjacent to deep water, channel edges';
+        if (d < -1) return 'Main river channel, deep basin holes, channel bends';
+        return 'Gravel/sand bottom, river mouths, channel edges';
+      },
+      gear:      function(d, t, s) {
+        if (t < 50 || t > 78) return 'Deepest holes 20–35 ft, nightcrawler or crayfish; long wait';
         if (d > 1)  return 'Fresh nightcrawler or crayfish on bottom, hold position and wait';
         if (d < -1) return 'Add scent attractant, move to deeper channel holes';
         return 'Bottom rig with nightcrawler, crayfish, or cut sucker — patience required';
       }},
     { name: 'Muskellunge',     tempLo: 60, tempHi: 72, pref: -1,
-      depth: function()        { return '8–20 ft'; },
-      gear:  function(d, t, s) {
+      depth:     function(d, t) { return t > 75 ? '12–24 ft' : d > 1 ? '10–20 ft' : '6–18 ft'; },
+      structure: function(d, t, s) {
+        if (d < -1) return 'Primary weed edges and points with deep-water access';
+        if (t > 75) return 'Deep structural edges adjacent to basin, weed-basin transitions';
+        if (d > 1)  return 'Secondary weed lines, hard-bottom humps away from shore';
+        return s >= 2 ? 'Your highest-percentage known muskie spot — get there now' : 'Weed edges, hard-bottom transitions, outside points';
+      },
+      gear:      function(d, t, s) {
         if (d < -1) return 'Prime window — large jerkbait or bucktail, fast aggressive retrieve';
         if (t > 75) return 'Dawn/dusk only; large glide bait near deep structural edges';
         if (d > 1)  return 'Slow-roll large swimbait or glide bait along structural edges';
@@ -1618,10 +1670,19 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       '<div class="modal-section-label" style="margin-bottom:6px">Species Outlook</div>' +
       SPECIES.map(function(sp) {
         var sc = _speciesScore(sp, delta, airTemp, solBoost);
+        var depth     = sp.depth(delta, airTemp);
+        var structure = sp.structure(delta, airTemp, solBoost);
+        var gear      = sp.gear(delta, airTemp, solBoost);
         return '<div class="species-row">' +
-          '<div class="species-name">' + sp.name + '</div>' +
-          '<div class="species-badge score-' + sc + '">' + BITE_LABELS[sc - 1] + '</div>' +
-          '<div class="species-tip">' + sp.depth(delta) + ' · ' + sp.gear(delta, airTemp, solBoost) + '</div>' +
+          '<div class="species-row-head">' +
+            '<div class="species-name">' + sp.name + '</div>' +
+            '<div class="species-badge score-' + sc + '">' + BITE_LABELS[sc - 1] + '</div>' +
+          '</div>' +
+          '<div class="species-detail">' +
+            '<b>Depth</b> ' + depth + ' · ' +
+            '<b>Structure</b> ' + structure + ' · ' +
+            '<b>Presentation</b> ' + gear +
+          '</div>' +
         '</div>';
       }).join('') +
     '</div>';

@@ -256,16 +256,18 @@ button.toggle {
 
 /* ---- species outlook ---- */
 .species-section { margin-top: 14px; }
-.species-row { display: grid; grid-template-columns: 110px 74px 1fr; gap: 6px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.species-row { padding: 7px 0; border-bottom: 1px solid var(--line); }
 .species-row:last-child { border-bottom: none; }
-.species-name { font-weight: 600; color: var(--ink); }
+.species-row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+.species-name { font-weight: 600; color: var(--ink); font-size: 13px; }
 .species-badge { font-weight: 700; font-size: 11px; }
 .score-1 { color: #a05555; }
 .score-2 { color: #b07840; }
 .score-3 { color: #a0a040; }
 .score-4 { color: #40a060; }
 .score-5 { color: #30c060; }
-.species-tip { color: var(--muted); }
+.species-detail { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.species-detail b { color: var(--ink); font-weight: 600; }
 .adv-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;
 }
