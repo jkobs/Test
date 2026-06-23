@@ -913,41 +913,18 @@
         L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_map);
         _map.on('click', function(e) {
           var clat = e.latlng.lat, clng = e.latlng.lng;
-          // is_in finds the area containing the clicked point (works for large lakes)
-          // fallback: around:2000 catches nearby lakes when clicking just outside shore
-          var q = '[out:json][timeout:10];' +
-            'is_in(' + clat + ',' + clng + ')->.pt;' +
-            '(way(pivot.pt)["natural"="water"]["name"];' +
-            'relation(pivot.pt)["natural"="water"]["name"];' +
-            'way["natural"="water"]["name"](around:2000,' + clat + ',' + clng + ');' +
-            'relation["natural"="water"]["name"](around:2000,' + clat + ',' + clng + ');' +
-            ');out tags center;';
-          fetch('https://overpass-api.de/api/interpreter', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'data=' + encodeURIComponent(q)
-          }).then(function(r) { return r.json(); }).then(function(j) {
-            if (!j.elements || !j.elements.length) return;
-            // pick named element whose center is closest to the click point
-            var named = j.elements.filter(function(e2) { return e2.tags && e2.tags.name; });
-            if (!named.length) return;
-            named.sort(function(a, b) {
-              var ca = a.center || a, cb = b.center || b;
-              var da = Math.pow((ca.lat||0) - clat, 2) + Math.pow((ca.lon||0) - clng, 2);
-              var db = Math.pow((cb.lat||0) - clat, 2) + Math.pow((cb.lon||0) - clng, 2);
-              return da - db;
-            });
-            var elem = named[0];
-            if (!elem || !elem.tags) return;
-            var wName = elem.tags.name || 'Unknown Water';
+          var OVP = 'https://overpass-api.de/api/interpreter';
+          var hdrs = { 'Content-Type': 'application/x-www-form-urlencoded' };
+
+          function applyLake(elem, fallbackLat, fallbackLng) {
+            if (!elem || !elem.tags || !elem.tags.name) return;
+            var wName = elem.tags.name;
             var center = elem.center || elem;
-            var wLat = (center.lat || clat), wLng = (center.lon || center.lng || clng);
+            var wLat = center.lat || fallbackLat;
+            var wLng = center.lon || center.lng || fallbackLng;
             state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
-            state.knownSpecies = null;
-            state.lakeInfo = null;
-            _speciesReqKey = null;
-            _lakeInfoKey = null;
-            _manualLoc = true;
+            state.knownSpecies = null; state.lakeInfo = null;
+            _speciesReqKey = null; _lakeInfoKey = null; _manualLoc = true;
             var locEl = document.getElementById('loc');
             if (locEl) {
               locEl.innerHTML = wName + ' · ' + wLat.toFixed(2) + ', ' + wLng.toFixed(2) +
@@ -957,7 +934,37 @@
             recompute();
             fetchLakeInfo(wName, wLat, wLng);
             fetchSpeciesForWater(wName, wLat, wLng);
-          }).catch(function() {});
+          }
+
+          // Step 1: is_in — definitive: click is INSIDE this water body
+          var q1 = '[out:json][timeout:8];is_in(' + clat + ',' + clng + ')->.pt;' +
+            '(way(pivot.pt)["natural"="water"]["name"];' +
+            'relation(pivot.pt)["natural"="water"]["name"];' +
+            ');out tags center;';
+          fetch(OVP, { method:'POST', headers:hdrs, body:'data='+encodeURIComponent(q1) })
+            .then(function(r){return r.json();})
+            .then(function(j){
+              var hit = j.elements && j.elements.find(function(e2){ return e2.tags && e2.tags.name; });
+              if (hit) { applyLake(hit, clat, clng); return; }
+              // Step 2: proximity fallback — sort by center distance, closest wins
+              var q2 = '[out:json][timeout:8];(' +
+                'way["natural"="water"]["name"](around:1500,' + clat + ',' + clng + ');' +
+                'relation["natural"="water"]["name"](around:1500,' + clat + ',' + clng + ');' +
+                ');out tags center;';
+              fetch(OVP, { method:'POST', headers:hdrs, body:'data='+encodeURIComponent(q2) })
+                .then(function(r){return r.json();})
+                .then(function(j2){
+                  var named = (j2.elements||[]).filter(function(e2){ return e2.tags && e2.tags.name; });
+                  if (!named.length) return;
+                  named.sort(function(a,b){
+                    var ca=a.center||a, cb=b.center||b;
+                    var da=(ca.lat-clat)*(ca.lat-clat)+(ca.lon-clng)*(ca.lon-clng);
+                    var db=(cb.lat-clat)*(cb.lat-clat)+(cb.lon-clng)*(cb.lon-clng);
+                    return da-db;
+                  });
+                  applyLake(named[0], clat, clng);
+                }).catch(function(){});
+            }).catch(function(){});
         });
       }
       _map.setView([lat, lng], 14);
@@ -1485,12 +1492,12 @@
     if (info.elevation) rows.push(['Elevation', info.elevation]);
     if (info.trophic) rows.push(['Trophic status', info.trophic]);
     var note = _trophicFishingNote(info);
-    if (!rows.length && !note) { el.innerHTML = ''; return; }
     el.innerHTML =
+      '<div class="lake-info-name">' + info.name + '</div>' +
       (rows.length ? '<div class="lake-info-grid">' +
         rows.map(function(r) {
           return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + r[1] + '</div></div>';
-        }).join('') + '</div>' : '') +
+        }).join('') + '</div>' : '<div class="lake-info-nodata">No additional lake data found</div>') +
       (note ? '<div class="lake-info-note">' + note + '</div>' : '');
   }
 
