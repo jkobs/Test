@@ -70,6 +70,10 @@ await page.route('**/*', async (route) => {
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(GEOCODE) });
   }
   if (url.includes('/api/interpreter')) {
+    // Simulate the two primary mirrors being down/overloaded; only the 3rd
+    // (openstreetmap.fr) responds. The parallel race must still succeed.
+    if (url.includes('overpass-api.de')) return route.abort('failed');          // overloaded
+    if (url.includes('kumi.systems')) return route.fulfill({ status: 504, body: 'gateway timeout' });
     const body = route.request().postData() || '';
     const payload = isRelationQuery(decodeURIComponent(body)) ? OVP_RELS : OVP_WAYS;
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) });
