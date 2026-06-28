@@ -1261,27 +1261,54 @@
 
   // ---- nearest lake/river lookup (Overpass API) ----
   var _lakeReqLat = null, _lakeReqLng = null;
+  var OVERPASS_MIRRORS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter'
+  ];
+
+  function setNearbyMessage(html) {
+    var el = document.getElementById('nearby-waters');
+    if (el) el.innerHTML = html;
+  }
+
+  // POST an Overpass query with a client-side timeout; try each mirror in turn.
+  function overpassFetch(query, mirrorIdx) {
+    mirrorIdx = mirrorIdx || 0;
+    if (mirrorIdx >= OVERPASS_MIRRORS.length) return Promise.reject(new Error('all mirrors failed'));
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, 25000) : null;
+    return fetch(OVERPASS_MIRRORS[mirrorIdx], {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(query),
+      signal: ctrl ? ctrl.signal : undefined
+    }).then(function(r) {
+      if (timer) clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).catch(function(err) {
+      if (timer) clearTimeout(timer);
+      return overpassFetch(query, mirrorIdx + 1); // fall back to next mirror
+    });
+  }
+
   function fetchNearestLake(lat, lng) {
     if (typeof fetch === 'undefined') return;
     if (_lakeReqLat !== null &&
         Math.abs(lat - _lakeReqLat) < 0.005 &&
         Math.abs(lng - _lakeReqLng) < 0.005) return;
     _lakeReqLat = lat; _lakeReqLng = lng;
+    setNearbyMessage('<div class="nearby-loading">Finding nearby waters…</div>');
     var R = 32187; // ~20 miles
-    var q = '[out:json][timeout:15];(' +
+    // Query ways with explicit geometry centers; relations carry big lakes (Lake Superior etc.)
+    var q = '[out:json][timeout:25];(' +
       'way["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
       'relation["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
       'way["waterway"~"river|stream"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
-      'relation["waterway"~"river|stream"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
     ');out center;';
-    fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(q)
-    }).then(function(r) { return r.json(); }).then(function(j) {
-      if (!j.elements || !j.elements.length) return;
+    overpassFetch(q).then(function(j) {
       var waters = [];
-      j.elements.forEach(function(e) {
+      (j.elements || []).forEach(function(e) {
         if (!e.tags || !e.tags.name) return;
         var c = e.center || e;
         if (c.lat == null) return;
@@ -1295,9 +1322,12 @@
         else waters.push({ name: e.tags.name, lat: wlat, lng: wlng, dist: dist, type: type });
       });
       waters.sort(function(a, b) { return a.dist - b.dist; });
-      state.nearbyWaters = waters.slice(0, 10);
+      state.nearbyWaters = waters.slice(0, 12);
       var best = state.nearbyWaters[0];
-      if (!best) return;
+      if (!best) {
+        setNearbyMessage('<div class="nearby-empty">No named waters within 20 mi.</div>');
+        return;
+      }
       state.loc.name = best.name;
       var locEl = document.getElementById('loc');
       if (locEl) {
@@ -1309,7 +1339,12 @@
       renderNearbyWaters();
       fetchLakeInfo(best.name, best.lat, best.lng);
       fetchSpeciesForWater(best.name, best.lat, best.lng);
-    }).catch(function() {});
+    }).catch(function() {
+      _lakeReqLat = null; _lakeReqLng = null; // allow retry
+      setNearbyMessage('<button class="nearby-retry" id="nearby-retry">⟳ Couldn\'t load nearby waters — tap to retry</button>');
+      var rb = document.getElementById('nearby-retry');
+      if (rb) rb.onclick = function() { fetchNearestLake(lat, lng); };
+    });
   }
 
   // ---- USGS river gauge ----
