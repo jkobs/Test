@@ -33,6 +33,23 @@ header h1 { font-size: 20px; margin: 0; }
   background: none; border: 1px solid var(--line); color: var(--muted);
   border-radius: 8px; padding: 3px 8px; font-size: 12px; margin-left: 6px; cursor: pointer;
 }
+.loc-search { display: flex; gap: 6px; margin: 8px 0 4px; }
+.city-input {
+  flex: 1; min-width: 0; background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--ink); font-size: 14px; padding: 8px 10px; outline: none;
+}
+.city-input:focus { border-color: var(--minor); }
+.city-go {
+  background: var(--minor); border: none; color: #06222e; font-weight: 700;
+  border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+}
+.city-results { margin-bottom: 4px; }
+.city-result {
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; color: var(--ink); margin-top: 4px; cursor: pointer;
+}
+.city-result:hover { border-color: var(--minor); background: var(--card2); }
+.city-loading, .city-noresult { color: var(--muted); font-size: 12px; padding: 6px 0; }
 
 /* Next-period banner + countdown */
 .next {

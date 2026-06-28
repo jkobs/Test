@@ -1628,6 +1628,61 @@
     );
   }
 
+  // ---- manual location via city/state geocoding (Open-Meteo) ----
+  function applyManualLocation(name, lat, lng, tz) {
+    _manualLoc = true;
+    state.knownSpecies = null;
+    state.lakeInfo = null;
+    state.nearbyWaters = [];
+    _speciesReqKey = null;
+    _lakeInfoKey = null;
+    _gaugeReqLat = null; _gaugeReqLng = null;
+    _lakeReqLat = null; _lakeReqLng = null;
+    state.loc = { name: name, lat: lat, lng: lng, tz: tz || state.loc.tz };
+    recompute();
+    fetchNearestLake(lat, lng); // refreshes nearby-waters chips, lake info, species
+  }
+
+  function geocodeCity(query) {
+    var resEl = document.getElementById('city-results');
+    if (!query || !query.trim()) return;
+    if (typeof fetch === 'undefined') return;
+    if (resEl) resEl.innerHTML = '<div class="city-loading">Searching…</div>';
+    var url = 'https://geocoding-api.open-meteo.com/v1/search?count=5&language=en&format=json&name=' +
+      encodeURIComponent(query.trim());
+    fetch(url).then(function(r) { return r.json(); }).then(function(j) {
+      var results = (j && j.results) || [];
+      if (!results.length) {
+        if (resEl) resEl.innerHTML = '<div class="city-noresult">No match for "' + query.trim() + '"</div>';
+        return;
+      }
+      if (!resEl) return;
+      resEl.innerHTML = results.map(function(r, i) {
+        var place = [r.name, r.admin1, r.country_code].filter(Boolean).join(', ');
+        return '<div class="city-result" data-idx="' + i + '">📍 ' + place + '</div>';
+      }).join('');
+      resEl.querySelectorAll('.city-result').forEach(function(row) {
+        row.onclick = function() {
+          var r = results[+row.dataset.idx];
+          var place = [r.name, r.admin1].filter(Boolean).join(', ');
+          applyManualLocation(place, r.latitude, r.longitude, r.timezone);
+          resEl.innerHTML = '';
+          var inp = document.getElementById('city-input');
+          if (inp) inp.value = '';
+        };
+      });
+    }).catch(function() {
+      if (resEl) resEl.innerHTML = '<div class="city-noresult">Search unavailable — check connection.</div>';
+    });
+  }
+
+  function wireCitySearch() {
+    var inp = document.getElementById('city-input');
+    var btn = document.getElementById('city-go');
+    if (btn) btn.onclick = function() { geocodeCity(inp ? inp.value : ''); };
+    if (inp) inp.onkeydown = function(e) { if (e.key === 'Enter') { e.preventDefault(); geocodeCity(inp.value); } };
+  }
+
   function useMyLocation() {
     if (!navigator.geolocation) { alert('Geolocation not available; using Yellow Lake.'); return; }
     _manualLoc = false;
@@ -1655,6 +1710,7 @@
   // ---- init ----
   function init() {
     document.getElementById('notify-btn').onclick = enableNotifications;
+    wireCitySearch();
     recompute();
     renderClock();
     setInterval(function () { renderNext(); renderClock(); }, 1000);
