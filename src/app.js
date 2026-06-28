@@ -1276,7 +1276,9 @@
   // ---- nearby-waters cache (localStorage, keyed by rounded lat/lng) ----
   var NEARBY_TTL = 7 * 24 * 3600 * 1000; // 7 days
   function _nearbyCacheKey(lat, lng) {
-    return 'nearbyWaters:' + lat.toFixed(2) + ',' + lng.toFixed(2);
+    // v3: Overpass-only (Wikipedia source removed) — invalidates older caches
+    // that may contain non-water entries like churches/parks.
+    return 'nearbyWaters:v3:' + lat.toFixed(2) + ',' + lng.toFixed(2);
   }
   function readNearbyCache(lat, lng) {
     try {
@@ -1413,20 +1415,21 @@
       return r.json();
     }).then(function(j) {
       var arr = (j.query && j.query.geosearch) || [];
-      // A real water body is *named as* one: it starts with "Lake/Lac" (Lake
-      // Superior) or its last word is a water word (Otter Lake, White River,
-      // Chequamegon Bay). This rejects churches, parks, reserves and other
-      // features that merely contain a water word ("Cedar Creek ... Reserve").
+      // STRICT WHITELIST: keep an entry only if its name's LAST word is an actual
+      // water word (Otter Lake, White River, Chequamegon Bay, Mill Pond). This
+      // rejects churches, parks, reserves, townships and cities — anything not
+      // literally named as a body of water. Comma form ("Ham Lake, Minnesota")
+      // is a populated place and is rejected too. Big "Lake X" waters (Lake
+      // Superior) are supplied by Overpass with correct shoreline distance.
       var END_WATER = /\b(lakes?|rivers?|creeks?|brooks?|streams?|bays?|reservoirs?|flowages?|ponds?|pools?|lagoons?|sloughs?|millponds?|impoundments?|inlets?|harbou?rs?)$/i;
-      var START_LAKE = /^(lakes?|lac|lago)\b/i;
-      var RIVER_END  = /\b(rivers?|creeks?|streams?|brooks?)$/i;
-      var BAY_END    = /\bbays?$/i;
+      var RIVER_END = /\b(rivers?|creeks?|streams?|brooks?)$/i;
+      var BAY_END   = /\bbays?$/i;
       var out = [];
       arr.forEach(function(p) {
         if (!p.title) return;
         var name = p.title.replace(/\s*\([^)]*\)\s*$/, '').trim(); // drop "(Wisconsin)" suffix
-        if (name.indexOf(',') !== -1) return;          // "Ham Lake, Minnesota" = populated place
-        if (!START_LAKE.test(name) && !END_WATER.test(name)) return;
+        if (name.indexOf(',') !== -1) return;          // populated place pattern
+        if (!END_WATER.test(name)) return;             // must END in a water word
         var tags = { name: name };
         if (RIVER_END.test(name)) tags.waterway = 'river';
         else if (BAY_END.test(name)) tags.natural = 'bay';

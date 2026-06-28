@@ -58,7 +58,9 @@ const WIKI = {
       { pageid: 5, title: 'Cedar Creek Ecosystem Science Reserve', lat: 46.58, lon: -90.83, dist: 5500 },
       { pageid: 6, title: 'Ham Lake, Minnesota', lat: 46.57, lon: -90.82, dist: 4800 },
       { pageid: 7, title: 'Ashland, Wisconsin', lat: 46.59, lon: -90.88, dist: 100 },
-      { pageid: 8, title: 'Prentice Park', lat: 46.60, lon: -90.90, dist: 1500 }
+      { pageid: 8, title: 'Prentice Park', lat: 46.60, lon: -90.90, dist: 1500 },
+      { pageid: 9, title: 'Lake Mills', lat: 46.61, lon: -90.91, dist: 3000 },           // city, starts "Lake" -> reject
+      { pageid: 10, title: 'Lake Township', lat: 46.62, lon: -90.92, dist: 3200 }        // township, starts "Lake" -> reject
     ]
   }
 };
@@ -149,6 +151,8 @@ const optsB = await getOptions(baseRoute(async (route, url) => {
   check('B: church filtered out', !j.includes('church'));
   check('B: science reserve filtered out', !j.includes('cedar creek') && !j.includes('reserve'));
   check('B: city "Ham Lake, Minnesota" filtered out', !j.includes('ham lake'));
+  check('B: "Lake Mills" city filtered out', !j.includes('lake mills'));
+  check('B: "Lake Township" filtered out', !j.includes('township'));
   check('B: town/park filtered out', !j.includes('prentice') && !j.includes('ashland, wisconsin'));
 }
 
