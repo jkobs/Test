@@ -199,13 +199,16 @@ button.toggle {
 .tl-leg-dot.minor { background: var(--minor); opacity: .65; }
 .tl-leg-dot.daylight { background: rgba(255,200,80,.4); border: 1px solid rgba(255,200,80,.5); }
 
-/* ---- Nearby waters chip strip ---- */
-.nearby-scroll { display: flex; gap: 7px; overflow-x: auto; padding: 5px 0 9px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-.nearby-scroll::-webkit-scrollbar { display: none; }
-.nearby-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--card2); border: 1px solid var(--line); border-radius: 20px; padding: 5px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0; color: var(--muted); transition: border-color .15s, color .15s; }
-.nearby-chip:hover, .nearby-chip.active { border-color: var(--minor); color: var(--ink); }
-.nearby-chip.active { font-weight: 600; }
-.nearby-dist { color: var(--muted); font-size: 10px; margin-left: 2px; font-weight: 400; }
+/* ---- Nearby waters dropdown ---- */
+.nearby-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 0 3px; }
+.nearby-select {
+  width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink); font-size: 14px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
+  outline: none; -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237a8a93' d='M2 4l4 4 4-4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px;
+}
+.nearby-select:focus { border-color: var(--minor); }
 
 /* ---- USGS river gauge card ---- */
 .gauge-card { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin: 10px 0; }

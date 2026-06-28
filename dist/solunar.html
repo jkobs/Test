@@ -873,13 +873,16 @@ button.toggle {
 .tl-leg-dot.minor { background: var(--minor); opacity: .65; }
 .tl-leg-dot.daylight { background: rgba(255,200,80,.4); border: 1px solid rgba(255,200,80,.5); }
 
-/* ---- Nearby waters chip strip ---- */
-.nearby-scroll { display: flex; gap: 7px; overflow-x: auto; padding: 5px 0 9px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-.nearby-scroll::-webkit-scrollbar { display: none; }
-.nearby-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--card2); border: 1px solid var(--line); border-radius: 20px; padding: 5px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0; color: var(--muted); transition: border-color .15s, color .15s; }
-.nearby-chip:hover, .nearby-chip.active { border-color: var(--minor); color: var(--ink); }
-.nearby-chip.active { font-weight: 600; }
-.nearby-dist { color: var(--muted); font-size: 10px; margin-left: 2px; font-weight: 400; }
+/* ---- Nearby waters dropdown ---- */
+.nearby-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 0 3px; }
+.nearby-select {
+  width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink); font-size: 14px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
+  outline: none; -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237a8a93' d='M2 4l4 4 4-4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px;
+}
+.nearby-select:focus { border-color: var(--minor); }
 
 /* ---- USGS river gauge card ---- */
 .gauge-card { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin: 10px 0; }
@@ -1974,43 +1977,43 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     };
   }
 
+  function selectWater(wName, wLat, wLng) {
+    state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
+    state.knownSpecies = null;
+    state.lakeInfo = null;
+    _speciesReqKey = null;
+    _lakeInfoKey = null;
+    _manualLoc = true;
+    var locEl = document.getElementById('loc');
+    if (locEl) {
+      locEl.innerHTML = wName + ' · ' + wLat.toFixed(2) + ', ' + wLng.toFixed(2) +
+        '<button id="useloc">Use my location</button>';
+      document.getElementById('useloc').onclick = useMyLocation;
+    }
+    renderNearbyWaters();
+    recompute();
+    fetchLakeInfo(wName, wLat, wLng);
+    fetchSpeciesForWater(wName, wLat, wLng);
+  }
+
   function renderNearbyWaters() {
     var el = document.getElementById('nearby-waters');
     if (!el || !state.nearbyWaters.length) return;
-    var chips = state.nearbyWaters.map(function(w) {
-      var active = w.name === state.loc.name;
-      var dist = fmtDist(w.dist);
+    var opts = state.nearbyWaters.map(function(w, i) {
+      var selected = w.name === state.loc.name;
       var icon = w.type === 'river' ? '🏞' : '🫧';
-      return '<div class="nearby-chip' + (active ? ' active' : '') + '" ' +
-        'data-lat="' + w.lat + '" data-lng="' + w.lng + '" ' +
-        'data-name="' + w.name.replace(/"/g, '&quot;') + '">' +
-        icon + ' ' + w.name + ' <span class="nearby-dist">' + dist + '</span>' +
-      '</div>';
+      return '<option value="' + i + '"' + (selected ? ' selected' : '') + '>' +
+        icon + ' ' + w.name + ' · ' + fmtDist(w.dist) +
+      '</option>';
     }).join('');
-    el.innerHTML = '<div class="nearby-scroll">' + chips + '</div>';
-    el.querySelectorAll('.nearby-chip').forEach(function(chip) {
-      chip.onclick = function() {
-        var wName = chip.dataset.name;
-        var wLat = +chip.dataset.lat;
-        var wLng = +chip.dataset.lng;
-        state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
-        state.knownSpecies = null;
-        state.lakeInfo = null;
-        _speciesReqKey = null;
-        _lakeInfoKey = null;
-        _manualLoc = true;
-        var locEl = document.getElementById('loc');
-        if (locEl) {
-          locEl.innerHTML = state.loc.name + ' · ' + state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
-            '<button id="useloc">Use my location</button>';
-          document.getElementById('useloc').onclick = useMyLocation;
-        }
-        renderNearbyWaters();
-        recompute();
-        fetchLakeInfo(wName, wLat, wLng);
-        fetchSpeciesForWater(wName, wLat, wLng);
-      };
-    });
+    el.innerHTML =
+      '<label class="nearby-label" for="nearby-select">Nearby waters</label>' +
+      '<select id="nearby-select" class="nearby-select">' + opts + '</select>';
+    var sel = document.getElementById('nearby-select');
+    sel.onchange = function() {
+      var w = state.nearbyWaters[+sel.value];
+      if (w) selectWater(w.name, w.lat, w.lng);
+    };
   }
 
   function fmtDist(degDist) {
@@ -2811,11 +2814,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         Math.abs(lat - _lakeReqLat) < 0.005 &&
         Math.abs(lng - _lakeReqLng) < 0.005) return;
     _lakeReqLat = lat; _lakeReqLng = lng;
-    var q = '[out:json][timeout:10];(' +
-      'way["natural"="water"]["name"](around:25000,' + lat + ',' + lng + ');' +
-      'relation["natural"="water"]["name"](around:25000,' + lat + ',' + lng + ');' +
-      'way["waterway"~"river|stream"]["name"](around:25000,' + lat + ',' + lng + ');' +
-      'relation["waterway"~"river|stream"]["name"](around:25000,' + lat + ',' + lng + ');' +
+    var R = 32187; // ~20 miles
+    var q = '[out:json][timeout:15];(' +
+      'way["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'relation["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'way["waterway"~"river|stream"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'relation["waterway"~"river|stream"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
     ');out center;';
     fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',

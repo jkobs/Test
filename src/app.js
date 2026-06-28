@@ -430,43 +430,43 @@
     };
   }
 
+  function selectWater(wName, wLat, wLng) {
+    state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
+    state.knownSpecies = null;
+    state.lakeInfo = null;
+    _speciesReqKey = null;
+    _lakeInfoKey = null;
+    _manualLoc = true;
+    var locEl = document.getElementById('loc');
+    if (locEl) {
+      locEl.innerHTML = wName + ' · ' + wLat.toFixed(2) + ', ' + wLng.toFixed(2) +
+        '<button id="useloc">Use my location</button>';
+      document.getElementById('useloc').onclick = useMyLocation;
+    }
+    renderNearbyWaters();
+    recompute();
+    fetchLakeInfo(wName, wLat, wLng);
+    fetchSpeciesForWater(wName, wLat, wLng);
+  }
+
   function renderNearbyWaters() {
     var el = document.getElementById('nearby-waters');
     if (!el || !state.nearbyWaters.length) return;
-    var chips = state.nearbyWaters.map(function(w) {
-      var active = w.name === state.loc.name;
-      var dist = fmtDist(w.dist);
+    var opts = state.nearbyWaters.map(function(w, i) {
+      var selected = w.name === state.loc.name;
       var icon = w.type === 'river' ? '🏞' : '🫧';
-      return '<div class="nearby-chip' + (active ? ' active' : '') + '" ' +
-        'data-lat="' + w.lat + '" data-lng="' + w.lng + '" ' +
-        'data-name="' + w.name.replace(/"/g, '&quot;') + '">' +
-        icon + ' ' + w.name + ' <span class="nearby-dist">' + dist + '</span>' +
-      '</div>';
+      return '<option value="' + i + '"' + (selected ? ' selected' : '') + '>' +
+        icon + ' ' + w.name + ' · ' + fmtDist(w.dist) +
+      '</option>';
     }).join('');
-    el.innerHTML = '<div class="nearby-scroll">' + chips + '</div>';
-    el.querySelectorAll('.nearby-chip').forEach(function(chip) {
-      chip.onclick = function() {
-        var wName = chip.dataset.name;
-        var wLat = +chip.dataset.lat;
-        var wLng = +chip.dataset.lng;
-        state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
-        state.knownSpecies = null;
-        state.lakeInfo = null;
-        _speciesReqKey = null;
-        _lakeInfoKey = null;
-        _manualLoc = true;
-        var locEl = document.getElementById('loc');
-        if (locEl) {
-          locEl.innerHTML = state.loc.name + ' · ' + state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
-            '<button id="useloc">Use my location</button>';
-          document.getElementById('useloc').onclick = useMyLocation;
-        }
-        renderNearbyWaters();
-        recompute();
-        fetchLakeInfo(wName, wLat, wLng);
-        fetchSpeciesForWater(wName, wLat, wLng);
-      };
-    });
+    el.innerHTML =
+      '<label class="nearby-label" for="nearby-select">Nearby waters</label>' +
+      '<select id="nearby-select" class="nearby-select">' + opts + '</select>';
+    var sel = document.getElementById('nearby-select');
+    sel.onchange = function() {
+      var w = state.nearbyWaters[+sel.value];
+      if (w) selectWater(w.name, w.lat, w.lng);
+    };
   }
 
   function fmtDist(degDist) {
@@ -1267,11 +1267,12 @@
         Math.abs(lat - _lakeReqLat) < 0.005 &&
         Math.abs(lng - _lakeReqLng) < 0.005) return;
     _lakeReqLat = lat; _lakeReqLng = lng;
-    var q = '[out:json][timeout:10];(' +
-      'way["natural"="water"]["name"](around:25000,' + lat + ',' + lng + ');' +
-      'relation["natural"="water"]["name"](around:25000,' + lat + ',' + lng + ');' +
-      'way["waterway"~"river|stream"]["name"](around:25000,' + lat + ',' + lng + ');' +
-      'relation["waterway"~"river|stream"]["name"](around:25000,' + lat + ',' + lng + ');' +
+    var R = 32187; // ~20 miles
+    var q = '[out:json][timeout:15];(' +
+      'way["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'relation["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'way["waterway"~"river|stream"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'relation["waterway"~"river|stream"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
     ');out center;';
     fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
