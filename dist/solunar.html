@@ -2853,29 +2853,60 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     _lakeReqLat = lat; _lakeReqLng = lng;
     setNearbyMessage('<div class="nearby-loading">Finding nearby waters…</div>');
     var R = 32187; // ~20 miles
-    // Query ways with explicit geometry centers; relations carry big lakes (Lake Superior etc.)
+    // out bb returns each element's bounding box + tags cheaply (no full geometry),
+    // so even Lake Superior is light. Only rivers (not streams) and bays/lakes.
     var q = '[out:json][timeout:25];(' +
       'way["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
       'relation["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
-      'way["waterway"~"river|stream"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
-    ');out center;';
+      'way["natural"="bay"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'relation["natural"="bay"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'way["waterway"~"^(river|canal)$"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+    ');out tags bb;';
+    var MIN_LAKE_MI = 0.2; // exclude lakes/ponds whose longest dimension is under ~0.2 mi
     overpassFetch(q).then(function(j) {
       var waters = [];
       (j.elements || []).forEach(function(e) {
         if (!e.tags || !e.tags.name) return;
-        var c = e.center || e;
-        if (c.lat == null) return;
-        var wlat = c.lat, wlng = c.lon || c.lng || 0;
-        var dlat = wlat - lat, dlng = wlng - lng;
-        var dist = dlat * dlat + dlng * dlng;
-        var type = e.tags.waterway ? 'river' : 'lake';
+        var b = e.bounds;
+        var wlat, wlng, dist, latSpanMi = 0, lngSpanMi = 0;
+        if (b) {
+          // distance to nearest edge of bounding box (0 if you're on/in the water)
+          var dlat = Math.max(b.minlat - lat, 0, lat - b.maxlat);
+          var dlng = Math.max(b.minlon - lng, 0, lng - b.maxlon);
+          dist = dlat * dlat + dlng * dlng;
+          // focus point = nearest point of the water body to the user
+          wlat = Math.min(Math.max(lat, b.minlat), b.maxlat);
+          wlng = Math.min(Math.max(lng, b.minlon), b.maxlon);
+          latSpanMi = (b.maxlat - b.minlat) * 69;
+          lngSpanMi = (b.maxlon - b.minlon) * 69 * Math.cos(lat * Math.PI / 180);
+        } else {
+          var c = e.center || e;
+          if (c.lat == null) return;
+          wlat = c.lat; wlng = c.lon || c.lng || 0;
+          var dla = wlat - lat, dln = wlng - lng;
+          dist = dla * dla + dln * dln;
+        }
+        var isRiver = !!e.tags.waterway;
+        var isBay   = e.tags.natural === 'bay';
+        // size filter: lakes must be reasonably large; rivers & bays always pass
+        if (!isRiver && !isBay) {
+          var maxDim = Math.max(latSpanMi, lngSpanMi);
+          if (b && maxDim < MIN_LAKE_MI) return;
+        }
+        var type = isRiver ? 'river' : 'lake';
+        var size = latSpanMi * lngSpanMi;
         var existing = null;
         for (var i = 0; i < waters.length; i++) { if (waters[i].name === e.tags.name) { existing = waters[i]; break; } }
-        if (existing) { if (dist < existing.dist) { existing.dist = dist; existing.lat = wlat; existing.lng = wlng; } }
-        else waters.push({ name: e.tags.name, lat: wlat, lng: wlng, dist: dist, type: type });
+        if (existing) {
+          if (dist < existing.dist) { existing.dist = dist; existing.lat = wlat; existing.lng = wlng; }
+          if (size > existing.size) existing.size = size;
+        } else {
+          waters.push({ name: e.tags.name, lat: wlat, lng: wlng, dist: dist, type: type, size: size });
+        }
       });
-      waters.sort(function(a, b) { return a.dist - b.dist; });
-      state.nearbyWaters = waters.slice(0, 12);
+      // sort by distance, then by size (larger first) for ties at 0 mi
+      waters.sort(function(a, b2) { return (a.dist - b2.dist) || (b2.size - a.size); });
+      state.nearbyWaters = waters.slice(0, 15);
       var best = state.nearbyWaters[0];
       if (!best) {
         setNearbyMessage('<div class="nearby-empty">No named waters within 20 mi.</div>');
