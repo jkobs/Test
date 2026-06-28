@@ -1414,24 +1414,26 @@
     }
 
     setNearbyMessage('<div class="nearby-loading">Finding nearby waters…</div>');
-    var R = 16093; // ~10 miles (smaller radius is much faster in lake-dense regions)
+    var R_FAST = 8047;  // ~5 miles — the heavy inland-lake/river query stays tight for speed
+    var R_BIG  = 24140; // ~15 miles — cheap node + best-effort relation queries reach farther
     var waters = [];
 
-    // Pass 1 (fast): nodes + ways — bay labels (e.g. Chequamegon Bay is a node),
-    // inland lakes, rivers, bay polygons. Cheap, returns in a couple seconds.
+    // Pass 1 (fast): ways for inland lakes/rivers at a tight 5 mi radius (this is
+    // the part that bogs down in lake-dense areas), plus cheap bay-label nodes
+    // at a wider radius (e.g. Chequamegon Bay is a node, not a polygon).
     var qWays = '[out:json][timeout:20];(' +
-      'node["natural"="bay"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
-      'way["natural"="bay"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
-      'way["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
-      'way["waterway"~"^(river|canal)$"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'node["natural"="bay"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
+      'way["natural"="water"]["name"](around:' + R_FAST + ',' + lat + ',' + lng + ');' +
+      'way["natural"="bay"]["name"](around:' + R_FAST + ',' + lat + ',' + lng + ');' +
+      'way["waterway"~"^(river|canal)$"]["name"](around:' + R_FAST + ',' + lat + ',' + lng + ');' +
     ');out tags bb;';
 
     // Pass 2 (best-effort): big multipolygon relations — Lake Superior, large
-    // reservoirs, bays. Expensive to resolve, so it runs after with a long
-    // timeout and merges into the list without blocking the UI.
+    // reservoirs, bays — at the wider radius. Expensive to resolve, so it runs
+    // after with a long timeout and merges into the list without blocking.
     var qRels = '[out:json][timeout:60];(' +
-      'relation["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
-      'relation["natural"="bay"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'relation["natural"="water"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
+      'relation["natural"="bay"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
     ');out tags bb;';
 
     overpassFetch(qWays).then(function(j) {
