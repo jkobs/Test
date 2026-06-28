@@ -1385,7 +1385,7 @@
     waters.sort(function(a, b) { return (a.dist - b.dist) || (b.size - a.size); });
     state.nearbyWaters = waters.slice(0, 15);
     var best = state.nearbyWaters[0];
-    if (!best) { setNearbyMessage('<div class="nearby-empty">No named waters within 20 mi.</div>'); return; }
+    if (!best) { setNearbyMessage('<div class="nearby-empty">No named waters within 10 mi.</div>'); return; }
     state.loc.name = best.name;
     var locEl = document.getElementById('loc');
     if (locEl) {
@@ -1414,7 +1414,7 @@
     }
 
     setNearbyMessage('<div class="nearby-loading">Finding nearby waters…</div>');
-    var R = 32187; // ~20 miles
+    var R = 16093; // ~10 miles (smaller radius is much faster in lake-dense regions)
     var waters = [];
 
     // Pass 1 (fast): nodes + ways — bay labels (e.g. Chequamegon Bay is a node),
