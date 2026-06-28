@@ -45,14 +45,20 @@ const OVP_RELS = {
       tags: { name: 'Lake Superior', natural: 'water', water: 'lake' } }
   ]
 };
-// Wikipedia GeoSearch shape
+// Wikipedia GeoSearch shape — includes the real-world noise we must filter:
+// a church (in a "...Lake Township"), a science reserve ("Cedar Creek..."),
+// a city ("Ham Lake, Minnesota"), and the town itself.
 const WIKI = {
   query: {
     geosearch: [
       { pageid: 1, title: 'Chequamegon Bay', lat: 46.66, lon: -90.84, dist: 5000 },
       { pageid: 2, title: 'White River (Wisconsin)', lat: 46.55, lon: -90.80, dist: 6000 },
-      { pageid: 3, title: 'Ashland, Wisconsin', lat: 46.59, lon: -90.88, dist: 100 }, // not water -> filtered
-      { pageid: 4, title: 'Prentice Park', lat: 46.60, lon: -90.90, dist: 1500 }       // not water -> filtered
+      { pageid: 3, title: 'Coon Lake', lat: 46.62, lon: -90.86, dist: 4500 },
+      { pageid: 4, title: 'Swedish Evangelical Lutheran Church (Coon Lake Township)', lat: 46.60, lon: -90.90, dist: 2000 },
+      { pageid: 5, title: 'Cedar Creek Ecosystem Science Reserve', lat: 46.58, lon: -90.83, dist: 5500 },
+      { pageid: 6, title: 'Ham Lake, Minnesota', lat: 46.57, lon: -90.82, dist: 4800 },
+      { pageid: 7, title: 'Ashland, Wisconsin', lat: 46.59, lon: -90.88, dist: 100 },
+      { pageid: 8, title: 'Prentice Park', lat: 46.60, lon: -90.90, dist: 1500 }
     ]
   }
 };
@@ -139,7 +145,11 @@ const optsB = await getOptions(baseRoute(async (route, url) => {
   check('B: dropdown still populated via Wikipedia', optsB.length >= 1);
   check('B: Chequamegon Bay present (wiki)', j.includes('chequamegon'));
   check('B: White River present (wiki)', j.includes('white river'));
-  check('B: non-water article filtered out', !j.includes('prentice') && !j.includes('ashland, wisconsin'));
+  check('B: Coon Lake present (wiki)', j.includes('coon lake'));
+  check('B: church filtered out', !j.includes('church'));
+  check('B: science reserve filtered out', !j.includes('cedar creek') && !j.includes('reserve'));
+  check('B: city "Ham Lake, Minnesota" filtered out', !j.includes('ham lake'));
+  check('B: town/park filtered out', !j.includes('prentice') && !j.includes('ashland, wisconsin'));
 }
 
 console.log('\n' + (failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'));

@@ -2966,14 +2966,23 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       return r.json();
     }).then(function(j) {
       var arr = (j.query && j.query.geosearch) || [];
-      var waterRe = /\b(lake|river|bay|reservoir|pond|flowage|lagoon|slough|millpond|creek|lac|pool|inlet|harbor|harbour|impoundment)\b/i;
+      // A real water body is *named as* one: it starts with "Lake/Lac" (Lake
+      // Superior) or its last word is a water word (Otter Lake, White River,
+      // Chequamegon Bay). This rejects churches, parks, reserves and other
+      // features that merely contain a water word ("Cedar Creek ... Reserve").
+      var END_WATER = /\b(lakes?|rivers?|creeks?|brooks?|streams?|bays?|reservoirs?|flowages?|ponds?|pools?|lagoons?|sloughs?|millponds?|impoundments?|inlets?|harbou?rs?)$/i;
+      var START_LAKE = /^(lakes?|lac|lago)\b/i;
+      var RIVER_END  = /\b(rivers?|creeks?|streams?|brooks?)$/i;
+      var BAY_END    = /\bbays?$/i;
       var out = [];
       arr.forEach(function(p) {
-        if (!p.title || !waterRe.test(p.title)) return;
+        if (!p.title) return;
         var name = p.title.replace(/\s*\([^)]*\)\s*$/, '').trim(); // drop "(Wisconsin)" suffix
+        if (name.indexOf(',') !== -1) return;          // "Ham Lake, Minnesota" = populated place
+        if (!START_LAKE.test(name) && !END_WATER.test(name)) return;
         var tags = { name: name };
-        if (/\b(river|creek|stream|brook)\b/i.test(name)) tags.waterway = 'river';
-        else if (/\bbay\b/i.test(name)) tags.natural = 'bay';
+        if (RIVER_END.test(name)) tags.waterway = 'river';
+        else if (BAY_END.test(name)) tags.natural = 'bay';
         else tags.natural = 'water';
         out.push({ tags: tags, lat: p.lat, lon: p.lon });
       });
