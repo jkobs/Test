@@ -1399,6 +1399,35 @@
     fetchSpeciesForWater(best.name, best.lat, best.lng);
   }
 
+  // Wikipedia GeoSearch — reliable, CORS-enabled (origin=*), no key. Returns
+  // notable named waters near a point. Used as an independent fallback so the
+  // feature still works when Overpass is down. Max radius is 10 km.
+  function fetchWikiWaters(lat, lng) {
+    var url = 'https://en.wikipedia.org/w/api.php?action=query&list=geosearch' +
+      '&gscoord=' + lat + '%7C' + lng + '&gsradius=10000&gslimit=50&format=json&origin=*';
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, 12000) : null;
+    return fetch(url, { signal: ctrl ? ctrl.signal : undefined }).then(function(r) {
+      if (timer) clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(j) {
+      var arr = (j.query && j.query.geosearch) || [];
+      var waterRe = /\b(lake|river|bay|reservoir|pond|flowage|lagoon|slough|millpond|creek|lac|pool|inlet|harbor|harbour|impoundment)\b/i;
+      var out = [];
+      arr.forEach(function(p) {
+        if (!p.title || !waterRe.test(p.title)) return;
+        var name = p.title.replace(/\s*\([^)]*\)\s*$/, '').trim(); // drop "(Wisconsin)" suffix
+        var tags = { name: name };
+        if (/\b(river|creek|stream|brook)\b/i.test(name)) tags.waterway = 'river';
+        else if (/\bbay\b/i.test(name)) tags.natural = 'bay';
+        else tags.natural = 'water';
+        out.push({ tags: tags, lat: p.lat, lon: p.lon });
+      });
+      return out;
+    });
+  }
+
   function fetchNearestLake(lat, lng) {
     if (typeof fetch === 'undefined') return;
     if (_lakeReqLat !== null &&
@@ -1417,42 +1446,55 @@
     var R_FAST = 8047;  // ~5 miles — the heavy inland-lake/river query stays tight for speed
     var R_BIG  = 24140; // ~15 miles — cheap node + best-effort relation queries reach farther
     var waters = [];
+    var rendered = false;
 
-    // Pass 1 (fast): ways for inland lakes/rivers at a tight 5 mi radius (this is
-    // the part that bogs down in lake-dense areas), plus cheap bay-label nodes
-    // at a wider radius (e.g. Chequamegon Bay is a node, not a polygon).
+    // Merge-render: first non-empty result sets the selection and fetches lake
+    // info; later results only refresh the dropdown list (no selection change).
+    function pushRender() {
+      if (!waters.length) return;
+      if (!rendered) {
+        rendered = true;
+        _renderWaters(waters, lat, lng);
+      } else {
+        waters.sort(function(a, b) { return (a.dist - b.dist) || (b.size - a.size); });
+        state.nearbyWaters = waters.slice(0, 15);
+        renderNearbyWaters();
+      }
+      writeNearbyCache(lat, lng, state.nearbyWaters);
+    }
+
+    // ---- Source 1: Overpass (comprehensive). Ways fast, relations best-effort. ----
     var qWays = '[out:json][timeout:20];(' +
       'node["natural"="bay"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
       'way["natural"="water"]["name"](around:' + R_FAST + ',' + lat + ',' + lng + ');' +
       'way["natural"="bay"]["name"](around:' + R_FAST + ',' + lat + ',' + lng + ');' +
       'way["waterway"~"^(river|canal)$"]["name"](around:' + R_FAST + ',' + lat + ',' + lng + ');' +
     ');out tags bb;';
-
-    // Pass 2 (best-effort): big multipolygon relations — Lake Superior, large
-    // reservoirs, bays — at the wider radius. Expensive to resolve, so it runs
-    // after with a long timeout and merges into the list without blocking.
     var qRels = '[out:json][timeout:60];(' +
       'relation["natural"="water"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
       'relation["natural"="bay"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
     ');out tags bb;';
 
-    overpassFetch(qWays).then(function(j) {
+    var overpassDone = overpassFetch(qWays).then(function(j) {
       (j.elements || []).forEach(function(e) { _addWater(waters, e, lat, lng); });
-      _renderWaters(waters, lat, lng); // show fast results right away
-      writeNearbyCache(lat, lng, state.nearbyWaters);
-      // Then try to merge in the big relations; failure here is harmless.
-      // Only updates the dropdown list — does not change the current selection.
+      pushRender();
+      // best-effort big lakes/bays; merges into list without changing selection
       overpassFetch(qRels, 0, 45000).then(function(j2) {
         var before = waters.length;
         (j2.elements || []).forEach(function(e) { _addWater(waters, e, lat, lng); });
-        if (waters.length !== before) {
-          waters.sort(function(a, b) { return (a.dist - b.dist) || (b.size - a.size); });
-          state.nearbyWaters = waters.slice(0, 15);
-          renderNearbyWaters();
-          writeNearbyCache(lat, lng, state.nearbyWaters);
-        }
+        if (waters.length !== before) pushRender();
       }).catch(function() {});
-    }).catch(function() {
+    }).catch(function() {});
+
+    // ---- Source 2: Wikipedia GeoSearch (reliable fallback). ----
+    var wikiDone = fetchWikiWaters(lat, lng).then(function(els) {
+      els.forEach(function(e) { _addWater(waters, e, lat, lng); });
+      pushRender();
+    }).catch(function() {});
+
+    // Only show the retry button if EVERY source failed to produce anything.
+    Promise.all([overpassDone, wikiDone]).then(function() {
+      if (rendered) return;
       _lakeReqLat = null; _lakeReqLng = null; // allow retry
       setNearbyMessage('<button class="nearby-retry" id="nearby-retry">⟳ Couldn\'t load nearby waters — tap to retry</button>');
       var rb = document.getElementById('nearby-retry');
