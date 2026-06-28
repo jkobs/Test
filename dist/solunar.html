@@ -3187,15 +3187,74 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     fetchNearestLake(lat, lng); // refreshes nearby-waters chips, lake info, species
   }
 
+  var US_STATES = {
+    'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA','colorado':'CO',
+    'connecticut':'CT','delaware':'DE','florida':'FL','georgia':'GA','hawaii':'HI','idaho':'ID',
+    'illinois':'IL','indiana':'IN','iowa':'IA','kansas':'KS','kentucky':'KY','louisiana':'LA',
+    'maine':'ME','maryland':'MD','massachusetts':'MA','michigan':'MI','minnesota':'MN',
+    'mississippi':'MS','missouri':'MO','montana':'MT','nebraska':'NE','nevada':'NV',
+    'new hampshire':'NH','new jersey':'NJ','new mexico':'NM','new york':'NY','north carolina':'NC',
+    'north dakota':'ND','ohio':'OH','oklahoma':'OK','oregon':'OR','pennsylvania':'PA',
+    'rhode island':'RI','south carolina':'SC','south dakota':'SD','tennessee':'TN','texas':'TX',
+    'utah':'UT','vermont':'VT','virginia':'VA','washington':'WA','west virginia':'WV',
+    'wisconsin':'WI','wyoming':'WY','district of columbia':'DC'
+  };
+  var US_ABBR = {};
+  Object.keys(US_STATES).forEach(function(k) { US_ABBR[US_STATES[k]] = k; });
+
+  // Parse "Superior, WI" / "superior wisconsin" / "Superior" into {city, stateName, abbr}
+  function parseCityQuery(raw) {
+    var q = raw.trim().replace(/\s+/g, ' ');
+    var city = q, region = '';
+    if (q.indexOf(',') !== -1) {
+      var parts = q.split(',');
+      city = parts[0].trim();
+      region = parts.slice(1).join(',').trim();
+    } else {
+      // No comma — peel a trailing state name (1-2 words) or abbreviation off the end
+      var lower = q.toLowerCase();
+      var two = lower.split(' ').slice(-2).join(' ');
+      var one = lower.split(' ').slice(-1)[0];
+      if (q.split(' ').length > 2 && US_STATES[two]) {
+        region = two; city = q.split(' ').slice(0, -2).join(' ');
+      } else if (q.split(' ').length > 1 && US_STATES[one]) {
+        region = one; city = q.split(' ').slice(0, -1).join(' ');
+      } else if (q.split(' ').length > 1 && US_ABBR[one.toUpperCase()]) {
+        region = one; city = q.split(' ').slice(0, -1).join(' ');
+      }
+    }
+    var rl = region.toLowerCase();
+    var stateName = US_STATES[rl] ? rl : (US_ABBR[region.toUpperCase()] || '');
+    var abbr = US_STATES[rl] || (US_ABBR[region.toUpperCase()] ? region.toUpperCase() : '');
+    return { city: city, stateName: stateName, abbr: abbr };
+  }
+
   function geocodeCity(query) {
     var resEl = document.getElementById('city-results');
     if (!query || !query.trim()) return;
     if (typeof fetch === 'undefined') return;
     if (resEl) resEl.innerHTML = '<div class="city-loading">Searching…</div>';
-    var url = 'https://geocoding-api.open-meteo.com/v1/search?count=5&language=en&format=json&name=' +
-      encodeURIComponent(query.trim());
+
+    var parsed = parseCityQuery(query);
+    // Query the API with the CITY name only — Open-Meteo matches place names, not "city, state"
+    var url = 'https://geocoding-api.open-meteo.com/v1/search?count=20&language=en&format=json&name=' +
+      encodeURIComponent(parsed.city);
     fetch(url).then(function(r) { return r.json(); }).then(function(j) {
       var results = (j && j.results) || [];
+
+      // If a state was given, filter to matches on admin1 (full name) — keep US first
+      if (parsed.stateName) {
+        var filtered = results.filter(function(r) {
+          return r.admin1 && r.admin1.toLowerCase() === parsed.stateName;
+        });
+        if (filtered.length) results = filtered;
+      }
+      // Rank US results ahead of foreign ones for ambiguous city names
+      results.sort(function(a, b) {
+        return (a.country_code === 'US' ? 0 : 1) - (b.country_code === 'US' ? 0 : 1);
+      });
+      results = results.slice(0, 6);
+
       if (!results.length) {
         if (resEl) resEl.innerHTML = '<div class="city-noresult">No match for "' + query.trim() + '"</div>';
         return;
