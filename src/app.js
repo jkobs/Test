@@ -1263,12 +1263,34 @@
   var _lakeReqLat = null, _lakeReqLng = null;
   var OVERPASS_MIRRORS = [
     'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter'
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.openstreetmap.fr/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
   ];
 
   function setNearbyMessage(html) {
     var el = document.getElementById('nearby-waters');
     if (el) el.innerHTML = html;
+  }
+
+  // ---- nearby-waters cache (localStorage, keyed by rounded lat/lng) ----
+  var NEARBY_TTL = 7 * 24 * 3600 * 1000; // 7 days
+  function _nearbyCacheKey(lat, lng) {
+    return 'nearbyWaters:' + lat.toFixed(2) + ',' + lng.toFixed(2);
+  }
+  function readNearbyCache(lat, lng) {
+    try {
+      var raw = localStorage.getItem(_nearbyCacheKey(lat, lng));
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (!obj || !obj.t || (Date.now() - obj.t) > NEARBY_TTL) return null;
+      return obj.waters && obj.waters.length ? obj.waters : null;
+    } catch (e) { return null; }
+  }
+  function writeNearbyCache(lat, lng, waters) {
+    try {
+      localStorage.setItem(_nearbyCacheKey(lat, lng), JSON.stringify({ t: Date.now(), waters: waters }));
+    } catch (e) {}
   }
 
   // POST an Overpass query with a client-side timeout; try each mirror in turn.
@@ -1358,6 +1380,14 @@
         Math.abs(lat - _lakeReqLat) < 0.005 &&
         Math.abs(lng - _lakeReqLng) < 0.005) return;
     _lakeReqLat = lat; _lakeReqLng = lng;
+
+    // Serve from cache instantly when available — avoids hitting flaky Overpass on reload
+    var cached = readNearbyCache(lat, lng);
+    if (cached) {
+      _renderWaters(cached.slice(), lat, lng);
+      return;
+    }
+
     setNearbyMessage('<div class="nearby-loading">Finding nearby waters…</div>');
     var R = 32187; // ~20 miles
     var waters = [];
@@ -1382,6 +1412,7 @@
     overpassFetch(qWays).then(function(j) {
       (j.elements || []).forEach(function(e) { _addWater(waters, e, lat, lng); });
       _renderWaters(waters, lat, lng); // show fast results right away
+      writeNearbyCache(lat, lng, state.nearbyWaters);
       // Then try to merge in the big relations; failure here is harmless.
       // Only updates the dropdown list — does not change the current selection.
       overpassFetch(qRels, 0, 45000).then(function(j2) {
@@ -1391,6 +1422,7 @@
           waters.sort(function(a, b) { return (a.dist - b.dist) || (b.size - a.size); });
           state.nearbyWaters = waters.slice(0, 15);
           renderNearbyWaters();
+          writeNearbyCache(lat, lng, state.nearbyWaters);
         }
       }).catch(function() {});
     }).catch(function() {
