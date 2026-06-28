@@ -1272,11 +1272,12 @@
   }
 
   // POST an Overpass query with a client-side timeout; try each mirror in turn.
-  function overpassFetch(query, mirrorIdx) {
+  function overpassFetch(query, mirrorIdx, timeoutMs) {
     mirrorIdx = mirrorIdx || 0;
+    timeoutMs = timeoutMs || 12000;
     if (mirrorIdx >= OVERPASS_MIRRORS.length) return Promise.reject(new Error('all mirrors failed'));
     var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, 12000) : null;
+    var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, timeoutMs) : null;
     return fetch(OVERPASS_MIRRORS[mirrorIdx], {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1288,7 +1289,7 @@
       return r.json();
     }).catch(function(err) {
       if (timer) clearTimeout(timer);
-      return overpassFetch(query, mirrorIdx + 1); // fall back to next mirror
+      return overpassFetch(query, mirrorIdx + 1, timeoutMs); // fall back to next mirror
     });
   }
 
@@ -1361,17 +1362,19 @@
     var R = 32187; // ~20 miles
     var waters = [];
 
-    // Pass 1 (fast): ways only — inland lakes, rivers, bay polygons. These have
-    // their own node geometry so Overpass returns in a couple seconds.
+    // Pass 1 (fast): nodes + ways — bay labels (e.g. Chequamegon Bay is a node),
+    // inland lakes, rivers, bay polygons. Cheap, returns in a couple seconds.
     var qWays = '[out:json][timeout:20];(' +
-      'way["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'node["natural"="bay"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
       'way["natural"="bay"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
+      'way["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
       'way["waterway"~"^(river|canal)$"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
     ');out tags bb;';
 
     // Pass 2 (best-effort): big multipolygon relations — Lake Superior, large
-    // reservoirs, bays. Expensive to resolve, so it runs after and merges in.
-    var qRels = '[out:json][timeout:20];(' +
+    // reservoirs, bays. Expensive to resolve, so it runs after with a long
+    // timeout and merges into the list without blocking the UI.
+    var qRels = '[out:json][timeout:60];(' +
       'relation["natural"="water"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
       'relation["natural"="bay"]["name"](around:' + R + ',' + lat + ',' + lng + ');' +
     ');out tags bb;';
@@ -1381,7 +1384,7 @@
       _renderWaters(waters, lat, lng); // show fast results right away
       // Then try to merge in the big relations; failure here is harmless.
       // Only updates the dropdown list — does not change the current selection.
-      overpassFetch(qRels).then(function(j2) {
+      overpassFetch(qRels, 0, 45000).then(function(j2) {
         var before = waters.length;
         (j2.elements || []).forEach(function(e) { _addWater(waters, e, lat, lng); });
         if (waters.length !== before) {
