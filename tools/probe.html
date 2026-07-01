@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fishing Advisor — Data Source Probe (round 3)</title>
+<title>Fishing Advisor — Data Source Probe (round 4)</title>
 <style>
   :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553;
           --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; }
@@ -19,20 +19,19 @@
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 8px; }
   .row { font-size:12.5px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,.05); word-break:break-all; }
   .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
-  .hit { background:rgba(61,220,132,.12); border-radius:4px; padding:1px 4px; }
-  img.probe { width:100%; max-width:420px; background:#e8e8e8; border-radius:8px; display:block; margin:6px 0; min-height:60px; }
+  iframe.probe { width:100%; height:300px; background:#fff; border:2px solid var(--line); border-radius:8px; margin:6px 0; }
   .imgnote { font-size:11.5px; color:var(--muted); }
+  .frame-label { font-weight:700; font-size:13px; margin-top:10px; color:var(--major); }
   textarea { width:100%; height:80px; background:#0d2330; color:var(--ink); border:1px solid var(--line); }
 </style>
 </head>
 <body>
-<h1>🎣 Data Source Probe — round 3</h1>
+<h1>🎣 Data Source Probe — round 4</h1>
 <div class="intro">
-  Round 2 confirmed the fisheries designations (Cedar Lake = confirmed natural-reproduction
-  walleye water!) but the depth contours weren't in those services. Round 3 checks the DNR's
-  <b>second</b> ArcGIS server, their open-data catalog, and the Surface Water base map — and
-  grabs field schemas for the species/clarity layers. Wait ~30–60 s, tap <b>Copy report</b>,
-  paste it back. Screenshot of the images section helps.
+  Goal: put the official DNR depth-contour map ON the Lake tab. The boxes in section 1 each try
+  a candidate URL for Cedar Lake's map — <b>tell me which box numbers actually show a lake
+  contour map</b> (screenshot is perfect). The other sections run automatically. When done, tap
+  <b>Copy report</b> and paste it back along with which boxes worked.
 </div>
 <button id="copy">📋 Copy report</button>
 <div id="out"></div>
@@ -41,7 +40,7 @@
 <script>
 (function () {
   'use strict';
-  var R = { generated: new Date().toISOString(), round: 3, results: [] };
+  var R = { generated: new Date().toISOString(), round: 4, results: [] };
   var out = document.getElementById('out');
 
   function sec(title) {
@@ -72,145 +71,91 @@
     }, function (e) { clearTimeout(t); throw e; });
   }
 
-  var A1 = 'https://dnrmaps.wi.gov/arcgis/rest/services';
-  var A2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
-  var LAT = 45.21614, LNG = -92.57153; // Cedar Lake
-  var BBOX = '-92.615,45.185,-92.525,45.25';
+  var WBIC = '2615100'; // Cedar Lake, New Richmond
 
-  function imgProbe(logFn, label, url) {
-    var d = logFn('none', '<b>' + esc(label) + '</b><br><span class="imgnote">' + esc(url) + '</span>');
-    var img = new Image();
-    img.className = 'probe';
-    img.onload = function () {
-      logFn(img.naturalWidth > 50 ? 'ok' : 'warn', label + ' → loaded ' + img.naturalWidth + '×' + img.naturalHeight +
-        ' — CHECK VISUALLY for depth contour lines on the lake');
-    };
-    img.onerror = function () { logFn('bad', label + ' → failed to load'); };
-    img.src = url;
-    d.appendChild(img);
-  }
+  // ---- 1. Candidate lake-map URLs, visually testable in iframes ----
+  var log1 = sec('1 · Cedar Lake contour-map candidates — WHICH BOXES SHOW A MAP?');
+  var CANDIDATES = [
+    'https://apps.dnr.wi.gov/lakes/maps/DNR/' + WBIC + 'a.pdf',
+    'https://dnr.wi.gov/lakes/maps/DNR/' + WBIC + 'a.pdf',
+    'https://apps.dnr.wi.gov/lakes/maps/DNR/' + WBIC + '.pdf',
+    'https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + WBIC
+  ];
+  CANDIDATES.forEach(function (url, i) {
+    var d = log1('none', '<span class="frame-label">BOX ' + (i + 1) + '</span><br><span class="imgnote">' + esc(url) + '</span>');
+    var f = document.createElement('iframe');
+    f.className = 'probe';
+    f.src = url;
+    f.onload = function () { log1('warn', 'BOX ' + (i + 1) + ' — frame loaded (may still be blank/error page; judge visually)'); };
+    d.appendChild(f);
+  });
 
-  // Sample one record (any location) to learn a layer's field schema.
-  function schemaSample(logFn, base, svc, layerId, label, where) {
-    var url = base + '/' + svc + '/MapServer/' + layerId + '/query?f=json' +
-      '&where=' + encodeURIComponent(where || '1=1') +
-      '&outFields=*&returnGeometry=false&resultRecordCount=2';
-    return j(url).then(function (js) {
-      var feats = js.features || [];
-      if (!feats.length) { logFn('warn', label + ' — query OK, 0 records'); return; }
-      feats.slice(0, 2).forEach(function (f) {
-        var attrs = JSON.stringify(f.attributes);
-        if (attrs.length > 800) attrs = attrs.slice(0, 800) + '…';
-        logFn('ok', '<b>' + esc(label) + '</b> → ' + esc(attrs));
-      });
-    }).catch(function (e) { logFn('bad', label + ': ' + esc(e.message)); });
-  }
-
-  // ---- 1. Second ArcGIS server: /arcgis2/ ----
-  var log1 = sec('1 · Second DNR server (/arcgis2/) — directory + drill');
-  j(A2 + '?f=json').then(function (root) {
-    var folders = root.folders || [];
-    var rootSvcs = (root.services || []).map(function (s) { return s.name + ' (' + s.type + ')'; });
-    log1('ok', folders.length + ' folders: ' + esc(folders.join(', ')) +
-      (rootSvcs.length ? ' — root services: ' + esc(rootSvcs.join(' | ')) : ''));
-    var interesting = folders.filter(function (f) {
-      return /fish|FM|water|WT|WY|hydro|lake|topo|bath|SW|DW/i.test(f);
-    }).slice(0, 12);
-    interesting.forEach(function (f) {
-      j(A2 + '/' + f + '?f=json').then(function (fj) {
-        var svcs = (fj.services || []).map(function (s) {
-          var nm = s.name + ' (' + s.type + ')';
-          return /bath|depth|contour/i.test(s.name) ? '<span class="hit">' + esc(nm) + '</span>' : esc(nm);
-        });
-        log1('ok', '<b>' + esc(f) + '</b>: ' + (svcs.join(' | ') || '(empty)'));
-        // Auto-drill anything that smells like bathymetry and image-test it
-        (fj.services || []).filter(function (s) { return /bath|depth|contour|lake/i.test(s.name); })
-          .slice(0, 4).forEach(function (s) {
-            j(A2 + '/' + s.name + '/' + s.type + '/layers?f=json').then(function (sj) {
-              log1('ok', '<b>' + esc(s.name) + '</b> layers: ' +
-                esc((sj.layers || []).map(function (l) { return l.id + ':' + l.name; }).join(' | ') || '(none)'));
-              imgProbe(log3, s.name + ' — ALL layers (arcgis2)',
-                A2 + '/' + s.name + '/' + s.type + '/export?bbox=' + BBOX +
-                '&bboxSR=4326&imageSR=4326&size=420,300&format=png&transparent=true&f=image');
-            }).catch(function () {});
-          });
-      }).catch(function (e) { log1('warn', esc(f) + ': ' + esc(e.message)); });
+  // ---- 2. Can JS verify those URLs programmatically? (CORS check) ----
+  var log2 = sec('2 · CORS check on map URLs (can the app auto-detect a map exists?)');
+  CANDIDATES.slice(0, 3).forEach(function (url, i) {
+    var ctrl = new AbortController();
+    var t = setTimeout(function () { ctrl.abort(); }, 12000);
+    fetch(url, { method: 'GET', signal: ctrl.signal }).then(function (r) {
+      clearTimeout(t);
+      log2('ok', 'URL ' + (i + 1) + ' — CORS-readable, HTTP ' + r.status + ', type ' + (r.headers.get('content-type') || '?'));
+    }).catch(function (e) {
+      clearTimeout(t);
+      log2('warn', 'URL ' + (i + 1) + ' — not CORS-readable (' + esc(e.message) + ') — embed may still work visually');
     });
-  }).catch(function (e) { log1('bad', '/arcgis2/ root failed: ' + esc(e.message) + ' — server may not exist'); });
-
-  // ---- 2. DNR open-data catalog (ArcGIS Hub) ----
-  var log2 = sec('2 · DNR open-data catalog search');
-  ['bathymetry', 'depth contour', 'lake map'].forEach(function (q) {
-    j('https://data-wi-dnr.opendata.arcgis.com/api/search/v1/collections/all/items?q=' +
-      encodeURIComponent(q) + '&limit=8').then(function (js) {
-      var feats = js.features || [];
-      if (!feats.length) { log2('warn', '"' + esc(q) + '" — 0 results'); return; }
-      feats.forEach(function (f) {
-        var p = f.properties || {};
-        log2('ok', '"' + esc(q) + '" → <b>' + esc(p.title || f.id) + '</b> [' + esc(p.type || '?') + ']' +
-          (p.url ? '<br><span class="imgnote">' + esc(p.url) + '</span>' : ''));
-      });
-    }).catch(function (e) { log2('bad', 'hub "' + esc(q) + '": ' + esc(e.message)); });
-  });
-  ['wisconsin lake depth contours', 'WDNR bathymetric', 'owner:widnr_maps'].forEach(function (q) {
-    j('https://www.arcgis.com/sharing/rest/search?f=json&num=10&q=' + encodeURIComponent(q))
-      .then(function (js) {
-        var hits = (js.results || []).filter(function (r) { return /Service/.test(r.type); });
-        if (!hits.length) { log2('warn', 'AGO "' + esc(q) + '" — no service results'); return; }
-        hits.forEach(function (r) {
-          log2('ok', 'AGO "' + esc(q) + '" → <b>' + esc(r.title) + '</b> [owner ' + esc(r.owner) +
-            ']<br><span class="imgnote">' + esc(r.url || '') + '</span>');
-        });
-      }).catch(function (e) { log2('bad', 'AGO "' + esc(q) + '": ' + esc(e.message)); });
   });
 
-  // ---- 3. Surface-water base map images (does the SWDV base show contours?) ----
-  var log3 = sec('3 · Test images over Cedar Lake');
-  j(A1 + '/DW_Map_Dynamic/EN_SurfaceWater_WTM_Ext_Dynamic_L16/MapServer/layers?f=json').then(function (js) {
+  // ---- 3. Stocking history schema (for "stocked N of last 15 years") ----
+  var log3 = sec('3 · Annual stocking summary — layers + sample record');
+  var A2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
+  j(A2 + '/FM_WFF/FH_ANNUAL_STOCKING_SUMMARY/MapServer/layers?f=json').then(function (js) {
     var layers = js.layers || [];
-    log3('ok', 'EN_SurfaceWater layers: ' + esc(layers.map(function (l) {
-      return l.id + ':' + l.name;
-    }).join(' | ')));
-    var hits = layers.filter(function (l) { return /contour|depth|bath/i.test(l.name); });
-    if (hits.length) {
-      var ids = hits.map(function (l) { return l.id; }).join(',');
-      imgProbe(log3, 'EN_SurfaceWater — contour layers (' + ids + ')',
-        A1 + '/DW_Map_Dynamic/EN_SurfaceWater_WTM_Ext_Dynamic_L16/MapServer/export?bbox=' + BBOX +
-        '&bboxSR=4326&imageSR=4326&size=420,300&format=png&transparent=true&layers=show:' + ids + '&f=image');
-    }
-  }).catch(function (e) { log3('bad', 'EN_SurfaceWater layers: ' + esc(e.message)); });
-  imgProbe(log3, 'EN_SurfaceWater — ALL layers',
-    A1 + '/DW_Map_Dynamic/EN_SurfaceWater_WTM_Ext_Dynamic_L16/MapServer/export?bbox=' + BBOX +
-    '&bboxSR=4326&imageSR=4326&size=420,300&format=png&transparent=true&f=image');
+    log3('ok', 'Layers: ' + esc(layers.map(function (l) { return l.id + ':' + l.name; }).join(' | ') || '(none)'));
+    layers.slice(0, 3).forEach(function (l) {
+      j(A2 + '/FM_WFF/FH_ANNUAL_STOCKING_SUMMARY/MapServer/' + l.id +
+        '/query?f=json&where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2').then(function (q) {
+        (q.features || []).slice(0, 2).forEach(function (f) {
+          var a = JSON.stringify(f.attributes);
+          if (a.length > 700) a = a.slice(0, 700) + '…';
+          log3('ok', '<b>[' + l.id + ' ' + esc(l.name) + ']</b> → ' + esc(a));
+        });
+        if (!(q.features || []).length) log3('warn', '[' + l.id + ' ' + esc(l.name) + '] 0 records');
+      }).catch(function (e) { log3('bad', '[' + l.id + '] ' + esc(e.message)); });
+    });
+  }).catch(function (e) { log3('bad', esc(e.message)); });
 
-  // ---- 4. Field schemas for confirmed/likely data layers ----
-  var log4 = sec('4 · Field schemas (sample records)');
-  schemaSample(log4, A1, 'WY_Lakes_AIS/WY_WBHB_AND_WATERBODY_SPECIES', 0, 'WBHB species [0 PRIOR]', "1=1");
-  schemaSample(log4, A1, 'WY_Lakes_AIS/WY_WBHB_AND_WATERBODY_SPECIES', 1, 'WBHB species [1 DESTINATION]', "1=1");
-  schemaSample(log4, A1, 'WY_Lakes_AIS/WY_LAKE_SATELLITE_WATER_CLARITY_RESULTS', 9, 'Clarity [9 Lake Average]', "1=1");
-  schemaSample(log4, A1, 'WT_SWDV/WY_INLAND_WATER_RESOURCES', 3, '24K Lakes at Cedar (WBIC lookup)', "1=1");
-  // Point query on the 24K lakes polygon layer — can we resolve WBIC from a tap?
-  (function () {
-    var url = A1 + '/WT_SWDV/WY_INLAND_WATER_RESOURCES/MapServer/3/query?f=json' +
-      '&geometry=' + LNG + ',' + LAT + '&geometryType=esriGeometryPoint&inSR=4326' +
-      '&spatialRel=esriSpatialRelIntersects&distance=200&units=esriSRUnit_Meter' +
-      '&outFields=*&returnGeometry=false&resultRecordCount=2';
-    j(url).then(function (js) {
-      var feats = js.features || [];
-      if (!feats.length) { log4('warn', '24K Lakes point-query at Cedar — 0 records'); return; }
-      feats.forEach(function (f) {
-        var attrs = JSON.stringify(f.attributes);
-        if (attrs.length > 800) attrs = attrs.slice(0, 800) + '…';
-        log4('ok', '<b>24K Lakes point-query at Cedar</b> → ' + esc(attrs));
+  // ---- 4. Lake regulations + classifications field schemas ----
+  var log4 = sec('4 · Regulations & lake-classification field schemas');
+  [['FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT', 2, 'Regulations'],
+   ['FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT', 0, 'Classifications']].forEach(function (p) {
+    j(A2 + '/' + p[0] + '/MapServer/' + p[1] +
+      '/query?f=json&where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2').then(function (q) {
+      (q.features || []).slice(0, 2).forEach(function (f) {
+        var a = JSON.stringify(f.attributes);
+        if (a.length > 800) a = a.slice(0, 800) + '…';
+        log4('ok', '<b>' + p[2] + '</b> → ' + esc(a));
       });
-    }).catch(function (e) { log4('bad', '24K Lakes point-query: ' + esc(e.message)); });
-  })();
+      if (!(q.features || []).length) log4('warn', p[2] + ': 0 records');
+    }).catch(function (e) { log4('bad', p[2] + ': ' + esc(e.message)); });
+  });
+
+  // ---- 5. Hidden fish-survey service guesses ----
+  var log5 = sec('5 · Hidden fish-survey service guesses');
+  var A1 = 'https://dnrmaps.wi.gov/arcgis/rest/services';
+  [[A2, 'FM_SURVEYS/FM_SURVEYS_EXT'], [A2, 'FM_SURVEYS/FM_FISH_SURVEYS_WTM_EXT'],
+   [A2, 'FM_SURVEYS/FM_SURVEYS_PUBLIC'], [A2, 'FM_DFM/FM_DFM_EXT'],
+   [A1, 'FM_Fisheries/FM_Fish_Surveys_Public'], [A1, 'FM_Fisheries/FM_FMDB_Public']].forEach(function (p) {
+    j(p[0] + '/' + p[1] + '/MapServer?f=json', 9000).then(function (js) {
+      if (js.error) { log5('warn', p[1] + ' — ' + esc(JSON.stringify(js.error).slice(0, 120))); return; }
+      log5('ok', '<b>' + esc(p[1]) + ' EXISTS!</b> layers: ' +
+        esc((js.layers || []).map(function (l) { return l.id + ':' + l.name; }).join(' | ') || '(none)'));
+    }).catch(function (e) { log5('warn', p[1] + ' — ' + esc(e.message)); });
+  });
 
   // ---- copy report ----
   document.getElementById('copy').onclick = function () {
-    var txt = 'PROBE REPORT r3 ' + R.generated + '\n\n' + R.results.join('\n');
+    var txt = 'PROBE REPORT r4 ' + R.generated + '\n\n' + R.results.join('\n');
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(txt).then(function () { alert('Copied — paste it into the chat.'); },
+      navigator.clipboard.writeText(txt).then(function () { alert('Copied — paste it into the chat, and note which BOX numbers showed a map.'); },
         function () { showFallback(txt); });
     } else showFallback(txt);
     function showFallback(t) {
