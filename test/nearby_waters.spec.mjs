@@ -68,6 +68,16 @@ async function run(label, down) {
     if (url.startsWith('file://')) return route.continue();
     if (url.includes('geocoding-api.open-meteo.com'))
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(GEOCODE) });
+    // Pressure/weather forecast — needed so the advisor (which contains #lake-info) renders.
+    if (url.includes('api.open-meteo.com/v1/forecast')) {
+      const nowS = Math.floor(Date.now() / 1000);
+      const time = [], sp = [];
+      for (let i = -4; i <= 4; i++) { time.push(nowS + i * 3600); sp.push(1013 - i * 0.3); }
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        current: { temperature_2m: 65, wind_speed_10m: 6, wind_direction_10m: 200 },
+        hourly: { time: time, surface_pressure: sp }
+      }) });
+    }
     if (url.includes('hydro.nationalmap.gov')) {
       if (down.usgs) return route.abort('failed');
       const body = /MapServer\/6\/query/.test(url) ? NHD_FL : NHD_WB;
@@ -100,10 +110,14 @@ async function run(label, down) {
     opts = await page.$$eval('#nearby-select option', els => els.map(e => e.textContent.trim()));
   } catch (e) { /* no select rendered */ }
   const retry = await page.$('#nearby-retry');
+  let lakeInfo = '';
+  try { lakeInfo = (await page.$eval('#lake-info', el => el.textContent)) || ''; } catch (e) {}
   console.log('Options:'); opts.forEach(o => console.log('  - ' + o));
+  if (lakeInfo) console.log('Lake info: ' + lakeInfo.replace(/\s+/g, ' ').trim());
   if (retry) console.log('  (retry button shown)');
   await browser.close();
-  return { opts, joined: opts.join('\n').toLowerCase(), hasRetry: !!retry };
+  return { opts, joined: opts.join('\n').toLowerCase(), hasRetry: !!retry,
+           lakeInfo: lakeInfo.toLowerCase() };
 }
 
 // Scenario A: all sources healthy.
@@ -116,6 +130,8 @@ check('A: Wikipedia White River present', A.joined.includes('white river'));
 check('A: Tiny Pond filtered by size', !A.joined.includes('tiny pond'));
 check('A: church filtered out', !A.joined.includes('church'));
 check('A: no retry button', !A.hasRetry);
+check('A: lake-info shows USGS type (Lake/Pond)', A.lakeInfo.indexOf('lake/pond') !== -1);
+check('A: lake-info shows surface area (acres)', A.lakeInfo.indexOf('acres') !== -1);
 
 // Scenario B: Overpass down (the common failure) — others carry it.
 const B = await run('Overpass down', { overpass: true });

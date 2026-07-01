@@ -2002,6 +2002,66 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     fetchSpeciesForWater(wName, wLat, wLng);
   }
 
+  // Resolve the water body at/near a tapped map point. Uses reliable USGS NHD +
+  // Esri first (CORS, govt/Esri infra), Overpass only as a last resort. Tap is
+  // forgiving: searches a ~1.5 km buffer and picks the nearest water by edge.
+  function selectMapPoint(clat, clng) {
+    var locEl = document.getElementById('loc');
+    if (locEl) locEl.innerHTML = 'Finding water…';
+
+    var picked = null, pickedDist = Infinity;
+    function consider(els) {
+      (els || []).forEach(function (e) {
+        var b = e.bounds; if (!b) return;
+        var dlat = Math.max(b.minlat - clat, 0, clat - b.maxlat);
+        var dlng = Math.max(b.minlon - clng, 0, clng - b.maxlon);
+        var d = dlat * dlat + dlng * dlng;
+        if (d < pickedDist) {
+          pickedDist = d;
+          picked = {
+            name: e.tags.name,
+            lat: Math.min(Math.max(clat, b.minlat), b.maxlat),
+            lng: Math.min(Math.max(clng, b.minlon), b.maxlon)
+          };
+        }
+      });
+    }
+
+    function finish() {
+      if (picked) { selectWater(picked.name, picked.lat, picked.lng); return; }
+      // Last resort: Overpass is_in (inside polygon) then proximity, via mirror-failover.
+      var q = '[out:json][timeout:10];is_in(' + clat + ',' + clng + ')->.pt;(' +
+        'way(pivot.pt)["natural"="water"]["name"];relation(pivot.pt)["natural"="water"]["name"];' +
+        'way["natural"="water"]["name"](around:2000,' + clat + ',' + clng + ');' +
+        ');out tags center;';
+      overpassFetch(q).then(function (j) {
+        var named = (j.elements || []).filter(function (e2) { return e2.tags && e2.tags.name; });
+        if (!named.length) { if (locEl) restoreLoc(); return; }
+        named.sort(function (a, b2) {
+          var ca = a.center || a, cb = b2.center || b2;
+          return ((ca.lat - clat) * (ca.lat - clat) + (ca.lon - clng) * (ca.lon - clng)) -
+                 ((cb.lat - clat) * (cb.lat - clat) + (cb.lon - clng) * (cb.lon - clng));
+        });
+        var el = named[0], c = el.center || el;
+        selectWater(el.tags.name, c.lat || clat, c.lon || clng);
+      }).catch(function () { restoreLoc(); });
+    }
+
+    function restoreLoc() {
+      var e = document.getElementById('loc');
+      if (e) {
+        e.innerHTML = state.loc.name + ' · ' + state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
+          ' · no named water here <button id="useloc">Use my location</button>';
+        var b = document.getElementById('useloc'); if (b) b.onclick = useMyLocation;
+      }
+    }
+
+    Promise.all([
+      fetchUsgsWaters(clat, clng, 1500).then(consider).catch(function () {}),
+      fetchEsriWaters(clat, clng, 1500).then(consider).catch(function () {})
+    ]).then(finish);
+  }
+
   function renderNearbyWaters() {
     var el = document.getElementById('nearby-waters');
     if (!el || !state.nearbyWaters.length) return;
@@ -2494,59 +2554,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         L.tileLayer(SATELLITE_URL, { maxZoom: 18 }).addTo(_map);
         L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_map);
         _map.on('click', function(e) {
-          var clat = e.latlng.lat, clng = e.latlng.lng;
-          var OVP = 'https://overpass-api.de/api/interpreter';
-          var hdrs = { 'Content-Type': 'application/x-www-form-urlencoded' };
-
-          function applyLake(elem, fallbackLat, fallbackLng) {
-            if (!elem || !elem.tags || !elem.tags.name) return;
-            var wName = elem.tags.name;
-            var center = elem.center || elem;
-            var wLat = center.lat || fallbackLat;
-            var wLng = center.lon || center.lng || fallbackLng;
-            state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
-            state.knownSpecies = null; state.lakeInfo = null;
-            _speciesReqKey = null; _lakeInfoKey = null; _manualLoc = true;
-            var locEl = document.getElementById('loc');
-            if (locEl) {
-              locEl.innerHTML = wName + ' · ' + wLat.toFixed(2) + ', ' + wLng.toFixed(2) +
-                '<button id="useloc">Use my location</button>';
-              document.getElementById('useloc').onclick = useMyLocation;
-            }
-            recompute();
-            fetchLakeInfo(wName, wLat, wLng);
-            fetchSpeciesForWater(wName, wLat, wLng);
-          }
-
-          // Step 1: is_in — definitive: click is INSIDE this water body
-          var q1 = '[out:json][timeout:8];is_in(' + clat + ',' + clng + ')->.pt;' +
-            '(way(pivot.pt)["natural"="water"]["name"];' +
-            'relation(pivot.pt)["natural"="water"]["name"];' +
-            ');out tags center;';
-          fetch(OVP, { method:'POST', headers:hdrs, body:'data='+encodeURIComponent(q1) })
-            .then(function(r){return r.json();})
-            .then(function(j){
-              var hit = j.elements && j.elements.find(function(e2){ return e2.tags && e2.tags.name; });
-              if (hit) { applyLake(hit, clat, clng); return; }
-              // Step 2: proximity fallback — sort by center distance, closest wins
-              var q2 = '[out:json][timeout:8];(' +
-                'way["natural"="water"]["name"](around:1500,' + clat + ',' + clng + ');' +
-                'relation["natural"="water"]["name"](around:1500,' + clat + ',' + clng + ');' +
-                ');out tags center;';
-              fetch(OVP, { method:'POST', headers:hdrs, body:'data='+encodeURIComponent(q2) })
-                .then(function(r){return r.json();})
-                .then(function(j2){
-                  var named = (j2.elements||[]).filter(function(e2){ return e2.tags && e2.tags.name; });
-                  if (!named.length) return;
-                  named.sort(function(a,b){
-                    var ca=a.center||a, cb=b.center||b;
-                    var da=(ca.lat-clat)*(ca.lat-clat)+(ca.lon-clng)*(ca.lon-clng);
-                    var db=(cb.lat-clat)*(cb.lat-clat)+(cb.lon-clng)*(cb.lon-clng);
-                    return da-db;
-                  });
-                  applyLake(named[0], clat, clng);
-                }).catch(function(){});
-            }).catch(function(){});
+          selectMapPoint(e.latlng.lat, e.latlng.lng);
         });
       }
       _map.setView([lat, lng], 14);
@@ -3147,7 +3155,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     // are PRIMARY (reliable, CORS, same infra the user already reaches). Wikipedia
     // adds name coverage. Overpass is a DEMOTED fallback (single sequential call
     // via mirror-failover) — kept for coverage of big lakes/bays it maps well.
-    var DIST = 12000; // ~7.5 mi buffer for point-intersect sources
+    var DIST = 32187; // ~20 mi buffer for point-intersect sources (USGS/Esri)
 
     var usgsDone = fetchUsgsWaters(lat, lng, DIST).then(ingest).catch(function () {});
     var esriDone = fetchEsriWaters(lat, lng, DIST).then(ingest).catch(function () {});
@@ -3262,77 +3270,99 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       '<div class="gauge-tip">' + flowTip + '</div>';
   }
 
-  // ---- lake info fetch (Overpass OSM tags + Wikidata depth/area/trophic) ----
+  // ---- lake info fetch: USGS NHD (type + area, reliable) merged with Overpass
+  // OSM tags + Wikidata (depth/trophic/elevation when available) ----
+  function _normName(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function _nameMatch(a, b) {
+    var x = _normName(a), y = _normName(b);
+    return !!x && !!y && (x.indexOf(y) !== -1 || y.indexOf(x) !== -1);
+  }
+  function _nhdTypeLabel(ft) {
+    var m = { 390: 'Lake/Pond', 436: 'Reservoir', 361: 'Playa', 466: 'Swamp/Marsh',
+      378: 'Ice Mass', 493: 'Estuary', 460: 'River', 558: 'Stream' };
+    return m[+ft] || null;
+  }
+  function _applyWikidata(info, wd, qid) {
+    var entity = wd.entities && wd.entities[qid];
+    var claims = (entity && entity.claims) || {};
+    function getNum(pid) {
+      var c = claims[pid] && claims[pid][0];
+      var dv = c && c.mainsnak && c.mainsnak.datavalue;
+      return dv ? { amount: parseFloat(dv.value.amount), unit: dv.value.unit || '' } : null;
+    }
+    function getItem(pid) {
+      var c = claims[pid] && claims[pid][0];
+      var dv = c && c.mainsnak && c.mainsnak.datavalue;
+      return dv && dv.value && dv.value.id;
+    }
+    var area = getNum('P2046');
+    if (area && !info.area) {
+      if (area.unit.indexOf('Q712226') !== -1)      info.area = Math.round(area.amount * 247.105) + ' acres';
+      else if (area.unit.indexOf('Q35852') !== -1)  info.area = Math.round(area.amount * 2.471) + ' acres';
+      else if (area.unit.indexOf('Q81292') !== -1)  info.area = Math.round(area.amount) + ' acres';
+    }
+    var depth = getNum('P4511');
+    if (depth) {
+      if (depth.unit.indexOf('Q11573') !== -1)      { info.maxDepth = Math.round(depth.amount * 3.281) + ' ft'; info.maxDepthM = depth.amount; }
+      else if (depth.unit.indexOf('Q3710') !== -1)  { info.maxDepth = Math.round(depth.amount) + ' ft'; info.maxDepthM = depth.amount / 3.281; }
+    }
+    var elev = getNum('P2044');
+    if (elev && !info.elevation && elev.unit.indexOf('Q11573') !== -1) info.elevation = Math.round(elev.amount * 3.281) + ' ft';
+    var trophicId = getItem('P6526');
+    var tm = { 'Q1250464': 'Oligotrophic', 'Q1250467': 'Mesotrophic', 'Q1250479': 'Eutrophic', 'Q20892765': 'Hypereutrophic' };
+    if (trophicId && tm[trophicId]) info.trophic = tm[trophicId];
+  }
+
   var _lakeInfoKey = null;
   function fetchLakeInfo(name, lat, lng) {
     if (typeof fetch === 'undefined') return;
     var key = lat.toFixed(4) + '|' + lng.toFixed(4);
     if (_lakeInfoKey === key) return;
     _lakeInfoKey = key;
-    state.lakeInfo = null;
     var liEl = document.getElementById('lake-info');
     if (liEl) liEl.innerHTML = '<div class="lake-info-loading">Fetching lake data…</div>';
 
-    var safeName = name.replace(/,.*/, '').trim().replace(/['"]/g, '');
+    var info = { name: name };
+    state.lakeInfo = info;
+    function render() { state.lakeInfo = info; try { renderLakeInfo(); } catch (e) {} }
+
+    // Source A (reliable): USGS NHD point-intersect — type + surface area, no QID needed.
+    var usgsDone = nhdQuery(12, lat, lng, 1200).then(function (fc) {
+      var feats = (fc && fc.features) || [];
+      var f = null;
+      for (var i = 0; i < feats.length; i++) {
+        if (feats[i].properties && _nameMatch(feats[i].properties.GNIS_NAME, name)) { f = feats[i]; break; }
+      }
+      if (!f) f = feats[0];
+      if (f && f.properties) {
+        var p = f.properties;
+        if (p.GNIS_NAME) info.name = p.GNIS_NAME;
+        var t = _nhdTypeLabel(p.FTYPE); if (t) info.type = t;
+        if (p.AREASQKM && !info.area) info.area = Math.round(p.AREASQKM * 247.105) + ' acres';
+      }
+      render();
+    }).catch(function () {});
+
+    // Source B: Overpass (mirror-failover) OSM tags -> Wikidata depth/trophic/elevation.
+    var safeName = name.replace(/,.*/, '').trim().replace(/['"\\]/g, '');
     var q = '[out:json][timeout:10];(' +
       'way["natural"="water"]["name"~"' + safeName + '",i](around:3000,' + lat + ',' + lng + ');' +
       'relation["natural"="water"]["name"~"' + safeName + '",i](around:3000,' + lat + ',' + lng + ');' +
     ');out tags;';
-    fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(q)
-    }).then(function(r) { return r.json(); }).then(function(j) {
+    var ovDone = overpassFetch(q).then(function (j) {
       var elem = j.elements && j.elements[0];
       var tags = (elem && elem.tags) || {};
-      var info = { name: tags.name || name, type: tags.water || null, wikidata: tags.wikidata || null };
-      if (tags.ele) info.elevation = Math.round(+tags.ele * 3.281) + ' ft';
-
-      if (info.wikidata) {
-        fetch('https://www.wikidata.org/wiki/Special:EntityData/' + info.wikidata + '.json')
-          .then(function(r) { return r.json(); })
-          .then(function(wd) {
-            var entity = wd.entities && wd.entities[info.wikidata];
-            var claims = (entity && entity.claims) || {};
-
-            function getNum(pid) {
-              var c = claims[pid] && claims[pid][0];
-              var dv = c && c.mainsnak && c.mainsnak.datavalue;
-              return dv ? { amount: parseFloat(dv.value.amount), unit: dv.value.unit || '' } : null;
-            }
-            function getItem(pid) {
-              var c = claims[pid] && claims[pid][0];
-              var dv = c && c.mainsnak && c.mainsnak.datavalue;
-              return dv && dv.value && dv.value.id;
-            }
-
-            var area = getNum('P2046');
-            if (area) {
-              if (area.unit.indexOf('Q712226') !== -1)      info.area = Math.round(area.amount * 247.105) + ' acres';
-              else if (area.unit.indexOf('Q35852') !== -1)  info.area = Math.round(area.amount * 2.471) + ' acres';
-              else if (area.unit.indexOf('Q81292') !== -1)  info.area = Math.round(area.amount) + ' acres';
-            }
-            var depth = getNum('P4511');
-            if (depth) {
-              if (depth.unit.indexOf('Q11573') !== -1)      { info.maxDepth = Math.round(depth.amount * 3.281) + ' ft'; info.maxDepthM = depth.amount; }
-              else if (depth.unit.indexOf('Q3710') !== -1)  { info.maxDepth = Math.round(depth.amount) + ' ft'; info.maxDepthM = depth.amount / 3.281; }
-            }
-            var elev = getNum('P2044');
-            if (elev && !info.elevation) {
-              if (elev.unit.indexOf('Q11573') !== -1) info.elevation = Math.round(elev.amount * 3.281) + ' ft';
-            }
-            var trophicId = getItem('P6526');
-            var trophicMap = { 'Q1250464': 'Oligotrophic', 'Q1250467': 'Mesotrophic', 'Q1250479': 'Eutrophic', 'Q20892765': 'Hypereutrophic' };
-            if (trophicId && trophicMap[trophicId]) info.trophic = trophicMap[trophicId];
-
-            state.lakeInfo = info;
-            renderLakeInfo();
-          }).catch(function() { state.lakeInfo = info; renderLakeInfo(); });
-      } else {
-        state.lakeInfo = info;
-        renderLakeInfo();
+      if (!info.type && tags.water) info.type = tags.water;
+      if (tags.ele && !info.elevation) info.elevation = Math.round(+tags.ele * 3.281) + ' ft';
+      if (tags.wikidata) {
+        return fetchJson('https://www.wikidata.org/wiki/Special:EntityData/' + tags.wikidata + '.json')
+          .then(function (wd) { _applyWikidata(info, wd, tags.wikidata); render(); });
       }
-    }).catch(function() { state.lakeInfo = { name: name }; renderLakeInfo(); });
+      render();
+    }).catch(function () {});
+
+    // Guarantee at least the name (+ whatever loaded) renders even if both slow/fail.
+    Promise.all([usgsDone, ovDone]).then(render);
   }
 
   function _trophicFishingNote(info) {
@@ -3430,10 +3460,11 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       finish();
     }).catch(function() { finish(); });
 
-    // Source 2: iNaturalist citizen-science observations within 3 km radius
+    // Source 2: iNaturalist citizen-science observations (widened to 8 km so
+    // low-observation areas still return fish; works nationwide, unlike WI DNR).
     var inatUrl = 'https://api.inaturalist.org/v1/observations' +
-      '?taxon_id=47178&lat=' + lat + '&lng=' + lng + '&radius=3&per_page=200&order_by=observed_on';
-    fetch(inatUrl).then(function(r) { return r.json(); }).then(function(j) {
+      '?taxon_id=47178&lat=' + lat + '&lng=' + lng + '&radius=8&per_page=200&order_by=observed_on&verifiable=true';
+    fetchJson(inatUrl, 9000).then(function(j) {
       if (j.results) {
         var seen = {};
         j.results.forEach(function(obs) {
