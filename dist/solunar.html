@@ -2055,11 +2055,13 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         var d = dlat * dlat + dlng * dlng;
         if (d < pickedDist) {
           pickedDist = d;
-          picked = {
-            name: e.tags.name,
-            lat: Math.min(Math.max(clat, b.minlat), b.maxlat),
-            lng: Math.min(Math.max(clng, b.minlon), b.maxlon)
-          };
+          // Use the water body's bbox CENTER, not a boundary-clamped point
+          // near the tap. For a chain-of-lakes/connected-channel system, a
+          // boundary point can sit close to a DIFFERENT, adjacent named water
+          // body, biasing any radius-based species/data search toward the
+          // wrong one. The center is the most representative point for "this
+          // lake" regardless of exactly where within it the user tapped.
+          picked = { name: e.tags.name, lat: (b.minlat + b.maxlat) / 2, lng: (b.minlon + b.maxlon) / 2 };
         }
       });
     }
@@ -3095,7 +3097,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     waters.sort(function(a, b) { return (a.dist - b.dist) || (b.size - a.size); });
     state.nearbyWaters = waters.slice(0, 15);
     var best = state.nearbyWaters[0];
-    if (!best) { setNearbyMessage('<div class="nearby-empty">No named waters within 10 mi.</div>'); return; }
+    if (!best) { setNearbyMessage('<div class="nearby-empty">No named waters within 20 mi.</div>'); return; }
     state.loc.name = best.name;
     // Recenter the map on the WATER BODY (its bbox center), not the user's raw
     // GPS point — otherwise, if you're standing e.g. a mile inland from the
@@ -3114,11 +3116,15 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     }
     renderNearbyWaters();
     initMap(focusLat, focusLng, null, 0);
-    // Lake-info/species lookups use the nearest-EDGE point (best.lat/lng, not
-    // the centroid) — safer for point-intersect queries against odd-shaped
-    // (crescent/horseshoe) lakes where the bbox center could fall on land.
-    fetchLakeInfo(best.name, best.lat, best.lng);
-    fetchSpeciesForWater(best.name, best.lat, best.lng);
+    // Lake-info/species lookups use the CENTER point too, not the nearest-edge
+    // point. The edge point is biased toward whichever side is closest to the
+    // user, which in a chain-of-lakes/connected-channel system can land close
+    // to a DIFFERENT, adjacent named water body — pulling in that neighbor's
+    // species/data instead of the selected lake's. All our point+distance
+    // buffer queries (NHD, Overpass, iNaturalist) search a radius around this
+    // point, so the center remains reliable even for oddly-shaped lakes.
+    fetchLakeInfo(best.name, focusLat, focusLng);
+    fetchSpeciesForWater(best.name, focusLat, focusLng);
   }
 
   // Wikipedia GeoSearch — reliable, CORS-enabled (origin=*), no key. Returns
@@ -3242,7 +3248,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
     setNearbyMessage('<div class="nearby-loading">Finding nearby waters…</div>');
     var R_FAST = 8047;  // ~5 miles — the heavy inland-lake/river query stays tight for speed
-    var R_BIG  = 24140; // ~15 miles — cheap node + best-effort relation queries reach farther
+    var R_BIG  = 32187; // ~20 miles — cheap node + best-effort relation queries reach farther, matching the primary USGS/Esri radius (DIST) below
     var waters = [];
     var rendered = false;
 
