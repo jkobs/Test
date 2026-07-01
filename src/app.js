@@ -876,17 +876,46 @@
     }
   }
 
-  // ---- map depth overlay (WI DNR bathymetry WMS, falls back to USGS topo) ----
-  var DNR_BATHY_WMS = 'https://dnrmaps.wi.gov/arcgis/services/WT_SWDV/WT_Lake_Bathymetry_WTM_Ext_v2/MapServer/WMSServer';
+  // ---- map depth overlay: region-aware bathymetric contours (state DNR) ----
+  // Contour data is state-specific. These are the public ArcGIS/WMS endpoints
+  // for WI and MN lake bathymetry. NOTE: exact service/layer names still need
+  // on-device verification — a wrong endpoint simply renders blank (harmless),
+  // and swapping a URL here is a one-line change.
+  var BATHY_SOURCES = [
+    { name: 'WI DNR',
+      inRegion: function (lat, lng) { return lat >= 42.4 && lat <= 47.2 && lng >= -93.0 && lng <= -86.7; },
+      wms: 'https://dnrmaps.wi.gov/arcgis/services/DW_Map_Dynamic/WT_Inland_Water_Resources_Base_WTM_Ext_Dynamic_L16/MapServer/WMSServer',
+      layers: '2' },
+    { name: 'MN DNR',
+      inRegion: function (lat, lng) { return lat >= 43.4 && lat <= 49.5 && lng >= -97.5 && lng <= -89.4; },
+      wms: 'https://arcgis.dnr.state.mn.us/public/services/water/water_lake_bathymetry/MapServer/WMSServer',
+      layers: '1' }
+  ];
 
+  function pickBathySource(lat, lng) {
+    for (var i = 0; i < BATHY_SOURCES.length; i++) {
+      if (BATHY_SOURCES[i].inRegion(lat, lng)) return BATHY_SOURCES[i];
+    }
+    return null;
+  }
+
+  var _bathySrcName = null;
   function refreshDNRLayer() {
     if (!_map || !_drnEnabled) return;
-    if (!_topoLayer) {
-      _topoLayer = L.tileLayer.wms(DNR_BATHY_WMS, {
-        layers: '0', format: 'image/png', transparent: true,
-        opacity: 0.65, attribution: '© WI DNR'
-      }).addTo(_map);
-    }
+    var src = pickBathySource(state.loc.lat, state.loc.lng);
+    // If the region changed (WI <-> MN, or into a no-source area), rebuild.
+    var wantName = src ? src.name : null;
+    if (_topoLayer && _bathySrcName === wantName) return; // already correct
+    if (_topoLayer) { try { _map.removeLayer(_topoLayer); } catch (e) {} _topoLayer = null; }
+    _bathySrcName = wantName;
+    if (!src) return; // no contour source for this region
+    try {
+      _topoLayer = L.tileLayer.wms(src.wms, {
+        layers: src.layers, format: 'image/png', transparent: true,
+        opacity: 0.75, attribution: '© ' + src.name
+      });
+      _topoLayer.addTo(_map); // wrong endpoint => blank tiles, no error surfaced
+    } catch (e) {}
   }
 
   function toggleDNRLayer() {
