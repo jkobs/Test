@@ -3519,10 +3519,17 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
     // Source 1: WI DNR ArcGIS fish stocking — stocked species for this water body.
     // Also pulls WBIC so the lake-info card can deep-link to the full DNR report.
+    // IMPORTANT: name-only matching is unsafe — Wisconsin has many identically
+    // named lakes ("Bass Lake" alone exists in a dozen+ counties). Without a
+    // spatial constraint this pulls in species from a totally different lake
+    // states away. Add a tight geometry filter (point + ~1 mi) ANDed with the
+    // name match so only the actual selected water body's records match.
     var lakeName = name.replace(/,.*/, '').trim();
     var safeQ = "UPPER(WATER_BODY_NAME) LIKE UPPER('%" + lakeName.replace(/'/g, "''") + "%')";
     var dnrUrl = 'https://dnrmaps.wi.gov/arcgis/rest/services/FM_Fisheries/FM_Fish_Stocking_Public/MapServer/0/query' +
       '?where=' + encodeURIComponent(safeQ) +
+      '&geometry=' + lng + ',' + lat + '&geometryType=esriGeometryPoint&inSR=4326' +
+      '&spatialRel=esriSpatialRelIntersects&distance=1600&units=esriSRUnit_Meter' +
       '&outFields=SPECIES_NAME,WBIC&returnDistinctValues=true&resultRecordCount=200&f=json';
     fetch(dnrUrl).then(function(r) { return r.json(); }).then(function(j) {
       if (j.features) {
@@ -3536,10 +3543,13 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       finish();
     }).catch(function() { finish(); });
 
-    // Source 2: iNaturalist citizen-science observations (widened to 8 km so
-    // low-observation areas still return fish; works nationwide, unlike WI DNR).
+    // Source 2: iNaturalist citizen-science observations. Kept TIGHT (2 km) —
+    // a wide radius previously misattributed fish seen in a DIFFERENT nearby
+    // lake/river to the selected one. Accuracy matters more than coverage here;
+    // a lake with no verified observations correctly shows fewer species rather
+    // than borrowing a neighbor's.
     var inatUrl = 'https://api.inaturalist.org/v1/observations' +
-      '?taxon_id=47178&lat=' + lat + '&lng=' + lng + '&radius=8&per_page=200&order_by=observed_on&verifiable=true';
+      '?taxon_id=47178&lat=' + lat + '&lng=' + lng + '&radius=2&per_page=200&order_by=observed_on&verifiable=true';
     fetchJson(inatUrl, 9000).then(function(j) {
       if (j.results) {
         var seen = {};
