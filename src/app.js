@@ -1742,16 +1742,36 @@
       var dv = c && c.mainsnak && c.mainsnak.datavalue;
       return dv && dv.value && dv.value.id;
     }
+    function toFeet(amount, unit) {
+      if (unit.indexOf('Q11573') !== -1) return amount * 3.281; // meters
+      if (unit.indexOf('Q3710')  !== -1) return amount;         // feet
+      return null;
+    }
     var area = getNum('P2046');
     if (area && !info.area) {
       if (area.unit.indexOf('Q712226') !== -1)      info.area = Math.round(area.amount * 247.105) + ' acres';
       else if (area.unit.indexOf('Q35852') !== -1)  info.area = Math.round(area.amount * 2.471) + ' acres';
       else if (area.unit.indexOf('Q81292') !== -1)  info.area = Math.round(area.amount) + ' acres';
     }
-    var depth = getNum('P4511');
-    if (depth) {
-      if (depth.unit.indexOf('Q11573') !== -1)      { info.maxDepth = Math.round(depth.amount * 3.281) + ' ft'; info.maxDepthM = depth.amount; }
-      else if (depth.unit.indexOf('Q3710') !== -1)  { info.maxDepth = Math.round(depth.amount) + ' ft'; info.maxDepthM = depth.amount / 3.281; }
+    // Wikidata stores max AND mean depth as separate P4511 ("depth") statements
+    // distinguished by qualifier, not separate properties. Rather than depend on
+    // a specific qualifier ID, use the physical fact that mean depth <= max depth:
+    // take every P4511 statement, largest value = max depth, a smaller distinct
+    // value = mean/average depth.
+    var depthClaims = claims['P4511'] || [];
+    var depthFt = [];
+    depthClaims.forEach(function (c) {
+      var dv = c && c.mainsnak && c.mainsnak.datavalue;
+      if (!dv) return;
+      var ft = toFeet(parseFloat(dv.value.amount), dv.value.unit || '');
+      if (ft != null && !isNaN(ft)) depthFt.push(ft);
+    });
+    if (depthFt.length) {
+      depthFt.sort(function (a, b) { return b - a; });
+      info.maxDepth = Math.round(depthFt[0]) + ' ft';
+      info.maxDepthM = depthFt[0] / 3.281;
+      var mean = depthFt.find(function (v) { return v < depthFt[0] * 0.98; });
+      if (mean != null) info.avgDepth = Math.round(mean) + ' ft';
     }
     var elev = getNum('P2044');
     if (elev && !info.elevation && elev.unit.indexOf('Q11573') !== -1) info.elevation = Math.round(elev.amount * 3.281) + ' ft';
@@ -1833,16 +1853,25 @@
     if (info.type) rows.push(['Type', info.type.charAt(0).toUpperCase() + info.type.slice(1)]);
     if (info.area) rows.push(['Surface area', info.area]);
     if (info.maxDepth) rows.push(['Max depth', info.maxDepth]);
+    if (info.avgDepth) rows.push(['Avg depth', info.avgDepth]);
     if (info.elevation) rows.push(['Elevation', info.elevation]);
     if (info.trophic) rows.push(['Trophic status', info.trophic]);
     var note = _trophicFishingNote(info);
+    var speciesLine = (state.knownSpecies && state.knownSpecies.length)
+      ? '<div class="lake-info-species"><b>Species present:</b> ' + state.knownSpecies.join(', ') + '</div>'
+      : '';
+    var reportLink = info.wbic
+      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">📄 Full WI DNR lake report (depth, clarity, surveys) ↗</a>'
+      : '';
     el.innerHTML =
       '<div class="lake-info-name">' + info.name + '</div>' +
       (rows.length ? '<div class="lake-info-grid">' +
         rows.map(function(r) {
           return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + r[1] + '</div></div>';
         }).join('') + '</div>' : '<div class="lake-info-nodata">No additional lake data found</div>') +
-      (note ? '<div class="lake-info-note">' + note + '</div>' : '');
+      speciesLine +
+      (note ? '<div class="lake-info-note">' + note + '</div>' : '') +
+      reportLink;
   }
 
   // ---- species-by-water lookup (WI DNR ArcGIS + iNaturalist fallback) ----
@@ -1889,19 +1918,25 @@
           b.classList.add('muted');
         }
       });
+      // Refresh the lake-info card so the "Species present" line (and any WBIC
+      // report link picked up below) shows once this async fetch completes.
+      try { renderLakeInfo(); } catch (e) {}
     }
 
-    // Source 1: WI DNR ArcGIS fish stocking — stocked species for this water body
+    // Source 1: WI DNR ArcGIS fish stocking — stocked species for this water body.
+    // Also pulls WBIC so the lake-info card can deep-link to the full DNR report.
     var lakeName = name.replace(/,.*/, '').trim();
     var safeQ = "UPPER(WATER_BODY_NAME) LIKE UPPER('%" + lakeName.replace(/'/g, "''") + "%')";
     var dnrUrl = 'https://dnrmaps.wi.gov/arcgis/rest/services/FM_Fisheries/FM_Fish_Stocking_Public/MapServer/0/query' +
       '?where=' + encodeURIComponent(safeQ) +
-      '&outFields=SPECIES_NAME&returnDistinctValues=true&resultRecordCount=200&f=json';
+      '&outFields=SPECIES_NAME,WBIC&returnDistinctValues=true&resultRecordCount=200&f=json';
     fetch(dnrUrl).then(function(r) { return r.json(); }).then(function(j) {
       if (j.features) {
         j.features.forEach(function(feat) {
-          var s = feat.attributes && (feat.attributes.SPECIES_NAME || feat.attributes.COMMON_NAME);
+          var a = feat.attributes || {};
+          var s = a.SPECIES_NAME || a.COMMON_NAME;
           if (s) collected.push(s);
+          if (a.WBIC && state.lakeInfo && !state.lakeInfo.wbic) state.lakeInfo.wbic = a.WBIC;
         });
       }
       finish();

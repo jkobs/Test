@@ -341,6 +341,10 @@ button.toggle {
 .lake-info-val { font-size: 13px; font-weight: 600; color: var(--ink); }
 .lake-info-note { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: -4px; margin-bottom: 4px; }
 .lake-info-loading { font-size: 12px; color: var(--muted); padding: 8px 0 10px; }
+.lake-info-species { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 6px; }
+.lake-info-species b { color: var(--ink); font-weight: 600; }
+.lake-info-link { display: block; font-size: 12px; color: var(--minor); text-decoration: none; margin-top: 2px; }
+.lake-info-link:hover { text-decoration: underline; }
 .adv-solunar { color: var(--good); font-weight: 600; margin-bottom: 4px; }
 .adv-light { color: var(--major); font-weight: 600; margin-bottom: 4px; }
 .adv-offline { font-size: 13px; color: var(--muted); padding: 8px 0; }

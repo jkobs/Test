@@ -53,7 +53,28 @@ const WIKI = { query: { geosearch: [
   { title: 'Lake Mills', lat: 46.61, lon: -90.91, dist: 3000 }
 ] } };
 
+// fetchLakeInfo's detail query uses name~regex + out tags (no bb); distinguish
+// it from the nearby-waters exact-match queries.
+function isDetailQuery(body) { return /"name"~"/.test(body); }
 function isRel(body) { return /relation\[/.test(body) && !/way\["natural"="water"\]/.test(body); }
+
+// Overpass detail response for Bass Lake: has a wikidata QID.
+const OVP_DETAIL = { elements: [
+  { type: 'way', id: 9, tags: { name: 'Bass Lake', natural: 'water', wikidata: 'Q999001' } }
+] };
+// Wikidata entity: TWO P4511 ("depth") statements — 24 ft and 9 ft. The larger
+// must become Max depth, the smaller Avg depth (mean-depth-<=-max heuristic).
+const WIKIDATA_BASS = { entities: { Q999001: { claims: {
+  P4511: [
+    { mainsnak: { datavalue: { value: { amount: '+24', unit: 'http://www.wikidata.org/entity/Q3710' } } } },
+    { mainsnak: { datavalue: { value: { amount: '+9',  unit: 'http://www.wikidata.org/entity/Q3710' } } } }
+  ]
+} } } };
+// WI DNR fish stocking response: species + WBIC for the deep-link.
+const DNR_STOCKING = { features: [
+  { attributes: { SPECIES_NAME: 'Walleye', WBIC: '2345600' } },
+  { attributes: { SPECIES_NAME: 'Largemouth Bass', WBIC: '2345600' } }
+] };
 
 let failures = 0;
 function check(label, cond) { console.log((cond ? 'PASS  ' : 'FAIL  ') + label); if (!cond) failures++; }
@@ -94,7 +115,20 @@ async function run(label, down) {
     if (url.includes('/api/interpreter')) {
       if (down.overpass) return route.abort('failed');
       const body = decodeURIComponent(route.request().postData() || '');
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(isRel(body) ? OVP_RELS : OVP_WAYS) });
+      const payload = isDetailQuery(body) ? OVP_DETAIL : (isRel(body) ? OVP_RELS : OVP_WAYS);
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) });
+    }
+    if (url.includes('wikidata.org')) {
+      if (down.wikidata) return route.abort('failed');
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(WIKIDATA_BASS) });
+    }
+    if (url.includes('FM_Fish_Stocking_Public')) {
+      if (down.dnr) return route.abort('failed');
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(DNR_STOCKING) });
+    }
+    if (url.includes('api.inaturalist.org')) {
+      if (down.inat) return route.abort('failed');
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ results: [] }) });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
@@ -106,7 +140,7 @@ async function run(label, down) {
   let opts = [];
   try {
     await page.waitForSelector('#nearby-select', { timeout: 20000 });
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(3200);
     opts = await page.$$eval('#nearby-select option', els => els.map(e => e.textContent.trim()));
   } catch (e) { /* no select rendered */ }
   const retry = await page.$('#nearby-retry');
@@ -132,6 +166,10 @@ check('A: church filtered out', !A.joined.includes('church'));
 check('A: no retry button', !A.hasRetry);
 check('A: lake-info shows USGS type (Lake/Pond)', A.lakeInfo.indexOf('lake/pond') !== -1);
 check('A: lake-info shows surface area (acres)', A.lakeInfo.indexOf('acres') !== -1);
+check('A: lake-info shows max depth (24 ft, larger of two P4511 values)', A.lakeInfo.indexOf('24 ft') !== -1);
+check('A: lake-info shows avg depth (9 ft, smaller of two P4511 values)', A.lakeInfo.indexOf('9 ft') !== -1);
+check('A: lake-info shows species present (from DNR stocking)', A.lakeInfo.indexOf('walleye') !== -1 && A.lakeInfo.indexOf('largemouth bass') !== -1);
+check('A: lake-info shows WBIC report link', A.lakeInfo.indexOf('full wi dnr lake report') !== -1);
 
 // Scenario B: Overpass down (the common failure) — others carry it.
 const B = await run('Overpass down', { overpass: true });
