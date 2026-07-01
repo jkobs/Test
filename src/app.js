@@ -9,7 +9,7 @@
 
   // ---- Leaflet map state ----
   var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
-  var _topoLayer = null, _drnEnabled = true;
+  var _drnEnabled = true; // contour overlays (topo + bathymetry) shown/hidden together
   var _pressureReqId = 0;
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
@@ -864,9 +864,9 @@
           _modalMap = L.map('modal-map', { zoomControl: true, attributionControl: false });
           L.tileLayer(SATELLITE_URL, { maxZoom: 18 }).addTo(_modalMap);
           L.control.attribution({ prefix: '© Esri · USGS' }).addTo(_modalMap);
-          if (_drnEnabled) {
-            L.tileLayer(TOPO_URL, { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' }).addTo(_modalMap);
-          }
+          // Same contour state as the main map (previously the modal only ever
+          // showed land topo, never lake bathymetry — now consistent).
+          if (_drnEnabled) _applyContourLayers(_modalMap, lat, lng);
           var zoom = _map ? _map.getZoom() : 14;
           _modalMap.setView([lat, lng], zoom);
           L.circleMarker([lat, lng], {
@@ -964,11 +964,16 @@
     }
   }
 
-  // ---- map depth overlay: region-aware bathymetric contours (state DNR) ----
-  // Contour data is state-specific. These are the public ArcGIS/WMS endpoints
-  // for WI and MN lake bathymetry. NOTE: exact service/layer names still need
-  // on-device verification — a wrong endpoint simply renders blank (harmless),
-  // and swapping a URL here is a one-line change.
+  // ---- map contour overlays: land topo (USGS, reliable) + lake bathymetry
+  // (state DNR WMS, best-effort) shown together — similar to how OnX Fish
+  // layers land elevation contours and lake depth contours in one view.
+  //
+  // Confidence note: TOPO_URL (USGS topo tiles) is a standard, proven ArcGIS
+  // tile service already used successfully elsewhere in this file — high
+  // confidence. The DNR bathymetry WMS URLs below are best-effort candidates
+  // that could not be verified from this sandbox (network-blocked to these
+  // hosts); a wrong endpoint just renders blank, never breaks anything, and
+  // is a one-line fix once confirmed on-device.
   var BATHY_SOURCES = [
     { name: 'WI DNR',
       inRegion: function (lat, lng) { return lat >= 42.4 && lat <= 47.2 && lng >= -93.0 && lng <= -86.7; },
@@ -987,35 +992,58 @@
     return null;
   }
 
-  var _bathySrcName = null;
-  function refreshDNRLayer() {
-    if (!_map || !_drnEnabled) return;
-    var src = pickBathySource(state.loc.lat, state.loc.lng);
-    // If the region changed (WI <-> MN, or into a no-source area), rebuild.
+  // Adds/refreshes BOTH contour layers on a given map instance. Used by both
+  // the main advisor map and the full-screen modal map so they always show
+  // the same thing (previously the modal only showed topo, main only showed
+  // bathymetry — an inconsistency fixed here). A Leaflet layer can only
+  // belong to one map at a time, so layer refs are stashed as properties ON
+  // the map instance itself (__topoLayer/__bathyLayer/__bathySrcName) rather
+  // than in shared module state — otherwise adding a layer already attached
+  // to the main map onto the modal map (or vice versa) would misbehave.
+  function _applyContourLayers(map, lat, lng) {
+    if (!map || !_drnEnabled) return;
+    if (!map.__topoLayer) {
+      try {
+        map.__topoLayer = L.tileLayer(TOPO_URL, { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' });
+        map.__topoLayer.addTo(map);
+      } catch (e) {}
+    }
+    var src = pickBathySource(lat, lng);
     var wantName = src ? src.name : null;
-    if (_topoLayer && _bathySrcName === wantName) return; // already correct
-    if (_topoLayer) { try { _map.removeLayer(_topoLayer); } catch (e) {} _topoLayer = null; }
-    _bathySrcName = wantName;
-    if (!src) return; // no contour source for this region
+    if (map.__bathyLayer && map.__bathySrcName === wantName) return; // already correct
+    if (map.__bathyLayer) { try { map.removeLayer(map.__bathyLayer); } catch (e) {} map.__bathyLayer = null; }
+    map.__bathySrcName = wantName;
+    if (!src) return; // no state DNR bathymetry source for this region
     try {
-      _topoLayer = L.tileLayer.wms(src.wms, {
+      map.__bathyLayer = L.tileLayer.wms(src.wms, {
         layers: src.layers, format: 'image/png', transparent: true,
         opacity: 0.75, attribution: '© ' + src.name
       });
-      _topoLayer.addTo(_map); // wrong endpoint => blank tiles, no error surfaced
+      map.__bathyLayer.addTo(map); // wrong endpoint => blank tiles, no error surfaced
     } catch (e) {}
   }
+
+  function _removeContourLayers(map) {
+    if (!map) return;
+    if (map.__topoLayer)  { try { map.removeLayer(map.__topoLayer); }  catch (e) {} map.__topoLayer = null; }
+    if (map.__bathyLayer) { try { map.removeLayer(map.__bathyLayer); } catch (e) {} map.__bathyLayer = null; }
+    map.__bathySrcName = null;
+  }
+
+  function refreshDNRLayer() { _applyContourLayers(_map, state.loc.lat, state.loc.lng); }
 
   function toggleDNRLayer() {
     var btn = document.getElementById('dnr-toggle');
     if (_drnEnabled) {
       _drnEnabled = false;
-      if (_topoLayer && _map) { _map.removeLayer(_topoLayer); _topoLayer = null; }
-      if (btn) btn.textContent = 'Show depth';
+      _removeContourLayers(_map);
+      _removeContourLayers(_modalMap);
+      if (btn) btn.textContent = 'Show contours';
     } else {
       _drnEnabled = true;
       refreshDNRLayer();
-      if (btn) btn.textContent = 'Hide depth';
+      if (_modalMap) _applyContourLayers(_modalMap, state.loc.lat, state.loc.lng);
+      if (btn) btn.textContent = 'Hide contours';
     }
   }
 
@@ -1172,7 +1200,7 @@
       speciesOutlookHtml(adv.delta, adv.airTemp, adv.solunarBoost) +
       '<div class="adv-map-footer">' +
         '<span class="adv-dnr-badge">🛰 Satellite · ' + state.loc.name + '</span>' +
-        '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide depth' : 'Show depth') + '</button>' +
+        '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide contours' : 'Show contours') + '</button>' +
       '</div>';
     renderLakeInfo();
 
