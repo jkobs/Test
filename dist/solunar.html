@@ -685,6 +685,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
   --good: #4fd07a;
   --line: #25505f;
   --radius: 14px;
+  /* Shared vertical rhythm for stacked top-level sections (banner, pickers,
+     cards) — was a mix of 8/10/12/14px across sections added over time. */
+  --stack-gap: 12px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -727,7 +730,7 @@ header h1 { font-size: 20px; margin: 0; }
 
 /* Next-period banner + countdown */
 .next {
-  margin: 14px 0; padding: 14px 16px; border-radius: var(--radius);
+  margin: var(--stack-gap) 0; padding: 14px 16px; border-radius: var(--radius);
   background: var(--card2); border: 1px solid var(--line);
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   transition: border-color .15s, background .15s;
@@ -742,7 +745,7 @@ header h1 { font-size: 20px; margin: 0; }
 .next.active .countdown { color: var(--good); }
 
 /* Range picker */
-.range-picker { display: flex; gap: 8px; margin: 10px 0; }
+.range-picker { display: flex; gap: 8px; margin: var(--stack-gap) 0; }
 .range-btn {
   flex: 1; padding: 7px 0; border-radius: 10px; border: 1px solid var(--line);
   background: var(--card2); color: var(--muted); font-size: 13px; cursor: pointer;
@@ -753,7 +756,7 @@ header h1 { font-size: 20px; margin: 0; }
 /* Day cards */
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 14px 16px; margin: 12px 0; cursor: pointer;
+  padding: 14px 16px; margin: var(--stack-gap) 0; cursor: pointer;
   transition: border-color .15s, background .15s;
 }
 .card:hover, .card:focus { border-color: var(--minor); background: #183847; outline: none; }
@@ -793,7 +796,7 @@ header h1 { font-size: 20px; margin: 0; }
 
 .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
 button.toggle {
-  width: 100%; margin-top: 8px; padding: 10px; border-radius: 10px; cursor: pointer;
+  width: 100%; margin: var(--stack-gap) 0; padding: 10px; border-radius: 10px; cursor: pointer;
   background: var(--card2); color: var(--ink); border: 1px solid var(--line); font-size: 14px;
 }
 
@@ -825,9 +828,15 @@ button.toggle {
   cursor: pointer; flex-shrink: 0; line-height: 32px; padding: 0;
 }
 .modal-section { margin-bottom: 20px; }
+/* Shared small-caps section/field label used across modal sections, the
+   advisor grid, lake info, gauge card, and nearby-waters — unified to one
+   consistent size/tracking so these read as one visual language. */
+.modal-section-label, .bite-scale-label, .adv-label, .lake-info-label, .nearby-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted);
+}
 .modal-section-label {
-  font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
-  color: var(--muted); margin-bottom: 8px;
+  margin-bottom: 8px;
 }
 .modal-meta { display: flex; gap: 20px; flex-wrap: wrap; }
 .modal-meta > div { min-width: 90px; }
@@ -874,7 +883,7 @@ button.toggle {
 .tl-leg-dot.daylight { background: rgba(255,200,80,.4); border: 1px solid rgba(255,200,80,.5); }
 
 /* ---- Nearby waters dropdown ---- */
-.nearby-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 0 3px; }
+.nearby-label { display: block; margin: 6px 0 3px; }
 .nearby-select {
   width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
   color: var(--ink); font-size: 14px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
@@ -891,7 +900,7 @@ button.toggle {
 .nearby-retry:hover { border-color: var(--minor); }
 
 /* ---- USGS river gauge card ---- */
-.gauge-card { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin: 10px 0; }
+.gauge-card { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin: var(--stack-gap) 0; }
 .gauge-card:empty { display: none; }
 .gauge-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
 .gauge-name { font-size: 13px; font-weight: 600; color: var(--ink); }
@@ -904,7 +913,7 @@ button.toggle {
 /* ---- Barometer panel ---- */
 .baro-card {
   background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 12px 16px; margin: 10px 0;
+  padding: 12px 16px; margin: var(--stack-gap) 0;
 }
 .baro-card:empty { display: none; }
 .baro-head {
@@ -942,7 +951,7 @@ button.toggle {
 /* ---- Fishing Advisor ---- */
 .advisor-card {
   background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius);
-  margin: 10px 0; overflow: hidden;
+  margin: var(--stack-gap) 0; overflow: hidden;
 }
 .advisor-hd {
   padding: 10px 16px 0; font-size: 11px; text-transform: uppercase;
@@ -959,7 +968,6 @@ button.toggle {
 /* ---- bite scale ---- */
 .bite-scale-wrap { margin-bottom: 12px; }
 .conditions-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
-.bite-scale-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .conditions-species-select { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 12px; padding: 3px 7px; outline: none; cursor: pointer; max-width: 150px; }
 .conditions-species-select:focus { border-color: var(--minor); }
 .bite-bar { display: flex; gap: 3px; }
@@ -1000,10 +1008,7 @@ button.toggle {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;
 }
 .adv-item { background: var(--card); border-radius: 8px; padding: 8px 10px; }
-.adv-label {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--muted); margin-bottom: 2px;
-}
+.adv-label { margin-bottom: 2px; }
 .adv-val { font-size: 13px; font-weight: 500; line-height: 1.3; }
 .adv-item.adv-wide { grid-column: 1 / -1; }
 .adv-note { font-size: 13px; color: var(--muted); margin-top: 7px; line-height: 1.5; }
@@ -1011,9 +1016,9 @@ button.toggle {
 .lake-info-nodata { font-size: 12px; color: var(--muted); padding: 4px 0 8px; }
 .lake-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; padding: 10px 12px; background: var(--bg2); border-radius: 8px; border: 1px solid var(--line); }
 .lake-info-item { min-width: 0; }
-.lake-info-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 2px; }
+.lake-info-label { margin-bottom: 2px; }
 .lake-info-val { font-size: 13px; font-weight: 600; color: var(--ink); }
-.lake-info-note { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: -4px; margin-bottom: 4px; }
+.lake-info-note { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
 .lake-info-loading { font-size: 12px; color: var(--muted); padding: 8px 0 10px; }
 .lake-info-species { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 6px; }
 .lake-info-species b { color: var(--ink); font-weight: 600; }
