@@ -78,6 +78,7 @@ await page.fill('#city-input', 'Test City, Wisconsin');
 await page.click('#city-go');
 await page.waitForSelector('.city-result', { timeout: 15000 });
 await page.click('.city-result');
+await page.click('.tab[data-tab="lake"]');
 await page.waitForSelector('#nearby-select', { timeout: 20000 });
 await page.waitForTimeout(2000);
 

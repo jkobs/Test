@@ -137,6 +137,7 @@ async function run(label, down) {
   await page.click('#city-go');
   await page.waitForSelector('.city-result', { timeout: 15000 });
   await page.click('.city-result');
+  await page.click('.tab[data-tab="lake"]');
   let opts = [];
   try {
     await page.waitForSelector('#nearby-select', { timeout: 20000 });

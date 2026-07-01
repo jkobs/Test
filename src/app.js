@@ -455,6 +455,12 @@
   function _showAdvisorLoading(name) {
     var el = document.getElementById('advisor-body');
     if (el) el.innerHTML = '<div class="note">Loading fishing conditions for ' + name + '…</div>';
+    // Also clear the hero's bite rating/countdown — it's driven by
+    // state.lastAdv, which otherwise keeps showing the PREVIOUS lake's data
+    // until the new pressure fetch resolves (the same staleness bug fixed
+    // above for advisor-body, extended to the hero once it existed).
+    state.lastAdv = null;
+    try { renderHero(); } catch (e) {}
   }
 
   // Search radius (meters) for species/data lookups, scaled to the water
@@ -955,6 +961,7 @@
     });
 
     renderNext();
+    renderHero();
   }
 
   function renderClock() {
@@ -987,6 +994,43 @@
     el.onclick = openNextModal;
 
     maybeNotify(p, active, secs);
+  }
+
+  // ---- hero: the single glanceable "is it good to fish right now" summary.
+  // Reuses computeAdvice()'s existing generic score/label/notes (previously
+  // computed but never actually rendered anywhere) and the same countdown
+  // math as renderNext(), so there's no duplicated scoring logic.
+  function renderHero() {
+    var el = document.getElementById('hero');
+    if (!el) return;
+    var adv = state.lastAdv;
+    if (!adv) {
+      el.innerHTML = '<div class="hero-label">Right now</div><div class="hero-loading">Loading conditions…</div>';
+      return;
+    }
+    var p = nextPeriod();
+    var countdownHtml = '';
+    if (p) {
+      var now = Date.now();
+      var active = now >= p.start.getTime() && now <= p.end.getTime();
+      var target = active ? p.end.getTime() : p.start.getTime();
+      var secs = Math.max(0, Math.round((target - now) / 1000));
+      var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+      var cd = (h > 0 ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      countdownHtml =
+        '<div class="hero-count">' +
+          '<div class="num">' + cd + '</div>' +
+          '<div class="lbl">' + (active ? KIND[p.kind] + ' now' : 'to ' + KIND[p.kind]) + '</div>' +
+        '</div>';
+    }
+    var why = adv.solunarNote || adv.lightNote || adv.windNote || adv.tempNote || '';
+    el.innerHTML =
+      '<div class="hero-label">Right now</div>' +
+      '<div class="hero-main">' +
+        '<div class="hero-rating">' + adv.label + '<span class="fish">' + stars(adv.score) + '</span></div>' +
+        countdownHtml +
+      '</div>' +
+      (why ? '<div class="hero-why"><span class="ic">⚡</span><span>' + why + '</span></div>' : '');
   }
 
   // ---- opportunistic notification ----
@@ -1228,10 +1272,10 @@
   function renderAdvisor(adv, lat, lng) {
     state.lastAdv = adv;
     initMap(lat, lng, adv.towardDeg, adv.windSpeed);
+    renderHero();
     var el = document.getElementById('advisor-body');
     if (!el) return;
     el.innerHTML =
-      '<div id="lake-info"></div>' +
       '<div id="species-conditions">' + _speciesBiteHtml(adv) + '</div>' +
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
       (adv.lightNote  ? '<div class="adv-note adv-light">'   + adv.lightNote  + '</div>' : '') +
@@ -2018,14 +2062,19 @@
         if (srcs.indexOf('WI DNR stocking record') !== -1) dnrSpecies.push(s);
         else obsOnlySpecies.push(s);
       });
+      function chipRow(list, lowCls) {
+        return '<div class="chip-row">' + list.map(function(s) {
+          return '<span class="chip' + (lowCls ? ' low' : '') + '">' + s + '</span>';
+        }).join('') + '</div>';
+      }
       var parts = [];
       if (dnrSpecies.length) {
-        parts.push('<div class="lake-info-species"><b>Stocked per WI DNR record:</b> ' + dnrSpecies.join(', ') + '</div>');
+        parts.push('<div class="species-group"><div class="species-group-lbl">✓ Stocked · WI DNR record</div>' +
+          chipRow(dnrSpecies, false) + '</div>');
       }
       if (obsOnlySpecies.length) {
-        parts.push('<div class="lake-info-species lake-info-species-low">' +
-          '<b>Also reported nearby (unverified):</b> ' + obsOnlySpecies.join(', ') +
-          '<br><span class="lake-info-caveat">Single iNaturalist citizen sighting(s) — species ID and exact location not independently confirmed.</span></div>');
+        parts.push('<div class="species-group"><div class="species-group-lbl low">◌ Reported nearby · unverified</div>' +
+          chipRow(obsOnlySpecies, true) + '</div>');
       }
       parts.push('<div class="lake-info-caveat">Sources cover DNR-stocked species and nearby citizen observations only — neither is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>');
       speciesLine = parts.join('');
@@ -2342,12 +2391,36 @@
   }
 
   // ---- init ----
+  // ---- tabs: Today / Forecast / Lake, replacing one long scroll ----
+  function wireTabs() {
+    var tabsEl = document.getElementById('tabs');
+    if (!tabsEl) return;
+    tabsEl.querySelectorAll('.tab').forEach(function (btn) {
+      btn.onclick = function () {
+        var name = btn.dataset.tab;
+        tabsEl.querySelectorAll('.tab').forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        document.querySelectorAll('.tab-panel').forEach(function (panel) {
+          panel.hidden = panel.dataset.tab !== name;
+        });
+        // Leaflet computes tile layout at the moment a map becomes visible;
+        // if the Today tab (and its map) was hidden, its size is stale once
+        // shown again, leaving a partially-rendered grey map until resized.
+        if (name === 'today' && _map) setTimeout(function () { _map.invalidateSize(); }, 50);
+      };
+    });
+  }
+
   function init() {
     document.getElementById('notify-btn').onclick = enableNotifications;
     wireCitySearch();
+    wireTabs();
     recompute();
     renderClock();
-    setInterval(function () { renderNext(); renderClock(); }, 1000);
+    setInterval(function () { renderNext(); renderClock(); renderHero(); }, 1000);
     startGpsWatch();
   }
 

@@ -34,6 +34,7 @@ await page.route('**/*', async (route) => {
 });
 
 await page.goto(APP, { waitUntil: 'domcontentloaded' });
+await page.click('.tab[data-tab="forecast"]');
 await page.waitForSelector('.card', { timeout: 15000 });
 await page.waitForTimeout(1000); // let fetchWeather populate the preview cards
 

@@ -9,6 +9,7 @@
   --minor: #56b3f0;
   --sun: #ff7a3d;
   --good: #4fd07a;
+  --accent: #2dd4bf;
   --line: #25505f;
   --radius: 14px;
   /* Shared vertical rhythm for stacked top-level sections (banner, pickers,
@@ -32,6 +33,38 @@ header { display: flex; align-items: baseline; justify-content: space-between; g
 header h1 { font-size: 20px; margin: 0; }
 .loc { color: var(--muted); font-size: 13px; }
 .clock { color: var(--ink); font-size: 17px; font-weight: 600; letter-spacing: 0.01em; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+
+/* ---- Hero: the single glanceable "is it good right now" summary ---- */
+.hero {
+  border-radius: 20px; padding: 18px 18px 14px; margin: var(--stack-gap) 0;
+  background: linear-gradient(160deg, #103a3a 0%, #0d2b3a 55%, var(--bg2) 100%);
+  border: 1px solid #1c4a4a; position: relative; overflow: hidden;
+}
+.hero:empty { display: none; }
+.hero-label { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
+.hero-loading { font-size: 13px; color: var(--muted); padding: 4px 0 2px; }
+.hero-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.hero-rating { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.hero-rating .fish { font-size: 18px; letter-spacing: 1px; display: block; margin-top: 4px; }
+.hero-count { text-align: right; }
+.hero-count .num { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--major); line-height: 1; }
+.hero-count .lbl { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.hero-why {
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 13px; color: #cfe9e6; line-height: 1.5; display: flex; gap: 8px; align-items: flex-start;
+}
+.hero-why .ic { font-size: 15px; flex-shrink: 0; }
+
+/* ---- Segmented tabs (Today / Forecast / Lake) ---- */
+.tabs { display: flex; gap: 4px; background: var(--card); border-radius: 14px; padding: 4px; margin: var(--stack-gap) 0; }
+.tab { flex: 1; text-align: center; padding: 9px 0; border-radius: 10px; font-size: 13px; font-weight: 600;
+  color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit; }
+.tab.active { background: var(--card2); color: var(--ink); }
+.tab-panel[hidden] { display: none; }
+
+/* ---- Generic card panel (used for the Lake tab's lake-info card) ---- */
+.card-panel { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: var(--stack-gap) 0; }
+.card-panel:empty { display: none; }
 .loc button {
   background: none; border: 1px solid var(--line); color: var(--muted);
   border-radius: 8px; padding: 3px 8px; font-size: 12px; margin-left: 6px; cursor: pointer;
@@ -346,11 +379,13 @@ button.toggle {
 .lake-info-val { font-size: 13px; font-weight: 600; color: var(--ink); }
 .lake-info-note { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
 .lake-info-loading { font-size: 12px; color: var(--muted); padding: 8px 0 10px; }
-.lake-info-species { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 6px; }
-.lake-info-species b { color: var(--ink); font-weight: 600; }
-.lake-info-species-low { opacity: 0.8; }
-.lake-info-species-low b { color: var(--muted); }
-.lake-info-caveat { display: block; font-size: 10px; color: var(--muted); opacity: 0.75; line-height: 1.4; margin-top: 2px; margin-bottom: 6px; font-style: italic; }
+.species-group { margin-top: 12px; }
+.species-group-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--good); font-weight: 700; margin-bottom: 6px; }
+.species-group-lbl.low { color: var(--muted); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: var(--bg2); border: 1px solid var(--line); border-radius: 20px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.chip.low { color: var(--muted); font-weight: 500; border-style: dashed; opacity: .85; }
+.lake-info-caveat { display: block; font-size: 10px; color: var(--muted); opacity: 0.75; line-height: 1.4; margin-top: 8px; margin-bottom: 6px; font-style: italic; }
 .lake-info-link { display: block; font-size: 12px; color: var(--minor); text-decoration: none; margin-top: 2px; }
 .lake-info-link:hover { text-decoration: underline; }
 .adv-solunar { color: var(--good); font-weight: 600; margin-bottom: 4px; }

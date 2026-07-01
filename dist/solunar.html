@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1f2a">
+  <meta name="theme-color" content="#071620">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Solunar Fishing Times</title>
+  <title>Fishing Advisor</title>
   <style>
 /* required styles */
 
@@ -683,6 +683,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   --minor: #56b3f0;
   --sun: #ff7a3d;
   --good: #4fd07a;
+  --accent: #2dd4bf;
   --line: #25505f;
   --radius: 14px;
   /* Shared vertical rhythm for stacked top-level sections (banner, pickers,
@@ -706,6 +707,38 @@ header { display: flex; align-items: baseline; justify-content: space-between; g
 header h1 { font-size: 20px; margin: 0; }
 .loc { color: var(--muted); font-size: 13px; }
 .clock { color: var(--ink); font-size: 17px; font-weight: 600; letter-spacing: 0.01em; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+
+/* ---- Hero: the single glanceable "is it good right now" summary ---- */
+.hero {
+  border-radius: 20px; padding: 18px 18px 14px; margin: var(--stack-gap) 0;
+  background: linear-gradient(160deg, #103a3a 0%, #0d2b3a 55%, var(--bg2) 100%);
+  border: 1px solid #1c4a4a; position: relative; overflow: hidden;
+}
+.hero:empty { display: none; }
+.hero-label { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
+.hero-loading { font-size: 13px; color: var(--muted); padding: 4px 0 2px; }
+.hero-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.hero-rating { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.hero-rating .fish { font-size: 18px; letter-spacing: 1px; display: block; margin-top: 4px; }
+.hero-count { text-align: right; }
+.hero-count .num { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--major); line-height: 1; }
+.hero-count .lbl { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.hero-why {
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 13px; color: #cfe9e6; line-height: 1.5; display: flex; gap: 8px; align-items: flex-start;
+}
+.hero-why .ic { font-size: 15px; flex-shrink: 0; }
+
+/* ---- Segmented tabs (Today / Forecast / Lake) ---- */
+.tabs { display: flex; gap: 4px; background: var(--card); border-radius: 14px; padding: 4px; margin: var(--stack-gap) 0; }
+.tab { flex: 1; text-align: center; padding: 9px 0; border-radius: 10px; font-size: 13px; font-weight: 600;
+  color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit; }
+.tab.active { background: var(--card2); color: var(--ink); }
+.tab-panel[hidden] { display: none; }
+
+/* ---- Generic card panel (used for the Lake tab's lake-info card) ---- */
+.card-panel { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: var(--stack-gap) 0; }
+.card-panel:empty { display: none; }
 .loc button {
   background: none; border: 1px solid var(--line); color: var(--muted);
   border-radius: 8px; padding: 3px 8px; font-size: 12px; margin-left: 6px; cursor: pointer;
@@ -1020,11 +1053,13 @@ button.toggle {
 .lake-info-val { font-size: 13px; font-weight: 600; color: var(--ink); }
 .lake-info-note { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
 .lake-info-loading { font-size: 12px; color: var(--muted); padding: 8px 0 10px; }
-.lake-info-species { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 6px; }
-.lake-info-species b { color: var(--ink); font-weight: 600; }
-.lake-info-species-low { opacity: 0.8; }
-.lake-info-species-low b { color: var(--muted); }
-.lake-info-caveat { display: block; font-size: 10px; color: var(--muted); opacity: 0.75; line-height: 1.4; margin-top: 2px; margin-bottom: 6px; font-style: italic; }
+.species-group { margin-top: 12px; }
+.species-group-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--good); font-weight: 700; margin-bottom: 6px; }
+.species-group-lbl.low { color: var(--muted); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: var(--bg2); border: 1px solid var(--line); border-radius: 20px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.chip.low { color: var(--muted); font-weight: 500; border-style: dashed; opacity: .85; }
+.lake-info-caveat { display: block; font-size: 10px; color: var(--muted); opacity: 0.75; line-height: 1.4; margin-top: 8px; margin-bottom: 6px; font-style: italic; }
 .lake-info-link { display: block; font-size: 12px; color: var(--minor); text-decoration: none; margin-top: 2px; }
 .lake-info-link:hover { text-decoration: underline; }
 .adv-solunar { color: var(--good); font-weight: 600; margin-bottom: 4px; }
@@ -1061,42 +1096,58 @@ button.toggle {
 <body>
   <div class="wrap">
     <header>
-      <h1>🎣 Solunar Times</h1>
+      <h1>🎣 Fishing Advisor</h1>
     </header>
+
     <div class="loc" id="loc">Locating…</div>
     <div class="loc-search">
       <input type="search" id="city-input" class="city-input" placeholder="Search city, state (e.g. Madison, WI)" autocomplete="off">
       <button id="city-go" class="city-go">Go</button>
     </div>
     <div id="city-results" class="city-results"></div>
-    <div id="nearby-waters"></div>
+
     <div class="clock" id="clock"></div>
 
-    <div class="next" id="next" style="display:none"></div>
+    <!-- Lead with the one thing anglers actually want: is it good right now -->
+    <div class="hero" id="hero"></div>
 
-    <button class="toggle" id="notify-btn">🔔 Enable next-period alerts</button>
+    <div class="tabs" id="tabs" role="tablist">
+      <button class="tab active" type="button" data-tab="today" role="tab" aria-selected="true">Today</button>
+      <button class="tab" type="button" data-tab="forecast" role="tab" aria-selected="false">Forecast</button>
+      <button class="tab" type="button" data-tab="lake" role="tab" aria-selected="false">Lake</button>
+    </div>
 
-    <div class="range-picker" id="range-picker"></div>
+    <div class="tab-panel" data-tab="today">
+      <div class="next" id="next" style="display:none"></div>
 
-    <div class="baro-card" id="baro"></div>
+      <button class="toggle" id="notify-btn">🔔 Enable next-period alerts</button>
 
-    <div class="gauge-card" id="gauge-card"></div>
+      <div class="baro-card" id="baro"></div>
 
-    <div class="advisor-card" id="advisor">
-      <div class="advisor-hd">📍 Fishing Advisor</div>
-      <div id="advisor-map"></div>
-      <div class="advisor-body" id="advisor-body">
-        <div class="note">Fetching conditions…</div>
+      <div class="advisor-card" id="advisor">
+        <div class="advisor-hd">📍 Fishing Advisor</div>
+        <div id="advisor-map"></div>
+        <div class="advisor-body" id="advisor-body">
+          <div class="note">Fetching conditions…</div>
+        </div>
       </div>
     </div>
 
-    <div id="days"></div>
+    <div class="tab-panel" data-tab="forecast" hidden>
+      <div class="range-picker" id="range-picker"></div>
+      <div id="days"></div>
+      <div class="legend">
+        <b class="major">Major periods</b> (~2 h): moon overhead &amp; underfoot — strongest bite.<br>
+        <b class="minor">Minor periods</b> (~1 h): moonrise &amp; moonset.<br>
+        ☀ marks periods overlapping sunrise/sunset — the biggest driver in solunar theory.
+        <div class="note">Times for the lake's timezone. Best days: near new/full moon with a period at sunrise/sunset.</div>
+      </div>
+    </div>
 
-    <div class="legend">
-      <b class="major">Major periods</b> (~2 h): moon overhead &amp; underfoot — strongest bite.<br>
-      <b class="minor">Minor periods</b> (~1 h): moonrise &amp; moonset.<br>
-      ☀ marks periods overlapping sunrise/sunset — the biggest driver in solunar theory.
-      <div class="note">Times for the lake's timezone. Best days: near new/full moon with a period at sunrise/sunset.</div>
+    <div class="tab-panel" data-tab="lake" hidden>
+      <div id="nearby-waters"></div>
+      <div class="card-panel" id="lake-info"></div>
+      <div class="gauge-card" id="gauge-card"></div>
     </div>
   </div>
 
@@ -2020,6 +2071,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   function _showAdvisorLoading(name) {
     var el = document.getElementById('advisor-body');
     if (el) el.innerHTML = '<div class="note">Loading fishing conditions for ' + name + '…</div>';
+    // Also clear the hero's bite rating/countdown — it's driven by
+    // state.lastAdv, which otherwise keeps showing the PREVIOUS lake's data
+    // until the new pressure fetch resolves (the same staleness bug fixed
+    // above for advisor-body, extended to the hero once it existed).
+    state.lastAdv = null;
+    try { renderHero(); } catch (e) {}
   }
 
   // Search radius (meters) for species/data lookups, scaled to the water
@@ -2520,6 +2577,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     });
 
     renderNext();
+    renderHero();
   }
 
   function renderClock() {
@@ -2552,6 +2610,43 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     el.onclick = openNextModal;
 
     maybeNotify(p, active, secs);
+  }
+
+  // ---- hero: the single glanceable "is it good to fish right now" summary.
+  // Reuses computeAdvice()'s existing generic score/label/notes (previously
+  // computed but never actually rendered anywhere) and the same countdown
+  // math as renderNext(), so there's no duplicated scoring logic.
+  function renderHero() {
+    var el = document.getElementById('hero');
+    if (!el) return;
+    var adv = state.lastAdv;
+    if (!adv) {
+      el.innerHTML = '<div class="hero-label">Right now</div><div class="hero-loading">Loading conditions…</div>';
+      return;
+    }
+    var p = nextPeriod();
+    var countdownHtml = '';
+    if (p) {
+      var now = Date.now();
+      var active = now >= p.start.getTime() && now <= p.end.getTime();
+      var target = active ? p.end.getTime() : p.start.getTime();
+      var secs = Math.max(0, Math.round((target - now) / 1000));
+      var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+      var cd = (h > 0 ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      countdownHtml =
+        '<div class="hero-count">' +
+          '<div class="num">' + cd + '</div>' +
+          '<div class="lbl">' + (active ? KIND[p.kind] + ' now' : 'to ' + KIND[p.kind]) + '</div>' +
+        '</div>';
+    }
+    var why = adv.solunarNote || adv.lightNote || adv.windNote || adv.tempNote || '';
+    el.innerHTML =
+      '<div class="hero-label">Right now</div>' +
+      '<div class="hero-main">' +
+        '<div class="hero-rating">' + adv.label + '<span class="fish">' + stars(adv.score) + '</span></div>' +
+        countdownHtml +
+      '</div>' +
+      (why ? '<div class="hero-why"><span class="ic">⚡</span><span>' + why + '</span></div>' : '');
   }
 
   // ---- opportunistic notification ----
@@ -2793,10 +2888,10 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   function renderAdvisor(adv, lat, lng) {
     state.lastAdv = adv;
     initMap(lat, lng, adv.towardDeg, adv.windSpeed);
+    renderHero();
     var el = document.getElementById('advisor-body');
     if (!el) return;
     el.innerHTML =
-      '<div id="lake-info"></div>' +
       '<div id="species-conditions">' + _speciesBiteHtml(adv) + '</div>' +
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
       (adv.lightNote  ? '<div class="adv-note adv-light">'   + adv.lightNote  + '</div>' : '') +
@@ -3583,14 +3678,19 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         if (srcs.indexOf('WI DNR stocking record') !== -1) dnrSpecies.push(s);
         else obsOnlySpecies.push(s);
       });
+      function chipRow(list, lowCls) {
+        return '<div class="chip-row">' + list.map(function(s) {
+          return '<span class="chip' + (lowCls ? ' low' : '') + '">' + s + '</span>';
+        }).join('') + '</div>';
+      }
       var parts = [];
       if (dnrSpecies.length) {
-        parts.push('<div class="lake-info-species"><b>Stocked per WI DNR record:</b> ' + dnrSpecies.join(', ') + '</div>');
+        parts.push('<div class="species-group"><div class="species-group-lbl">✓ Stocked · WI DNR record</div>' +
+          chipRow(dnrSpecies, false) + '</div>');
       }
       if (obsOnlySpecies.length) {
-        parts.push('<div class="lake-info-species lake-info-species-low">' +
-          '<b>Also reported nearby (unverified):</b> ' + obsOnlySpecies.join(', ') +
-          '<br><span class="lake-info-caveat">Single iNaturalist citizen sighting(s) — species ID and exact location not independently confirmed.</span></div>');
+        parts.push('<div class="species-group"><div class="species-group-lbl low">◌ Reported nearby · unverified</div>' +
+          chipRow(obsOnlySpecies, true) + '</div>');
       }
       parts.push('<div class="lake-info-caveat">Sources cover DNR-stocked species and nearby citizen observations only — neither is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>');
       speciesLine = parts.join('');
@@ -3907,12 +4007,36 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   }
 
   // ---- init ----
+  // ---- tabs: Today / Forecast / Lake, replacing one long scroll ----
+  function wireTabs() {
+    var tabsEl = document.getElementById('tabs');
+    if (!tabsEl) return;
+    tabsEl.querySelectorAll('.tab').forEach(function (btn) {
+      btn.onclick = function () {
+        var name = btn.dataset.tab;
+        tabsEl.querySelectorAll('.tab').forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        document.querySelectorAll('.tab-panel').forEach(function (panel) {
+          panel.hidden = panel.dataset.tab !== name;
+        });
+        // Leaflet computes tile layout at the moment a map becomes visible;
+        // if the Today tab (and its map) was hidden, its size is stale once
+        // shown again, leaving a partially-rendered grey map until resized.
+        if (name === 'today' && _map) setTimeout(function () { _map.invalidateSize(); }, 50);
+      };
+    });
+  }
+
   function init() {
     document.getElementById('notify-btn').onclick = enableNotifications;
     wireCitySearch();
+    wireTabs();
     recompute();
     renderClock();
-    setInterval(function () { renderNext(); renderClock(); }, 1000);
+    setInterval(function () { renderNext(); renderClock(); renderHero(); }, 1000);
     startGpsWatch();
   }
 

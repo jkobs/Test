@@ -70,14 +70,14 @@ await page.waitForTimeout(3000);
 const lakeInfoText = await page.$eval('#lake-info', el => el.textContent).catch(() => '');
 console.log('Lake info: ' + lakeInfoText.replace(/\s+/g, ' ').trim());
 
-check('DNR-stocked species labeled distinctly ("Stocked per WI DNR record")',
-  lakeInfoText.includes('Stocked per WI DNR record') && lakeInfoText.includes('Black Crappie'));
+check('DNR-stocked species labeled distinctly ("Stocked · WI DNR record")',
+  lakeInfoText.includes('Stocked · WI DNR record') && lakeInfoText.includes('Black Crappie'));
 check('iNaturalist-only species labeled as unverified, NOT claimed as confirmed',
-  lakeInfoText.includes('Also reported nearby (unverified)') && lakeInfoText.includes('River Redhorse'));
+  lakeInfoText.includes('Reported nearby · unverified') && lakeInfoText.includes('River Redhorse'));
 // textContent has no HTML tags, so bound each species claim by the position
 // of the NEXT section header rather than by a tag boundary.
-var dnrIdx = lakeInfoText.indexOf('Stocked per WI DNR record:');
-var unverifiedIdx = lakeInfoText.indexOf('Also reported nearby (unverified):');
+var dnrIdx = lakeInfoText.indexOf('Stocked · WI DNR record');
+var unverifiedIdx = lakeInfoText.indexOf('Reported nearby · unverified');
 var dnrSection = lakeInfoText.slice(dnrIdx, unverifiedIdx === -1 ? undefined : unverifiedIdx);
 var unverifiedSection = unverifiedIdx === -1 ? '' : lakeInfoText.slice(unverifiedIdx);
 check('DNR-only species does NOT appear in the unverified bucket',
@@ -85,10 +85,10 @@ check('DNR-only species does NOT appear in the unverified bucket',
 check('unverified species does NOT appear in the DNR-confirmed bucket',
   !dnrSection.includes('River Redhorse'));
 check('explicit caveat that neither source is a full species survey',
-  lakeInfoText.toLowerCase().includes('not a full survey') || lakeInfoText.toLowerCase().includes('not independently confirmed'));
+  lakeInfoText.toLowerCase().includes('is a full survey') || lakeInfoText.toLowerCase().includes('not independently confirmed'));
 
 // Check the actual DOM structure gives the low-confidence entry a distinct class.
-const lowConfEl = await page.$('.lake-info-species-low');
+const lowConfEl = await page.$('.chip.low');
 check('low-confidence species block has distinct CSS class for visual de-emphasis', !!lowConfEl);
 
 await browser.close();
