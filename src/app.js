@@ -5,7 +5,7 @@
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null, lakeInfo: null, weatherDaily: null };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null, speciesSources: {}, lakeInfo: null, weatherDaily: null };
 
   // ---- Leaflet map state ----
   var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
@@ -2003,9 +2003,33 @@
     if (info.elevation) rows.push(['Elevation', info.elevation]);
     if (info.trophic) rows.push(['Trophic status', info.trophic]);
     var note = _trophicFishingNote(info);
-    var speciesLine = (state.knownSpecies && state.knownSpecies.length)
-      ? '<div class="lake-info-species"><b>Species present:</b> ' + state.knownSpecies.join(', ') + '</div>'
-      : '';
+    // Split species by source confidence rather than presenting one flat
+    // list as if all entries carry equal certainty. WI DNR stocking records
+    // are an official record that a species was intentionally introduced
+    // (not proof it still has a population). iNaturalist entries are a
+    // single unverified citizen photo/sighting — species ID and the precise
+    // location are not independently confirmed. Neither source is a
+    // comprehensive survey of everything living in the lake.
+    var speciesLine = '';
+    if (state.knownSpecies && state.knownSpecies.length) {
+      var dnrSpecies = [], obsOnlySpecies = [];
+      state.knownSpecies.forEach(function(s) {
+        var srcs = state.speciesSources[s.toLowerCase()] || [];
+        if (srcs.indexOf('WI DNR stocking record') !== -1) dnrSpecies.push(s);
+        else obsOnlySpecies.push(s);
+      });
+      var parts = [];
+      if (dnrSpecies.length) {
+        parts.push('<div class="lake-info-species"><b>Stocked per WI DNR record:</b> ' + dnrSpecies.join(', ') + '</div>');
+      }
+      if (obsOnlySpecies.length) {
+        parts.push('<div class="lake-info-species lake-info-species-low">' +
+          '<b>Also reported nearby (unverified):</b> ' + obsOnlySpecies.join(', ') +
+          '<br><span class="lake-info-caveat">Single iNaturalist citizen sighting(s) — species ID and exact location not independently confirmed.</span></div>');
+      }
+      parts.push('<div class="lake-info-caveat">Sources cover DNR-stocked species and nearby citizen observations only — neither is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>');
+      speciesLine = parts.join('');
+    }
     var reportLink = info.wbic
       ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">📄 Full WI DNR lake report (depth, clarity, surveys) ↗</a>'
       : '';
@@ -2036,6 +2060,13 @@
     var searchKm = (searchM / 1000).toFixed(1);
 
     var collected = [];
+    var sources = {}; // lowercased species name -> array of source labels
+    function record(name2, sourceLabel) {
+      collected.push(name2);
+      var k = name2.toLowerCase();
+      if (!sources[k]) sources[k] = [];
+      if (sources[k].indexOf(sourceLabel) === -1) sources[k].push(sourceLabel);
+    }
     var pending = 2;
 
     function finish() {
@@ -2049,6 +2080,7 @@
         return true;
       });
       state.knownSpecies = unique.length ? unique : null;
+      state.speciesSources = sources;
       // Patch advisor DOM without full recompute
       var condEl = document.getElementById('species-conditions');
       if (condEl && state.lastAdv) {
@@ -2096,7 +2128,7 @@
         j.features.forEach(function(feat) {
           var a = feat.attributes || {};
           var s = a.SPECIES_NAME || a.COMMON_NAME;
-          if (s) collected.push(s);
+          if (s) record(s, 'WI DNR stocking record');
           if (a.WBIC && state.lakeInfo && !state.lakeInfo.wbic) state.lakeInfo.wbic = a.WBIC;
         });
       }
@@ -2114,7 +2146,7 @@
         var seen = {};
         j.results.forEach(function(obs) {
           var cn = obs.taxon && obs.taxon.preferred_common_name;
-          if (cn && !seen[cn]) { seen[cn] = true; collected.push(cn); }
+          if (cn && !seen[cn]) { seen[cn] = true; record(cn, 'iNaturalist citizen observation'); }
         });
       }
       finish();

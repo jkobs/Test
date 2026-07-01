@@ -348,6 +348,9 @@ button.toggle {
 .lake-info-loading { font-size: 12px; color: var(--muted); padding: 8px 0 10px; }
 .lake-info-species { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 6px; }
 .lake-info-species b { color: var(--ink); font-weight: 600; }
+.lake-info-species-low { opacity: 0.8; }
+.lake-info-species-low b { color: var(--muted); }
+.lake-info-caveat { display: block; font-size: 10px; color: var(--muted); opacity: 0.75; line-height: 1.4; margin-top: 2px; margin-bottom: 6px; font-style: italic; }
 .lake-info-link { display: block; font-size: 12px; color: var(--minor); text-decoration: none; margin-top: 2px; }
 .lake-info-link:hover { text-decoration: underline; }
 .adv-solunar { color: var(--good); font-weight: 600; margin-bottom: 4px; }
