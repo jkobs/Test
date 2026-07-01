@@ -170,7 +170,7 @@ check('A: lake-info shows surface area (acres)', A.lakeInfo.indexOf('acres') !==
 check('A: lake-info shows max depth (24 ft, larger of two P4511 values)', A.lakeInfo.indexOf('24 ft') !== -1);
 check('A: lake-info shows avg depth (9 ft, smaller of two P4511 values)', A.lakeInfo.indexOf('9 ft') !== -1);
 check('A: lake-info shows species present (from DNR stocking)', A.lakeInfo.indexOf('walleye') !== -1 && A.lakeInfo.indexOf('largemouth bass') !== -1);
-check('A: lake-info shows WBIC report link', A.lakeInfo.indexOf('full wi dnr lake report') !== -1);
+check('A: lake-info shows WBIC report link', A.lakeInfo.indexOf('wi dnr lake report') !== -1);
 
 // Scenario B: Overpass down (the common failure) — others carry it.
 const B = await run('Overpass down', { overpass: true });

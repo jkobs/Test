@@ -70,13 +70,13 @@ await page.waitForTimeout(3000);
 const lakeInfoText = await page.$eval('#lake-info', el => el.textContent).catch(() => '');
 console.log('Lake info: ' + lakeInfoText.replace(/\s+/g, ' ').trim());
 
-check('DNR-stocked species labeled distinctly ("Stocked · WI DNR record")',
-  lakeInfoText.includes('Stocked · WI DNR record') && lakeInfoText.includes('Black Crappie'));
+check('DNR-record species labeled distinctly ("Confirmed · WI DNR record")',
+  lakeInfoText.includes('Confirmed · WI DNR record') && lakeInfoText.includes('Black Crappie'));
 check('iNaturalist-only species labeled as unverified, NOT claimed as confirmed',
   lakeInfoText.includes('Reported nearby · unverified') && lakeInfoText.includes('River Redhorse'));
 // textContent has no HTML tags, so bound each species claim by the position
 // of the NEXT section header rather than by a tag boundary.
-var dnrIdx = lakeInfoText.indexOf('Stocked · WI DNR record');
+var dnrIdx = lakeInfoText.indexOf('Confirmed · WI DNR record');
 var unverifiedIdx = lakeInfoText.indexOf('Reported nearby · unverified');
 var dnrSection = lakeInfoText.slice(dnrIdx, unverifiedIdx === -1 ? undefined : unverifiedIdx);
 var unverifiedSection = unverifiedIdx === -1 ? '' : lakeInfoText.slice(unverifiedIdx);

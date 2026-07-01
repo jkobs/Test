@@ -1046,6 +1046,19 @@ button.toggle {
 .adv-item.adv-wide { grid-column: 1 / -1; }
 .adv-note { font-size: 13px; color: var(--muted); margin-top: 7px; line-height: 1.5; }
 .lake-info-name { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+/* Official DNR fisheries designations (Walleye Water etc.) */
+.lake-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 10px; }
+.lake-badge {
+  display: inline-flex; flex-direction: column; gap: 1px;
+  background: rgba(255, 176, 32, 0.1); border: 1px solid rgba(255, 176, 32, 0.4);
+  border-radius: 10px; padding: 6px 11px; font-size: 12.5px; font-weight: 700; color: var(--major);
+}
+.lake-badge .sub { font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.lake-regs-note {
+  font-size: 12px; color: var(--major); line-height: 1.5;
+  background: rgba(255, 176, 32, 0.08); border: 1px solid rgba(255, 176, 32, 0.25);
+  border-radius: 8px; padding: 8px 10px; margin: 8px 0;
+}
 .lake-info-nodata { font-size: 12px; color: var(--muted); padding: 4px 0 8px; }
 .lake-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; padding: 10px 12px; background: var(--bg2); border-radius: 8px; border: 1px solid var(--line); }
 .lake-info-item { min-width: 0; }
@@ -1621,7 +1634,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null, speciesSources: {}, lakeInfo: null, weatherDaily: null };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null, speciesSources: {}, lakeInfo: null, weatherDaily: null,
+    // species split by origin so two async sources can merge without racing:
+    // _speciesRecords = stocking records + iNaturalist observations,
+    // _speciesDesignated = DNR designated-waters classifications (walleye water etc.)
+    _speciesRecords: null, _speciesDesignated: null,
+    designations: null, hasLakeRegs: false };
 
   // ---- Leaflet map state ----
   var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
@@ -2094,10 +2112,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
   function selectWater(wName, wLat, wLng, wRadiusM) {
     state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
-    state.knownSpecies = null;
-    state.lakeInfo = null;
-    _speciesReqKey = null;
-    _lakeInfoKey = null;
+    _resetLakeData();
     _manualLoc = true;
     _showAdvisorLoading(wName);
     var locEl = document.getElementById('loc');
@@ -2110,6 +2125,23 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     recompute();
     fetchLakeInfo(wName, wLat, wLng, wRadiusM);
     fetchSpeciesForWater(wName, wLat, wLng, wRadiusM);
+    fetchWiDnrLakeData(wName, wLat, wLng);
+  }
+
+  // Clear every piece of per-lake state so a new selection never shows the
+  // previous lake's species/designations/regs while its own data loads.
+  function _resetLakeData() {
+    state.knownSpecies = null;
+    state.lakeInfo = null;
+    state._speciesRecords = null;
+    state._recordSources = null;
+    state._speciesDesignated = null;
+    state._desigSources = null;
+    state.designations = null;
+    state.hasLakeRegs = false;
+    _speciesReqKey = null;
+    _lakeInfoKey = null;
+    _wiDnrKey = null;
   }
 
   // Resolve the water body at/near a tapped map point. Uses reliable USGS NHD +
@@ -2668,17 +2700,14 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // (state DNR WMS, best-effort) shown together — similar to how OnX Fish
   // layers land elevation contours and lake depth contours in one view.
   //
-  // Confidence note: TOPO_URL (USGS topo tiles) is a standard, proven ArcGIS
-  // tile service already used successfully elsewhere in this file — high
-  // confidence. The DNR bathymetry WMS URLs below are best-effort candidates
-  // that could not be verified from this sandbox (network-blocked to these
-  // hosts); a wrong endpoint just renders blank, never breaks anything, and
-  // is a one-line fix once confirmed on-device.
+  // WI has NO entry here on purpose. On-device probes (2026-07) enumerated
+  // both WI DNR ArcGIS servers (64 folders), their open-data catalog, and
+  // ArcGIS Online: Wisconsin does not publish lake bathymetry as any live
+  // map service — only per-lake PDF contour maps on the DNR lake pages
+  // (which the lake-info card deep-links via WBIC). The previous WI WMS
+  // entry pointed at a service that does not exist and silently rendered
+  // blank tiles. MN below remains best-effort (unverified from sandbox).
   var BATHY_SOURCES = [
-    { name: 'WI DNR',
-      inRegion: function (lat, lng) { return lat >= 42.4 && lat <= 47.2 && lng >= -93.0 && lng <= -86.7; },
-      wms: 'https://dnrmaps.wi.gov/arcgis/services/DW_Map_Dynamic/WT_Inland_Water_Resources_Base_WTM_Ext_Dynamic_L16/MapServer/WMSServer',
-      layers: '2' },
     { name: 'MN DNR',
       inRegion: function (lat, lng) { return lat >= 43.4 && lat <= 49.5 && lng >= -97.5 && lng <= -89.4; },
       wms: 'https://arcgis.dnr.state.mn.us/public/services/water/water_lake_bathymetry/MapServer/WMSServer',
@@ -3253,6 +3282,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     // points can legitimately sit further than that from the center.
     fetchLakeInfo(best.name, focusLat, focusLng, best.radiusM);
     fetchSpeciesForWater(best.name, focusLat, focusLng, best.radiusM);
+    fetchWiDnrLakeData(best.name, focusLat, focusLng);
   }
 
   // Wikipedia GeoSearch — reliable, CORS-enabled (origin=*), no key. Returns
@@ -3662,7 +3692,22 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     if (info.avgDepth) rows.push(['Avg depth', info.avgDepth]);
     if (info.elevation) rows.push(['Elevation', info.elevation]);
     if (info.trophic) rows.push(['Trophic status', info.trophic]);
+    if (info.clarity) rows.push(['Water clarity', info.clarity]);
     var note = _trophicFishingNote(info);
+    // Official DNR fisheries designations (e.g. "Walleye Water · Natural
+    // Reproduction Only · Confirmed") — the strongest per-lake fish signal
+    // we have, so it renders directly under the lake name.
+    var badges = '';
+    if (state.designations && state.designations.length) {
+      badges = '<div class="lake-badges">' + state.designations.map(function(d) {
+        var sub = [d.subtype, d.status].filter(Boolean).join(' · ');
+        return '<span class="lake-badge">🎯 ' + d.label +
+          (sub ? '<span class="sub">' + sub + '</span>' : '') + '</span>';
+      }).join('') + '</div>';
+    }
+    var regsNote = state.hasLakeRegs
+      ? '<div class="lake-regs-note">⚠️ Lake-specific fishing regulations are on file for this water — check current WI DNR rules before keeping fish.</div>'
+      : '';
     // Split species by source confidence rather than presenting one flat
     // list as if all entries carry equal certainty. WI DNR stocking records
     // are an official record that a species was intentionally introduced
@@ -3675,7 +3720,11 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       var dnrSpecies = [], obsOnlySpecies = [];
       state.knownSpecies.forEach(function(s) {
         var srcs = state.speciesSources[s.toLowerCase()] || [];
-        if (srcs.indexOf('WI DNR stocking record') !== -1) dnrSpecies.push(s);
+        // Official bucket = any WI DNR source (stocking record OR
+        // designated-water classification); everything else is
+        // unverified citizen observation.
+        var official = srcs.some(function(x) { return x.indexOf('WI DNR') === 0; });
+        if (official) dnrSpecies.push(s);
         else obsOnlySpecies.push(s);
       });
       function chipRow(list, lowCls) {
@@ -3685,28 +3734,77 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       }
       var parts = [];
       if (dnrSpecies.length) {
-        parts.push('<div class="species-group"><div class="species-group-lbl">✓ Stocked · WI DNR record</div>' +
+        parts.push('<div class="species-group"><div class="species-group-lbl">✓ Confirmed · WI DNR record</div>' +
           chipRow(dnrSpecies, false) + '</div>');
       }
       if (obsOnlySpecies.length) {
         parts.push('<div class="species-group"><div class="species-group-lbl low">◌ Reported nearby · unverified</div>' +
           chipRow(obsOnlySpecies, true) + '</div>');
       }
-      parts.push('<div class="lake-info-caveat">Sources cover DNR-stocked species and nearby citizen observations only — neither is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>');
+      parts.push('<div class="lake-info-caveat">Sources cover WI DNR records (stocking + designated waters) and nearby citizen observations — none is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>');
       speciesLine = parts.join('');
     }
     var reportLink = info.wbic
-      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">📄 Full WI DNR lake report (depth, clarity, surveys) ↗</a>'
+      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">📄 WI DNR lake report — surveys &amp; depth contour map ↗</a>'
       : '';
     el.innerHTML =
       '<div class="lake-info-name">' + info.name + '</div>' +
+      badges +
       (rows.length ? '<div class="lake-info-grid">' +
         rows.map(function(r) {
           return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + r[1] + '</div></div>';
         }).join('') + '</div>' : '<div class="lake-info-nodata">No additional lake data found</div>') +
       speciesLine +
       (note ? '<div class="lake-info-note">' + note + '</div>' : '') +
+      regsNote +
       reportLink;
+  }
+
+  // Merge species from record-based sources (stocking + iNaturalist) and
+  // DNR designated-waters classifications into the single knownSpecies list
+  // + sources map, then patch the already-rendered advisor DOM. Two
+  // independent async fetches feed this, in either completion order.
+  function _applySpeciesUpdate() {
+    var seen = {}, unique = [];
+    (state._speciesRecords || []).concat(state._speciesDesignated || []).forEach(function(s) {
+      var k = s.toLowerCase();
+      if (!seen[k]) { seen[k] = true; unique.push(s); }
+    });
+    state.knownSpecies = unique.length ? unique : null;
+    var merged = {};
+    [state._recordSources || {}, state._desigSources || {}].forEach(function(m) {
+      Object.keys(m).forEach(function(k) {
+        if (!merged[k]) merged[k] = [];
+        m[k].forEach(function(lbl) { if (merged[k].indexOf(lbl) === -1) merged[k].push(lbl); });
+      });
+    });
+    state.speciesSources = merged;
+    // Patch advisor DOM without full recompute
+    var condEl = document.getElementById('species-conditions');
+    if (condEl && state.lastAdv) {
+      condEl.innerHTML = _speciesBiteHtml(state.lastAdv);
+      rewireSpeciesDropdown();
+    }
+    var rowsEl = document.getElementById('species-rows');
+    if (rowsEl && state.lastAdv) {
+      var adv = state.lastAdv;
+      rowsEl.innerHTML = _speciesRowsHtml(adv.delta, adv.airTemp, adv.solunarBoost);
+    }
+    // Update source badge text. Don't claim lake-specific filtering if the
+    // real species didn't overlap our curated list and we fell back to
+    // showing everything (see _speciesFallbackActive).
+    document.querySelectorAll('.species-source-badge').forEach(function(b) {
+      if (state.knownSpecies && !_speciesFallbackActive()) {
+        b.textContent = '📋 ' + state.loc.name;
+        b.classList.remove('muted');
+      } else {
+        b.textContent = 'All species';
+        b.classList.add('muted');
+      }
+    });
+    // Refresh the lake-info card so the species chips (and any WBIC report
+    // link picked up along the way) show once async fetches complete.
+    try { renderLakeInfo(); } catch (e) {}
   }
 
   // ---- species-by-water lookup (WI DNR ArcGIS + iNaturalist fallback) ----
@@ -3717,6 +3815,8 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     if (_speciesReqKey === key) return;
     _speciesReqKey = key;
     state.knownSpecies = null;
+    state._speciesRecords = null;
+    state._recordSources = null;
     // Scale search distance to the lake's own size (floor ~1 mi / 1600m,
     // cap ~3.1 mi / 5000m) — a flat 1 mi radius returned zero species for a
     // 1120-acre lake where real DNR/iNaturalist data points can legitimately
@@ -3744,34 +3844,9 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         seen[k] = true;
         return true;
       });
-      state.knownSpecies = unique.length ? unique : null;
-      state.speciesSources = sources;
-      // Patch advisor DOM without full recompute
-      var condEl = document.getElementById('species-conditions');
-      if (condEl && state.lastAdv) {
-        condEl.innerHTML = _speciesBiteHtml(state.lastAdv);
-        rewireSpeciesDropdown();
-      }
-      var rowsEl = document.getElementById('species-rows');
-      if (rowsEl && state.lastAdv) {
-        var adv = state.lastAdv;
-        rowsEl.innerHTML = _speciesRowsHtml(adv.delta, adv.airTemp, adv.solunarBoost);
-      }
-      // Update source badge text. Don't claim lake-specific filtering if the
-      // real species didn't overlap our curated list and we fell back to
-      // showing everything (see _speciesFallbackActive).
-      document.querySelectorAll('.species-source-badge').forEach(function(b) {
-        if (state.knownSpecies && !_speciesFallbackActive()) {
-          b.textContent = '📋 ' + name;
-          b.classList.remove('muted');
-        } else {
-          b.textContent = 'All species';
-          b.classList.add('muted');
-        }
-      });
-      // Refresh the lake-info card so the "Species present" line (and any WBIC
-      // report link picked up below) shows once this async fetch completes.
-      try { renderLakeInfo(); } catch (e) {}
+      state._speciesRecords = unique.length ? unique : null;
+      state._recordSources = sources;
+      _applySpeciesUpdate();
     }
 
     // Source 1: WI DNR ArcGIS fish stocking — stocked species for this water body.
@@ -3816,6 +3891,98 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       }
       finish();
     }).catch(function() { finish(); });
+  }
+
+  // ---- WI DNR lake data: WBIC, designated fisheries waters, water clarity,
+  // lake regulations. Every endpoint below was discovered + confirmed by
+  // on-device probes (tools/probe.html, 2026-07) after the previous
+  // blind-guessed endpoints proved nonexistent; field names come from real
+  // sample records, not guesses. ----
+  var _wiDnrKey = null;
+  function _inWisconsin(lat, lng) { return lat >= 42.4 && lat <= 47.2 && lng >= -93.0 && lng <= -86.7; }
+  var WI_SWDV = 'https://dnrmaps.wi.gov/arcgis/rest/services/WT_SWDV';
+
+  function _wiQueryUrl(base, layerId, lat, lng, distM) {
+    return base + '/MapServer/' + layerId + '/query?f=json' +
+      '&geometry=' + lng + ',' + lat + '&geometryType=esriGeometryPoint&inSR=4326' +
+      '&spatialRel=esriSpatialRelIntersects&distance=' + distM + '&units=esriSRUnit_Meter' +
+      '&outFields=*&returnGeometry=false&resultRecordCount=5';
+  }
+
+  function fetchWiDnrLakeData(name, lat, lng) {
+    if (typeof fetch === 'undefined' || !_inWisconsin(lat, lng)) return;
+    var key = lat.toFixed(3) + '|' + lng.toFixed(3);
+    if (_wiDnrKey === key) return;
+    _wiDnrKey = key;
+
+    // 1. WBIC — the DNR's universal lake ID, resolved from the 24K
+    //    hydrography polygon under the point. Powers the lake-report /
+    //    depth-contour-map deep link even when stocking records are empty.
+    fetchJson(_wiQueryUrl(WI_SWDV + '/WY_INLAND_WATER_RESOURCES', 3, lat, lng, 150), 9000).then(function(j) {
+      var feats = (j && j.features) || [];
+      var f = null;
+      for (var i = 0; i < feats.length; i++) {
+        var a0 = feats[i].attributes || {};
+        if (_nameMatch(a0.WATERBODY_ROW_NAME, name)) { f = feats[i]; break; }
+      }
+      if (!f) f = feats[0];
+      var wbic = f && f.attributes && f.attributes.WATERBODY_WBIC;
+      if (wbic && state.lakeInfo && !state.lakeInfo.wbic) {
+        state.lakeInfo.wbic = wbic;
+        try { renderLakeInfo(); } catch (e) {}
+      }
+    }).catch(function() {});
+
+    // 2. Designated fisheries waters — official DNR classifications
+    //    (e.g. "Walleye Water · Natural Reproduction Only"). These catch
+    //    naturally-reproducing populations that never appear in stocking
+    //    records, which is exactly the gap that made real walleye lakes
+    //    look empty in this app.
+    var DESIG_LAYERS = [[0, 'Muskellunge'], [3, 'Lake Sturgeon'], [7, 'Walleye'], [8, 'Trout']];
+    DESIG_LAYERS.forEach(function(dl) {
+      fetchJson(_wiQueryUrl(WI_SWDV + '/WY_FISHERIES_WATERS', dl[0], lat, lng, 150), 9000).then(function(j) {
+        var feats = (j && j.features) || [];
+        if (!feats.length) return;
+        var a = feats[0].attributes || {};
+        var d = { species: dl[1], label: a.ROI_CODE_DESC || (dl[1] + ' Water'),
+                  subtype: a.ROI_SUBTYPE_DESC || '', status: a.ROI_STATUS_DESC || '' };
+        state.designations = (state.designations || []).concat([d]);
+        state._speciesDesignated = (state._speciesDesignated || []).concat([dl[1]]);
+        var k = dl[1].toLowerCase();
+        state._desigSources = state._desigSources || {};
+        if (!state._desigSources[k]) state._desigSources[k] = [];
+        if (state._desigSources[k].indexOf('WI DNR designated water') === -1) {
+          state._desigSources[k].push('WI DNR designated water');
+        }
+        _applySpeciesUpdate();
+      }).catch(function() {});
+    });
+
+    // 3. Satellite water clarity (statewide Landsat lake averages) —
+    //    pick the most recent year on file for this lake.
+    fetchJson(_wiQueryUrl('https://dnrmaps.wi.gov/arcgis/rest/services/WY_Lakes_AIS/WY_LAKE_SATELLITE_WATER_CLARITY_RESULTS', 9, lat, lng, 150), 9000).then(function(j) {
+      var feats = (j && j.features) || [];
+      var best = null;
+      feats.forEach(function(f) {
+        var a = f.attributes || {};
+        if (a.SATELLITE_CLARITY_FEET != null && (!best || (a.YEAR || 0) > (best.YEAR || 0))) best = a;
+      });
+      if (best && state.lakeInfo) {
+        state.lakeInfo.clarity = (+best.SATELLITE_CLARITY_FEET).toFixed(1) + ' ft' +
+          (best.YEAR ? ' (satellite, ' + best.YEAR + ')' : '');
+        try { renderLakeInfo(); } catch (e) {}
+      }
+    }).catch(function() {});
+
+    // 4. Lake-specific regulations polygons (second DNR server). Field
+    //    schema is unverified, so use PRESENCE only: a polygon on file
+    //    means special regs may apply — link out rather than paraphrase.
+    fetchJson(_wiQueryUrl('https://dnrmaps.wi.gov/arcgis2/rest/services/FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT', 2, lat, lng, 150), 9000).then(function(j) {
+      if (((j && j.features) || []).length) {
+        state.hasLakeRegs = true;
+        try { renderLakeInfo(); } catch (e) {}
+      }
+    }).catch(function() {});
   }
 
   // ---- geolocation ----
@@ -3871,11 +4038,8 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // ---- manual location via city/state geocoding (Open-Meteo) ----
   function applyManualLocation(name, lat, lng, tz) {
     _manualLoc = true;
-    state.knownSpecies = null;
-    state.lakeInfo = null;
+    _resetLakeData();
     state.nearbyWaters = [];
-    _speciesReqKey = null;
-    _lakeInfoKey = null;
     _gaugeReqLat = null; _gaugeReqLng = null;
     _lakeReqLat = null; _lakeReqLng = null;
     state.loc = { name: name, lat: lat, lng: lng, tz: tz || state.loc.tz };
@@ -3985,10 +4149,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   function useMyLocation() {
     if (!navigator.geolocation) { alert('Geolocation not available; using Yellow Lake.'); return; }
     _manualLoc = false;
-    state.knownSpecies = null;
-    state.lakeInfo = null;
-    _speciesReqKey = null;
-    _lakeInfoKey = null;
+    _resetLakeData();
     _lastRecomputeLat = null; // force recompute on next GPS tick
     _lastRecomputeLng = null;
     navigator.geolocation.getCurrentPosition(
