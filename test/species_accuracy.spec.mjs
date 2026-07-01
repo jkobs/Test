@@ -78,8 +78,18 @@ console.log('iNat request URL: ' + (inatUrl || '(none captured)'));
 
 check('DNR query includes a point geometry (not name-only)', !!dnrUrl && dnrUrl.includes('geometry='));
 check('DNR query uses intersects spatial filter', !!dnrUrl && dnrUrl.includes('spatialRel=esriSpatialRelIntersects'));
-check('DNR query constrains to a tight ~1 mi distance (1600 m)', !!dnrUrl && dnrUrl.includes('distance=1600'));
-check('iNaturalist query uses a tight radius (2 km, not the old wide 8 km)', !!inatUrl && /radius=2\b/.test(inatUrl));
+
+// Distance/radius now scale with the water body's own size (floor ~1 mi /
+// 1600m, cap ~3.1 mi / 5000m) instead of a flat number — a flat 1 mi radius
+// returned zero species for large lakes. Assert the value stays within that
+// bounded range (still far tighter than the old unconstrained/8km behavior),
+// rather than pinning an exact literal.
+var dnrDistM = dnrUrl && (dnrUrl.match(/distance=(\d+)/) || [])[1];
+check('DNR query constrains distance within the scaled 1600-5000m range',
+  !!dnrDistM && +dnrDistM >= 1600 && +dnrDistM <= 5000);
+var inatRadiusKm = inatUrl && (inatUrl.match(/radius=([\d.]+)/) || [])[1];
+check('iNaturalist query uses a scaled radius within 1.6-5.0 km (not the old wide 8 km)',
+  !!inatRadiusKm && +inatRadiusKm >= 1.6 && +inatRadiusKm <= 5.0);
 
 await browser.close();
 console.log('\n' + (failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'));

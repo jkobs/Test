@@ -457,7 +457,20 @@
     if (el) el.innerHTML = '<div class="note">Loading fishing conditions for ' + name + '…</div>';
   }
 
-  function selectWater(wName, wLat, wLng) {
+  // Search radius (meters) for species/data lookups, scaled to the water
+  // body's own size instead of a flat distance. A fixed ~1 mi radius was
+  // tuned for smaller lakes and returned ZERO species for a 1120-acre lake
+  // (Cedar Lake) where legitimate DNR/iNaturalist data points can genuinely
+  // sit more than a mile from the geometric center. Floor 1600m (~1 mi,
+  // keeps small-lake accuracy — this is what prevented cross-contamination
+  // from a neighboring lake earlier), cap 5000m (~3.1 mi, avoids over-reach
+  // for huge lakes like Superior where "nearby" stops being meaningful).
+  function _searchRadiusM(latSpanMi, lngSpanMi) {
+    var longest = Math.max(latSpanMi || 0, lngSpanMi || 0);
+    return Math.min(5000, Math.max(1600, longest * 0.6 * 1609));
+  }
+
+  function selectWater(wName, wLat, wLng, wRadiusM) {
     state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
     state.knownSpecies = null;
     state.lakeInfo = null;
@@ -473,8 +486,8 @@
     }
     renderNearbyWaters();
     recompute();
-    fetchLakeInfo(wName, wLat, wLng);
-    fetchSpeciesForWater(wName, wLat, wLng);
+    fetchLakeInfo(wName, wLat, wLng, wRadiusM);
+    fetchSpeciesForWater(wName, wLat, wLng, wRadiusM);
   }
 
   // Resolve the water body at/near a tapped map point. Uses reliable USGS NHD +
@@ -499,13 +512,18 @@
           // body, biasing any radius-based species/data search toward the
           // wrong one. The center is the most representative point for "this
           // lake" regardless of exactly where within it the user tapped.
-          picked = { name: e.tags.name, lat: (b.minlat + b.maxlat) / 2, lng: (b.minlon + b.maxlon) / 2 };
+          var latSpanMi = (b.maxlat - b.minlat) * 69;
+          var lngSpanMi = (b.maxlon - b.minlon) * 69 * Math.cos(clat * Math.PI / 180);
+          picked = {
+            name: e.tags.name, lat: (b.minlat + b.maxlat) / 2, lng: (b.minlon + b.maxlon) / 2,
+            radiusM: _searchRadiusM(latSpanMi, lngSpanMi)
+          };
         }
       });
     }
 
     function finish() {
-      if (picked) { selectWater(picked.name, picked.lat, picked.lng); return; }
+      if (picked) { selectWater(picked.name, picked.lat, picked.lng, picked.radiusM); return; }
       // Last resort: Overpass is_in (inside polygon) then proximity, via mirror-failover.
       var q = '[out:json][timeout:10];is_in(' + clat + ',' + clng + ')->.pt;(' +
         'way(pivot.pt)["natural"="water"]["name"];relation(pivot.pt)["natural"="water"]["name"];' +
@@ -558,8 +576,9 @@
     sel.onchange = function() {
       var w = state.nearbyWaters[+sel.value];
       // Use the water body's CENTER (clat/clng) so the map view actually
-      // frames the lake, not the edge point used for "X mi away" distance.
-      if (w) selectWater(w.name, w.clat != null ? w.clat : w.lat, w.clng != null ? w.clng : w.lng);
+      // frames the lake, not the edge point used for "X mi away" distance,
+      // and its size-scaled search radius (see _searchRadiusM).
+      if (w) selectWater(w.name, w.clat != null ? w.clat : w.lat, w.clng != null ? w.clng : w.lng, w.radiusM);
     };
   }
 
@@ -1518,17 +1537,18 @@
     }
     var type = isRiver ? 'river' : 'lake';
     var size = latSpanMi * lngSpanMi;
+    var radiusM = _searchRadiusM(latSpanMi, lngSpanMi);
     for (var i = 0; i < waters.length; i++) {
       if (waters[i].name === e.tags.name) {
         if (dist < waters[i].dist) {
           waters[i].dist = dist; waters[i].lat = wlat; waters[i].lng = wlng;
           waters[i].clat = clat; waters[i].clng = clng;
         }
-        if (size > waters[i].size) waters[i].size = size;
+        if (size > waters[i].size) { waters[i].size = size; waters[i].radiusM = radiusM; }
         return;
       }
     }
-    waters.push({ name: e.tags.name, lat: wlat, lng: wlng, clat: clat, clng: clng, dist: dist, type: type, size: size });
+    waters.push({ name: e.tags.name, lat: wlat, lng: wlng, clat: clat, clng: clng, dist: dist, type: type, size: size, radiusM: radiusM });
   }
 
   function _renderWaters(waters, lat, lng) {
@@ -1561,8 +1581,11 @@
     // species/data instead of the selected lake's. All our point+distance
     // buffer queries (NHD, Overpass, iNaturalist) search a radius around this
     // point, so the center remains reliable even for oddly-shaped lakes.
-    fetchLakeInfo(best.name, focusLat, focusLng);
-    fetchSpeciesForWater(best.name, focusLat, focusLng);
+    // radiusM scales with the lake's own size (see _searchRadiusM) — a flat
+    // ~1 mi search returned zero species for a 1120-acre lake where real data
+    // points can legitimately sit further than that from the center.
+    fetchLakeInfo(best.name, focusLat, focusLng, best.radiusM);
+    fetchSpeciesForWater(best.name, focusLat, focusLng, best.radiusM);
   }
 
   // Wikipedia GeoSearch — reliable, CORS-enabled (origin=*), no key. Returns
@@ -1895,20 +1918,22 @@
   }
 
   var _lakeInfoKey = null;
-  function fetchLakeInfo(name, lat, lng) {
+  function fetchLakeInfo(name, lat, lng, radiusM) {
     if (typeof fetch === 'undefined') return;
     var key = lat.toFixed(4) + '|' + lng.toFixed(4);
     if (_lakeInfoKey === key) return;
     _lakeInfoKey = key;
     var liEl = document.getElementById('lake-info');
     if (liEl) liEl.innerHTML = '<div class="lake-info-loading">Fetching lake data…</div>';
+    var nhdR = Math.max(1200, radiusM || 0);
+    var ovR  = Math.max(3000, radiusM || 0);
 
     var info = { name: name };
     state.lakeInfo = info;
     function render() { state.lakeInfo = info; try { renderLakeInfo(); } catch (e) {} }
 
     // Source A (reliable): USGS NHD point-intersect — type + surface area, no QID needed.
-    var usgsDone = nhdQuery(12, lat, lng, 1200).then(function (fc) {
+    var usgsDone = nhdQuery(12, lat, lng, nhdR).then(function (fc) {
       var feats = (fc && fc.features) || [];
       var f = null;
       for (var i = 0; i < feats.length; i++) {
@@ -1927,8 +1952,8 @@
     // Source B: Overpass (mirror-failover) OSM tags -> Wikidata depth/trophic/elevation.
     var safeName = name.replace(/,.*/, '').trim().replace(/['"\\]/g, '');
     var q = '[out:json][timeout:10];(' +
-      'way["natural"="water"]["name"~"' + safeName + '",i](around:3000,' + lat + ',' + lng + ');' +
-      'relation["natural"="water"]["name"~"' + safeName + '",i](around:3000,' + lat + ',' + lng + ');' +
+      'way["natural"="water"]["name"~"' + safeName + '",i](around:' + ovR + ',' + lat + ',' + lng + ');' +
+      'relation["natural"="water"]["name"~"' + safeName + '",i](around:' + ovR + ',' + lat + ',' + lng + ');' +
     ');out tags;';
     var ovDone = overpassFetch(q).then(function (j) {
       var elem = j.elements && j.elements[0];
@@ -1990,12 +2015,18 @@
 
   // ---- species-by-water lookup (WI DNR ArcGIS + iNaturalist fallback) ----
   var _speciesReqKey = null;
-  function fetchSpeciesForWater(name, lat, lng) {
+  function fetchSpeciesForWater(name, lat, lng, radiusM) {
     if (typeof fetch === 'undefined') return;
     var key = name + '|' + lat.toFixed(3) + '|' + lng.toFixed(3);
     if (_speciesReqKey === key) return;
     _speciesReqKey = key;
     state.knownSpecies = null;
+    // Scale search distance to the lake's own size (floor ~1 mi / 1600m,
+    // cap ~3.1 mi / 5000m) — a flat 1 mi radius returned zero species for a
+    // 1120-acre lake where real DNR/iNaturalist data points can legitimately
+    // sit further than that from the geometric center.
+    var searchM = Math.max(1600, radiusM || 0);
+    var searchKm = (searchM / 1000).toFixed(1);
 
     var collected = [];
     var pending = 2;
@@ -2051,7 +2082,7 @@
     var dnrUrl = 'https://dnrmaps.wi.gov/arcgis/rest/services/FM_Fisheries/FM_Fish_Stocking_Public/MapServer/0/query' +
       '?where=' + encodeURIComponent(safeQ) +
       '&geometry=' + lng + ',' + lat + '&geometryType=esriGeometryPoint&inSR=4326' +
-      '&spatialRel=esriSpatialRelIntersects&distance=1600&units=esriSRUnit_Meter' +
+      '&spatialRel=esriSpatialRelIntersects&distance=' + Math.round(searchM) + '&units=esriSRUnit_Meter' +
       '&outFields=SPECIES_NAME,WBIC&returnDistinctValues=true&resultRecordCount=200&f=json';
     fetch(dnrUrl).then(function(r) { return r.json(); }).then(function(j) {
       if (j.features) {
@@ -2065,13 +2096,12 @@
       finish();
     }).catch(function() { finish(); });
 
-    // Source 2: iNaturalist citizen-science observations. Kept TIGHT (2 km) —
-    // a wide radius previously misattributed fish seen in a DIFFERENT nearby
-    // lake/river to the selected one. Accuracy matters more than coverage here;
-    // a lake with no verified observations correctly shows fewer species rather
-    // than borrowing a neighbor's.
+    // Source 2: iNaturalist citizen-science observations. Radius scales with
+    // lake size (see searchKm above) — kept tight for small lakes to avoid
+    // misattributing a DIFFERENT nearby lake/river's fish to this one, but
+    // widened for larger lakes where a flat small radius returned nothing.
     var inatUrl = 'https://api.inaturalist.org/v1/observations' +
-      '?taxon_id=47178&lat=' + lat + '&lng=' + lng + '&radius=2&per_page=200&order_by=observed_on&verifiable=true';
+      '?taxon_id=47178&lat=' + lat + '&lng=' + lng + '&radius=' + searchKm + '&per_page=200&order_by=observed_on&verifiable=true';
     fetchJson(inatUrl, 9000).then(function(j) {
       if (j.results) {
         var seen = {};
