@@ -2843,11 +2843,13 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
   // ---- nearest lake/river lookup (Overpass API) ----
   var _lakeReqLat = null, _lakeReqLng = null;
+  // Most reliable browser-CORS mirrors first; dropped maps.mail.ru (inconsistent
+  // CORS). Overpass is now a demoted fallback behind USGS/Esri, queried
+  // SEQUENTIALLY (not fanned out) to avoid tripping per-IP 429 rate limits.
   var OVERPASS_MIRRORS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
     'https://overpass.openstreetmap.fr/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+    'https://overpass-api.de/api/interpreter'
   ];
 
   function setNearbyMessage(html) {
@@ -2877,51 +2879,62 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     } catch (e) {}
   }
 
-  // Resolve with the first fulfilled promise; reject only if all reject.
-  // (Promise.any isn't available on some older mobile browsers.)
-  function _promiseAny(promises) {
-    return new Promise(function(resolve, reject) {
-      var pending = promises.length;
-      if (!pending) { reject(new Error('no promises')); return; }
-      var settled = false;
-      promises.forEach(function(p) {
-        Promise.resolve(p).then(function(v) {
-          if (!settled) { settled = true; resolve(v); }
-        }, function() {
-          pending--;
-          if (pending === 0 && !settled) reject(new Error('all failed'));
-        });
-      });
+  // GET JSON with a client-side timeout (used by USGS/Esri/Wikipedia sources).
+  function fetchJson(url, timeoutMs) {
+    timeoutMs = timeoutMs || 9000;
+    if (typeof fetch === 'undefined') return Promise.reject(new Error('no fetch'));
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, timeoutMs) : null;
+    return fetch(url, { signal: ctrl ? ctrl.signal : undefined }).then(function(r) {
+      if (timer) clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }, function(err) { if (timer) clearTimeout(timer); throw err; });
+  }
+
+  // POST an Overpass query, trying mirrors SEQUENTIALLY (no parallel fan-out,
+  // which trips per-IP 429 rate limits). Short per-mirror timeout so a slow
+  // mirror fails over quickly. Overpass is a demoted fallback now.
+  function overpassFetch(query, mirrorIdx, timeoutMs) {
+    mirrorIdx = mirrorIdx || 0;
+    timeoutMs = timeoutMs || 9000;
+    if (typeof fetch === 'undefined') return Promise.reject(new Error('no fetch'));
+    if (mirrorIdx >= OVERPASS_MIRRORS.length) return Promise.reject(new Error('all mirrors failed'));
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, timeoutMs) : null;
+    return fetch(OVERPASS_MIRRORS[mirrorIdx], {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(query),
+      signal: ctrl ? ctrl.signal : undefined
+    }).then(function(r) {
+      if (timer) clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(j) {
+      if (!j || typeof j !== 'object' || !('elements' in j)) throw new Error('bad payload');
+      return j;
+    }).catch(function() {
+      if (timer) clearTimeout(timer);
+      return overpassFetch(query, mirrorIdx + 1, timeoutMs); // next mirror
     });
   }
 
-  // Race ALL Overpass mirrors in parallel; first valid response wins. This is
-  // far more reliable than sequential fallback when the busiest mirror is slow.
-  function overpassFetch(query, _unused, timeoutMs) {
-    timeoutMs = timeoutMs || 15000;
-    if (typeof fetch === 'undefined') return Promise.reject(new Error('no fetch'));
-    var attempts = OVERPASS_MIRRORS.map(function(url) {
-      var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, timeoutMs) : null;
-      return fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(query),
-        signal: ctrl ? ctrl.signal : undefined
-      }).then(function(r) {
-        if (timer) clearTimeout(timer);
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      }).then(function(j) {
-        // guard against a mirror returning an error doc / non-element payload
-        if (!j || typeof j !== 'object' || !('elements' in j)) throw new Error('bad payload');
-        return j;
-      }, function(err) {
-        if (timer) clearTimeout(timer);
-        throw err;
-      });
-    });
-    return _promiseAny(attempts);
+  // Compute a lat/lng bounding box from a GeoJSON geometry (Polygon, MultiPolygon,
+  // LineString, MultiLineString, Point). Returns {minlat,minlon,maxlat,maxlon}.
+  function _geojsonBounds(geom) {
+    if (!geom || !geom.coordinates) return null;
+    var mnla = 90, mxla = -90, mnlo = 180, mxlo = -180, found = false;
+    function walk(c) {
+      if (typeof c[0] === 'number') {
+        var lon = c[0], la = c[1];
+        if (la < mnla) mnla = la; if (la > mxla) mxla = la;
+        if (lon < mnlo) mnlo = lon; if (lon > mxlo) mxlo = lon;
+        found = true;
+      } else { for (var i = 0; i < c.length; i++) walk(c[i]); }
+    }
+    walk(geom.coordinates);
+    return found ? { minlat: mnla, minlon: mnlo, maxlat: mxla, maxlon: mxlo } : null;
   }
 
   var MIN_LAKE_MI = 0.2; // exclude lakes/ponds whose longest dimension is under ~0.2 mi
@@ -2987,8 +3000,11 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // notable named waters near a point. Used as an independent fallback so the
   // feature still works when Overpass is down. Max radius is 10 km.
   function fetchWikiWaters(lat, lng) {
+    // gslimit=500 (API max): in developed/lake-dense areas the nearest results
+    // are dominated by buildings/streets, so a low limit buries real lakes and
+    // the fallback silently returns nothing. 500 ensures lakes are included.
     var url = 'https://en.wikipedia.org/w/api.php?action=query&list=geosearch' +
-      '&gscoord=' + lat + '%7C' + lng + '&gsradius=10000&gslimit=50&format=json&origin=*';
+      '&gscoord=' + lat + '%7C' + lng + '&gsradius=10000&gslimit=500&format=json&origin=*';
     var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, 12000) : null;
     return fetch(url, { signal: ctrl ? ctrl.signal : undefined }).then(function(r) {
@@ -3019,6 +3035,69 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         out.push({ tags: tags, lat: p.lat, lon: p.lon });
       });
       return out;
+    });
+  }
+
+  // ---- USGS NHD (National Map) — reliable, CORS-enabled, no key. Runs on the
+  // same USGS infrastructure the river gauge already reaches. Layer 12 =
+  // waterbodies (lakes), layer 6 = flowlines (rivers). Returns GNIS_NAME,
+  // AREASQKM, FTYPE. This is now the PRIMARY nearby-waters source. ----
+  var NHD_BASE = 'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/';
+  function nhdQuery(layer, lat, lng, distM) {
+    var url = NHD_BASE + layer + '/query?f=geojson' +
+      '&geometry=' + lng + ',' + lat +
+      '&geometryType=esriGeometryPoint&inSR=4326' +
+      '&spatialRel=esriSpatialRelIntersects&distance=' + distM + '&units=esriSRUnit_Meter' +
+      '&outFields=' + encodeURIComponent('GNIS_NAME,AREASQKM,FTYPE') +
+      '&returnGeometry=true&outSR=4326' +
+      '&where=' + encodeURIComponent("GNIS_NAME<>''") +
+      '&resultRecordCount=200';
+    return fetchJson(url);
+  }
+  function fetchUsgsWaters(lat, lng, distM) {
+    return Promise.all([
+      nhdQuery(12, lat, lng, distM).catch(function () { return null; }),
+      nhdQuery(6,  lat, lng, distM).catch(function () { return null; })
+    ]).then(function (res) {
+      var els = [];
+      function conv(fc, isRiver) {
+        var feats = (fc && fc.features) || [];
+        feats.forEach(function (f) {
+          var props = f.properties || {};
+          var name = props.GNIS_NAME;
+          if (!name) return;
+          var b = _geojsonBounds(f.geometry);
+          if (!b) return;
+          var tags = { name: name };
+          if (isRiver) tags.waterway = 'river'; else tags.natural = 'water';
+          els.push({ tags: tags, bounds: b, ftype: props.FTYPE, areaSqKm: props.AREASQKM });
+        });
+      }
+      conv(res[0], false);
+      conv(res[1], true);
+      return els;
+    });
+  }
+
+  // ---- Esri Living Atlas "USA Water Bodies" — hosted on the same ArcGIS Online
+  // infrastructure as our map tiles (reliable, CORS). Fallback to USGS NHD. ----
+  function fetchEsriWaters(lat, lng, distM) {
+    var url = 'https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/USA_Water_Bodies/FeatureServer/0/query' +
+      '?f=geojson&geometry=' + lng + ',' + lat +
+      '&geometryType=esriGeometryPoint&inSR=4326' +
+      '&spatialRel=esriSpatialRelIntersects&distance=' + distM + '&units=esriSRUnit_Meter' +
+      '&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200';
+    return fetchJson(url).then(function (fc) {
+      var els = [], feats = (fc && fc.features) || [];
+      feats.forEach(function (f) {
+        var props = f.properties || {};
+        var name = props.NAME || props.Name || props.name || props.GNIS_NAME;
+        if (!name) return;
+        var b = _geojsonBounds(f.geometry);
+        if (!b) return;
+        els.push({ tags: { name: name, natural: 'water' }, bounds: b });
+      });
+      return els;
     });
   }
 
@@ -3057,7 +3136,23 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       writeNearbyCache(lat, lng, state.nearbyWaters);
     }
 
-    // ---- Source 1: Overpass (comprehensive). Ways fast, relations best-effort. ----
+    function ingest(elements) {
+      (elements || []).forEach(function(e) {
+        try { _addWater(waters, e, lat, lng); } catch (err) {}
+      });
+      try { pushRender(); } catch (err) {}
+    }
+
+    // Multiple independent sources run in parallel and merge. USGS NHD and Esri
+    // are PRIMARY (reliable, CORS, same infra the user already reaches). Wikipedia
+    // adds name coverage. Overpass is a DEMOTED fallback (single sequential call
+    // via mirror-failover) — kept for coverage of big lakes/bays it maps well.
+    var DIST = 12000; // ~7.5 mi buffer for point-intersect sources
+
+    var usgsDone = fetchUsgsWaters(lat, lng, DIST).then(ingest).catch(function () {});
+    var esriDone = fetchEsriWaters(lat, lng, DIST).then(ingest).catch(function () {});
+    var wikiDone = fetchWikiWaters(lat, lng).then(ingest).catch(function () {});
+
     var qWays = '[out:json][timeout:20];(' +
       'node["natural"="bay"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
       'way["natural"="water"]["name"](around:' + R_FAST + ',' + lat + ',' + lng + ');' +
@@ -3068,26 +3163,13 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       'relation["natural"="water"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
       'relation["natural"="bay"]["name"](around:' + R_BIG + ',' + lat + ',' + lng + ');' +
     ');out tags bb;';
-
     var overpassDone = overpassFetch(qWays).then(function(j) {
-      (j.elements || []).forEach(function(e) { _addWater(waters, e, lat, lng); });
-      pushRender();
-      // best-effort big lakes/bays; merges into list without changing selection
-      overpassFetch(qRels, 0, 45000).then(function(j2) {
-        var before = waters.length;
-        (j2.elements || []).forEach(function(e) { _addWater(waters, e, lat, lng); });
-        if (waters.length !== before) pushRender();
-      }).catch(function() {});
+      ingest(j.elements);
+      overpassFetch(qRels, 0, 20000).then(function(j2) { ingest(j2.elements); }).catch(function() {});
     }).catch(function() {});
 
-    // ---- Source 2: Wikipedia GeoSearch (reliable fallback). ----
-    var wikiDone = fetchWikiWaters(lat, lng).then(function(els) {
-      els.forEach(function(e) { _addWater(waters, e, lat, lng); });
-      pushRender();
-    }).catch(function() {});
-
-    // Only show the retry button if EVERY source failed to produce anything.
-    Promise.all([overpassDone, wikiDone]).then(function() {
+    // Show the retry button only if EVERY source failed to produce anything.
+    Promise.all([usgsDone, esriDone, wikiDone, overpassDone]).then(function() {
       if (rendered) return;
       _lakeReqLat = null; _lakeReqLng = null; // allow retry
       setNearbyMessage('<button class="nearby-retry" id="nearby-retry">⟳ Couldn\'t load nearby waters — tap to retry</button>');
