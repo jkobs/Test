@@ -44,6 +44,7 @@ jobs:
         run: |
           mkdir -p public
           cp dist/solunar.html public/index.html
+          cp tools/probe.html public/probe.html
 
       - uses: actions/upload-pages-artifact@v3
         with:

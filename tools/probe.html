@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fishing Advisor — Data Source Probe</title>
+<style>
+  :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553;
+          --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding:14px; }
+  h1 { font-size:19px; margin:0 0 6px; }
+  .intro { color:var(--muted); font-size:12.5px; margin-bottom:12px; }
+  button { background:#2dd4bf; color:#04222c; border:none; border-radius:10px; padding:10px 16px;
+    font-size:14px; font-weight:700; margin-bottom:14px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:12px; margin-bottom:12px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 8px; }
+  .row { font-size:12.5px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,.05); word-break:break-all; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .hit { background:rgba(61,220,132,.12); border-radius:4px; padding:1px 4px; }
+  img.probe { width:100%; max-width:420px; background:#e8e8e8; border-radius:8px; display:block; margin:6px 0; min-height:60px; }
+  .imgnote { font-size:11.5px; color:var(--muted); }
+  textarea { width:100%; height:80px; background:#0d2330; color:var(--ink); border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<h1>🎣 Data Source Probe</h1>
+<div class="intro">
+  This page checks — from <b>your</b> phone's network — which Wisconsin DNR map/data services
+  exist and what layers they contain, and draws test images of lake depth-contour candidates
+  over Cedar Lake. Wait ~30–60 s until sections stop filling in, then tap
+  <b>Copy report</b> and paste the text back into the chat (screenshots of the images help too).
+</div>
+<button id="copy">📋 Copy report</button>
+<div id="out"></div>
+<textarea id="fallback" style="display:none" readonly></textarea>
+
+<script>
+(function () {
+  'use strict';
+  var R = { generated: new Date().toISOString(), ua: navigator.userAgent, results: [] };
+  var out = document.getElementById('out');
+
+  function sec(title) {
+    var s = document.createElement('section');
+    s.innerHTML = '<h2>' + title + '</h2>';
+    out.appendChild(s);
+    return function line(status, text) {
+      var d = document.createElement('div');
+      d.className = 'row';
+      var icon = status === 'ok' ? '✅' : status === 'bad' ? '❌' : status === 'warn' ? '⚠️' : '·';
+      d.innerHTML = '<span class="' + status + '">' + icon + '</span> ' + text;
+      s.appendChild(d);
+      R.results.push('[' + title + '] ' + icon + ' ' + d.textContent.trim());
+      return d;
+    };
+  }
+
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+  function j(url, ms) {
+    ms = ms || 15000;
+    var ctrl = new AbortController();
+    var t = setTimeout(function () { ctrl.abort(); }, ms);
+    return fetch(url, { signal: ctrl.signal }).then(function (r) {
+      clearTimeout(t);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }, function (e) { clearTimeout(t); throw e; });
+  }
+
+  var DNR = 'https://dnrmaps.wi.gov/arcgis/rest/services';
+  // Cedar Lake (New Richmond, WI): 45.21614, -92.57153
+  var BBOX = '-92.615,45.185,-92.525,45.25';
+
+  // ---- 1. Control: the stocking service the app already uses successfully ----
+  var log1 = sec('1 · Control — known-good DNR service');
+  j(DNR + '/FM_Fisheries/FM_Fish_Stocking_Public/MapServer?f=json').then(function (js) {
+    log1('ok', 'FM_Fish_Stocking_Public reachable — ' + (js.layers || []).length + ' layers: ' +
+      esc((js.layers || []).map(function (l) { return l.id + ':' + l.name; }).join(' | ')));
+  }).catch(function (e) { log1('bad', 'FM_Fish_Stocking_Public failed: ' + esc(e.message) +
+    ' — if this fails, everything below will too (network/CORS issue, not a missing service)'); });
+
+  // ---- 2. Enumerate the whole DNR ArcGIS server ----
+  var log2 = sec('2 · DNR server directory (all folders)');
+  var drillDone = j(DNR + '?f=json').then(function (root) {
+    var folders = root.folders || [];
+    log2('ok', 'Server root OK — ' + folders.length + ' folders: ' + esc(folders.join(', ')));
+    var interesting = folders.filter(function (f) {
+      return /fish|FM|water|WT|hydro|lake|topo|bath|DW|DG|SW/i.test(f);
+    }).slice(0, 12);
+    return Promise.all(interesting.map(function (f) {
+      return j(DNR + '/' + f + '?f=json').then(function (fj) {
+        var svcs = (fj.services || []).map(function (s) { return s.name + ' (' + s.type + ')'; });
+        log2('ok', '<b>' + esc(f) + '</b>: ' + esc(svcs.join(' | ') || '(empty)'));
+        return (fj.services || []).map(function (s) { return { name: s.name, type: s.type }; });
+      }).catch(function (e) { log2('warn', esc(f) + ': ' + esc(e.message)); return []; });
+    }));
+  }).catch(function (e) { log2('bad', 'Server root failed: ' + esc(e.message)); return []; });
+
+  // ---- 3. Layer lists for promising services ----
+  var log3 = sec('3 · Layers inside promising services (bathymetry / surveys / fish)');
+  drillDone.then(function (lists) {
+    var all = [];
+    lists.forEach(function (l) { all = all.concat(l); });
+    var picks = all.filter(function (s) {
+      return /bath|depth|contour|survey|fish|access|hydro/i.test(s.name) &&
+             !/Stocking_Public/.test(s.name);
+    }).slice(0, 14);
+    if (!picks.length) log3('warn', 'No service names matched bath/depth/contour/survey/fish/access');
+    picks.forEach(function (s) {
+      j(DNR + '/' + s.name + '/' + s.type + '?f=json').then(function (sj) {
+        var layers = (sj.layers || []).slice(0, 40).map(function (l) {
+          var nm = l.id + ':' + l.name;
+          return /bath|depth|contour/i.test(l.name) ? '<span class="hit">' + esc(nm) + '</span>' : esc(nm);
+        });
+        log3('ok', '<b>' + esc(s.name) + '</b> — ' + (layers.join(' | ') || '(no layers)'));
+      }).catch(function (e) { log3('warn', esc(s.name) + ': ' + esc(e.message)); });
+    });
+  });
+
+  // ---- 4. Deep dive: the service the app currently guesses for bathymetry ----
+  var log4 = sec('4 · Current bathymetry guess — layer list');
+  var GUESS = 'DW_Map_Dynamic/WT_Inland_Water_Resources_Base_WTM_Ext_Dynamic_L16';
+  j(DNR + '/' + GUESS + '/MapServer/layers?f=json').then(function (js) {
+    (js.layers || []).forEach(function (l) {
+      var nm = l.id + ': ' + l.name;
+      var hit = /bath|depth|contour/i.test(l.name);
+      log4(hit ? 'ok' : 'none', hit ? '<span class="hit">' + esc(nm) + '</span>' : esc(nm));
+    });
+    if (!(js.layers || []).length) log4('warn', 'Service exists but returned no layers');
+  }).catch(function (e) { log4('bad', 'Guessed service failed: ' + esc(e.message) +
+    ' — the current in-app depth layer points at a service that does not exist; this alone explains the blank water.'); });
+
+  // ---- 5. Test images over Cedar Lake ----
+  var log5 = sec('5 · Test images over Cedar Lake (do contour LINES appear on the water?)');
+  function imgProbe(label, url) {
+    var d = log5('none', '<b>' + esc(label) + '</b><br><span class="imgnote">' + esc(url) + '</span>');
+    var img = new Image();
+    img.className = 'probe';
+    img.onload = function () {
+      log5(img.naturalWidth > 50 ? 'ok' : 'warn', label + ' → loaded ' + img.naturalWidth + '×' + img.naturalHeight +
+        ' (loaded ≠ has contours — check the image visually)');
+    };
+    img.onerror = function () { log5('bad', label + ' → failed to load'); };
+    img.src = url;
+    d.appendChild(img);
+  }
+  imgProbe('5a WMS (current in-app guess, layer 2)',
+    'https://dnrmaps.wi.gov/arcgis/services/DW_Map_Dynamic/WT_Inland_Water_Resources_Base_WTM_Ext_Dynamic_L16/MapServer/WMSServer' +
+    '?service=WMS&version=1.1.1&request=GetMap&layers=2&styles=&format=image/png&transparent=true' +
+    '&srs=EPSG:4326&bbox=' + BBOX + '&width=420&height=300');
+  imgProbe('5b Same service via ArcGIS export, layer 2',
+    DNR + '/' + GUESS + '/MapServer/export?bbox=' + BBOX +
+    '&bboxSR=4326&imageSR=4326&size=420,300&format=png&transparent=true&layers=show:2&f=image');
+  imgProbe('5c Same service, ALL layers',
+    DNR + '/' + GUESS + '/MapServer/export?bbox=' + BBOX +
+    '&bboxSR=4326&imageSR=4326&size=420,300&format=png&transparent=true&f=image');
+
+  // ---- 6. ArcGIS Online hosted alternatives ----
+  var log6 = sec('6 · ArcGIS Online search — hosted WI bathymetry layers');
+  ['wisconsin lake bathymetry', 'bathymetry contours owner:WI_DNR'].forEach(function (q) {
+    j('https://www.arcgis.com/sharing/rest/search?f=json&num=12&q=' + encodeURIComponent(q))
+      .then(function (js) {
+        var hits = (js.results || []).filter(function (r) { return /Service/.test(r.type); });
+        if (!hits.length) { log6('warn', '"' + esc(q) + '" — no service results'); return; }
+        hits.forEach(function (r) {
+          log6('ok', '"' + esc(q) + '" → <b>' + esc(r.title) + '</b> [' + esc(r.type) + ', owner ' +
+            esc(r.owner) + ']<br><span class="imgnote">' + esc(r.url || '(no url)') + '</span>');
+        });
+      }).catch(function (e) { log6('bad', '"' + esc(q) + '": ' + esc(e.message)); });
+  });
+
+  // ---- copy report ----
+  document.getElementById('copy').onclick = function () {
+    var txt = 'PROBE REPORT ' + R.generated + '\n' + R.ua + '\n\n' + R.results.join('\n');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () { alert('Copied — paste it into the chat.'); },
+        function () { showFallback(txt); });
+    } else showFallback(txt);
+    function showFallback(t) {
+      var ta = document.getElementById('fallback');
+      ta.style.display = 'block'; ta.value = t; ta.select();
+      alert('Auto-copy blocked — long-press the text box below and copy manually.');
+    }
+  };
+})();
+</script>
+</body>
+</html>
