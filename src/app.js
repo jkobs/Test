@@ -5,7 +5,7 @@
   var DEFAULT = { name: 'Yellow Lake, WI', lat: 45.94, lng: -92.38, tz: 'America/Chicago' };
   var RANGE_OPTIONS = [7, 14, 30];
 
-  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null, lakeInfo: null };
+  var state = { loc: DEFAULT, days: [], notify: false, range: 7, pressureDelta: null, baroData: null, lastAdv: null, nearbyWaters: [], knownSpecies: null, lakeInfo: null, weatherDaily: null };
 
   // ---- Leaflet map state ----
   var _map = null, _modalMap = null, _locMarker = null, _windLine = null, _accCircle = null;
@@ -14,6 +14,7 @@
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
   var _manualLoc = false; // true when user picked a chip/map-click; suppresses GPS overrides
+  var _openModalIdx = null; // index of the day-detail modal currently open, or null
   var _speciesFilter = '';
   var _selectedSpeciesName = 'Walleye';
 
@@ -669,6 +670,7 @@
     var el = document.getElementById('modal-overlay');
     if (el) el.remove();
     document.removeEventListener('keydown', onEsc);
+    _openModalIdx = null;
   }
   function onEsc(e) { if (e.key === 'Escape') closeModal(); }
 
@@ -686,6 +688,19 @@
     var d = state.days[idx];
     if (!d) return;
     var tz = d.tz;
+    _openModalIdx = idx;
+
+    var w = state.weatherDaily && state.weatherDaily[idx];
+    var weatherHtml = w
+      ? '<div>' +
+          '<div class="modal-section-label">Weather</div>' +
+          '<div><strong>' + w.hi + '°/' + w.lo + '°F</strong></div>' +
+          '<div class="muted">Wind to ' + w.wind + ' mph · ' + w.text + '</div>' +
+        '</div>'
+      : '<div>' +
+          '<div class="modal-section-label">Weather</div>' +
+          '<div class="muted">Loading…</div>' +
+        '</div>';
 
     var pRows = d.periods.map(function (p) {
       return '<div class="period ' + p.type + (p.sunOverlap ? ' sun' : '') + '">' +
@@ -734,6 +749,7 @@
           '<div class="muted">Phase ' + Math.round(d.rating.phaseScore * 100) + '%' +
             (d.rating.sunBoost > 0 ? ' + sun overlap' : '') + '</div>' +
         '</div>' +
+        weatherHtml +
       '</div>'
     );
   }
@@ -1187,15 +1203,24 @@
     fetch(url).then(function (r) { return r.json(); }).then(function (j) {
       if (!j.daily) return;
       var d = j.daily;
+      // Store per-day weather so the day-detail modal can show it too — the
+      // preview card previously only wrote this straight into its own DOM
+      // node, so the modal (which replaces that DOM) had no data to show.
+      state.weatherDaily = [];
       for (var i = 0; i < d.temperature_2m_max.length; i++) {
-        var el = document.getElementById('weather-' + i);
-        if (!el) continue;
         var hi = Math.round(d.temperature_2m_max[i]);
         var lo = Math.round(d.temperature_2m_min[i]);
         var wind = Math.round(d.wind_speed_10m_max[i]);
-        el.innerHTML = (i === 0 ? '<strong>Weather:</strong> ' : '') +
-          hi + '°/' + lo + '°F · wind to ' + wind + ' mph · ' + weatherText(d.weather_code[i]);
+        var code = d.weather_code[i];
+        state.weatherDaily[i] = { hi: hi, lo: lo, wind: wind, code: code, text: weatherText(code) };
+        var el = document.getElementById('weather-' + i);
+        if (el) {
+          el.innerHTML = (i === 0 ? '<strong>Weather:</strong> ' : '') +
+            hi + '°/' + lo + '°F · wind to ' + wind + ' mph · ' + weatherText(code);
+        }
       }
+      // If the modal for a day is already open, refresh it now that weather arrived.
+      if (_openModalIdx !== null) openModal(_openModalIdx);
     }).catch(function () {
       var el = document.getElementById('weather-0');
       if (el) el.innerHTML = '<span class="note">Weather unavailable offline.</span>';
