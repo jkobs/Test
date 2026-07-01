@@ -339,10 +339,25 @@
     });
   }
 
+  // Our detailed depth/structure/gear guidance only covers 12 curated
+  // gamefish species. When real recorded species (state.knownSpecies) exist
+  // but NONE of them overlap that curated list (e.g. the lake's only
+  // confirmed record is a non-gamefish species like Mooneye), filtering
+  // down to zero matches would show an empty, broken-looking section —
+  // worse than not filtering at all. Fall back to showing all 12 species
+  // rather than an empty list in that case.
+  function _visibleSpecies() {
+    var filtered = SPECIES.filter(_speciesInWater);
+    return filtered.length ? filtered : SPECIES;
+  }
+  function _speciesFallbackActive() {
+    return !!(state.knownSpecies && state.knownSpecies.length) && SPECIES.filter(_speciesInWater).length === 0;
+  }
+
   function _speciesRowsHtml(delta, airTemp, solBoost) {
     var f = _speciesFilter.toLowerCase();
-    var list = SPECIES.filter(function(sp) {
-      return _speciesInWater(sp) && (!f || sp.name.toLowerCase().indexOf(f) !== -1);
+    var list = _visibleSpecies().filter(function(sp) {
+      return !f || sp.name.toLowerCase().indexOf(f) !== -1;
     });
     if (!list.length) return '<div class="species-no-match">No species match "' + _speciesFilter + '"</div>';
     return list.map(function(sp) {
@@ -365,7 +380,9 @@
   }
 
   function speciesOutlookHtml(delta, airTemp, solBoost) {
-    var sourceBadge = state.knownSpecies
+    // Don't claim "filtered to this lake" if we silently fell back to
+    // showing everything because the real species didn't overlap our list.
+    var sourceBadge = (state.knownSpecies && !_speciesFallbackActive())
       ? '<span class="species-source-badge">📋 ' + state.loc.name + '</span>'
       : '<span class="species-source-badge muted">All species</span>';
     return '<div class="species-section">' +
@@ -400,8 +417,8 @@
     var depth     = sp.depth(adv.delta, adv.airTemp);
     var structure = sp.structure(adv.delta, adv.airTemp, adv.solunarBoost);
     var gear      = sp.gear(adv.delta, adv.airTemp, adv.solunarBoost);
-    var visibleSpecies = SPECIES.filter(_speciesInWater);
-    if (!_speciesInWater(sp)) { sp = visibleSpecies[0] || SPECIES[0]; _selectedSpeciesName = sp.name; }
+    var visibleSpecies = _visibleSpecies();
+    if (!_speciesInWater(sp) && !_speciesFallbackActive()) { sp = visibleSpecies[0] || SPECIES[0]; _selectedSpeciesName = sp.name; }
     var opts = visibleSpecies.map(function(s) {
       return '<option value="' + s.name + '"' + (s.name === sp.name ? ' selected' : '') + '>' + s.name + '</option>';
     }).join('');
@@ -538,7 +555,9 @@
     var sel = document.getElementById('nearby-select');
     sel.onchange = function() {
       var w = state.nearbyWaters[+sel.value];
-      if (w) selectWater(w.name, w.lat, w.lng);
+      // Use the water body's CENTER (clat/clng) so the map view actually
+      // frames the lake, not the edge point used for "X mi away" distance.
+      if (w) selectWater(w.name, w.clat != null ? w.clat : w.lat, w.clng != null ? w.clng : w.lng);
     };
   }
 
@@ -1463,7 +1482,13 @@
   function _addWater(waters, e, lat, lng) {
     if (!e.tags || !e.tags.name) return;
     var b = e.bounds;
-    var wlat, wlng, dist, latSpanMi = 0, lngSpanMi = 0;
+    // wlat/wlng = nearest EDGE point (for accurate "X mi away" distance).
+    // clat/clng = bounding-box CENTER (for map focus/centering). These must
+    // be different: using the nearest-edge point to center the map put the
+    // view at the lake's boundary — often mostly showing surrounding land
+    // with the lake barely in frame, especially for a lake whose near edge
+    // sits right at the visible edge of the viewport at street-level zoom.
+    var wlat, wlng, clat, clng, dist, latSpanMi = 0, lngSpanMi = 0;
     if (b) {
       // distance to nearest edge of bounding box (0 if you're on/in the water)
       var dlat = Math.max(b.minlat - lat, 0, lat - b.maxlat);
@@ -1471,12 +1496,15 @@
       dist = dlat * dlat + dlng * dlng;
       wlat = Math.min(Math.max(lat, b.minlat), b.maxlat);
       wlng = Math.min(Math.max(lng, b.minlon), b.maxlon);
+      clat = (b.minlat + b.maxlat) / 2;
+      clng = (b.minlon + b.maxlon) / 2;
       latSpanMi = (b.maxlat - b.minlat) * 69;
       lngSpanMi = (b.maxlon - b.minlon) * 69 * Math.cos(lat * Math.PI / 180);
     } else {
       var c = e.center || e;
       if (c.lat == null) return;
       wlat = c.lat; wlng = c.lon || c.lng || 0;
+      clat = wlat; clng = wlng; // a point has no separate "center"
       var dla = wlat - lat, dln = wlng - lng;
       dist = dla * dla + dln * dln;
     }
@@ -1490,12 +1518,15 @@
     var size = latSpanMi * lngSpanMi;
     for (var i = 0; i < waters.length; i++) {
       if (waters[i].name === e.tags.name) {
-        if (dist < waters[i].dist) { waters[i].dist = dist; waters[i].lat = wlat; waters[i].lng = wlng; }
+        if (dist < waters[i].dist) {
+          waters[i].dist = dist; waters[i].lat = wlat; waters[i].lng = wlng;
+          waters[i].clat = clat; waters[i].clng = clng;
+        }
         if (size > waters[i].size) waters[i].size = size;
         return;
       }
     }
-    waters.push({ name: e.tags.name, lat: wlat, lng: wlng, dist: dist, type: type, size: size });
+    waters.push({ name: e.tags.name, lat: wlat, lng: wlng, clat: clat, clng: clng, dist: dist, type: type, size: size });
   }
 
   function _renderWaters(waters, lat, lng) {
@@ -1504,14 +1535,26 @@
     var best = state.nearbyWaters[0];
     if (!best) { setNearbyMessage('<div class="nearby-empty">No named waters within 10 mi.</div>'); return; }
     state.loc.name = best.name;
+    // Recenter the map on the WATER BODY (its bbox center), not the user's raw
+    // GPS point — otherwise, if you're standing e.g. a mile inland from the
+    // nearest lake, the Fishing Advisor map shows your surrounding farmland
+    // instead of the lake whose conditions/contours it's actually reporting on.
+    var focusLat = best.clat != null ? best.clat : best.lat;
+    var focusLng = best.clng != null ? best.clng : best.lng;
+    state.loc.lat = focusLat;
+    state.loc.lng = focusLng;
     var locEl = document.getElementById('loc');
     if (locEl) {
       locEl.innerHTML = best.name + ' · ' +
-        state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
+        focusLat.toFixed(2) + ', ' + focusLng.toFixed(2) +
         '<button id="useloc">Use my location</button>';
       document.getElementById('useloc').onclick = useMyLocation;
     }
     renderNearbyWaters();
+    initMap(focusLat, focusLng, null, 0);
+    // Lake-info/species lookups use the nearest-EDGE point (best.lat/lng, not
+    // the centroid) — safer for point-intersect queries against odd-shaped
+    // (crescent/horseshoe) lakes where the bbox center could fall on land.
     fetchLakeInfo(best.name, best.lat, best.lng);
     fetchSpeciesForWater(best.name, best.lat, best.lng);
   }
@@ -1973,9 +2016,11 @@
         var adv = state.lastAdv;
         rowsEl.innerHTML = _speciesRowsHtml(adv.delta, adv.airTemp, adv.solunarBoost);
       }
-      // Update source badge text
+      // Update source badge text. Don't claim lake-specific filtering if the
+      // real species didn't overlap our curated list and we fell back to
+      // showing everything (see _speciesFallbackActive).
       document.querySelectorAll('.species-source-badge').forEach(function(b) {
-        if (state.knownSpecies) {
+        if (state.knownSpecies && !_speciesFallbackActive()) {
           b.textContent = '📋 ' + name;
           b.classList.remove('muted');
         } else {
