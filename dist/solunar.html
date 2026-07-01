@@ -1987,6 +1987,15 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     };
   }
 
+  // Clear the advisor body immediately on selection so it never shows the
+  // PREVIOUS lake's bite conditions/species while the new lake's data loads —
+  // this mismatch (stale content lingering until fetchPressure resolves) was
+  // the main source of the "laggy" feeling when switching lakes.
+  function _showAdvisorLoading(name) {
+    var el = document.getElementById('advisor-body');
+    if (el) el.innerHTML = '<div class="note">Loading fishing conditions for ' + name + '…</div>';
+  }
+
   function selectWater(wName, wLat, wLng) {
     state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
     state.knownSpecies = null;
@@ -1994,6 +2003,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     _speciesReqKey = null;
     _lakeInfoKey = null;
     _manualLoc = true;
+    _showAdvisorLoading(wName);
     var locEl = document.getElementById('loc');
     if (locEl) {
       locEl.innerHTML = wName + ' · ' + wLat.toFixed(2) + ', ' + wLng.toFixed(2) +
@@ -2038,7 +2048,9 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         'way(pivot.pt)["natural"="water"]["name"];relation(pivot.pt)["natural"="water"]["name"];' +
         'way["natural"="water"]["name"](around:2000,' + clat + ',' + clng + ');' +
         ');out tags center;';
-      overpassFetch(q).then(function (j) {
+      // Shorter timeout here (this is an interactive last-resort tap-fallback,
+      // not a background fetch) so a bad mirror can't stall the tap response.
+      overpassFetch(q, 0, 5000).then(function (j) {
         var named = (j.elements || []).filter(function (e2) { return e2.tags && e2.tags.name; });
         if (!named.length) { if (locEl) restoreLoc(); return; }
         named.sort(function (a, b2) {
@@ -3715,6 +3727,10 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
+
+  // Test-only hook: lets automated tests drive map-tap selection without
+  // fragile Leaflet pixel->latlng math. Does not affect app behavior.
+  if (typeof window !== 'undefined') window.__testHooks = { selectMapPoint: selectMapPoint };
 })();
 
 </script>
