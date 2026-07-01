@@ -2982,9 +2982,10 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // ---- nearby-waters cache (localStorage, keyed by rounded lat/lng) ----
   var NEARBY_TTL = 7 * 24 * 3600 * 1000; // 7 days
   function _nearbyCacheKey(lat, lng) {
-    // v3: Overpass-only (Wikipedia source removed) — invalidates older caches
-    // that may contain non-water entries like churches/parks.
-    return 'nearbyWaters:v3:' + lat.toFixed(2) + ',' + lng.toFixed(2);
+    // v4: result cap raised 15->60 — invalidates older caches that were
+    // truncated to only the 15 closest waters, silently capping the
+    // effective range well inside the actual 20 mi search radius.
+    return 'nearbyWaters:v4:' + lat.toFixed(2) + ',' + lng.toFixed(2);
   }
   function readNearbyCache(lat, lng) {
     try {
@@ -3113,9 +3114,15 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     waters.push({ name: e.tags.name, lat: wlat, lng: wlng, clat: clat, clng: clng, dist: dist, type: type, size: size, radiusM: radiusM });
   }
 
+  var NEARBY_LIST_MAX = 60; // dropdown result cap — was 15, which in lake-dense
+  // areas (e.g. WI/MN glacial lake country) got exhausted well inside the 20 mi
+  // search radius, silently truncating the list to whatever distance the 15th-
+  // closest water happened to be (confirmed via screenshot: list stopped
+  // exactly at the 15th entry, ~8.8 mi, even though the search itself covers 20 mi).
+
   function _renderWaters(waters, lat, lng) {
     waters.sort(function(a, b) { return (a.dist - b.dist) || (b.size - a.size); });
-    state.nearbyWaters = waters.slice(0, 15);
+    state.nearbyWaters = waters.slice(0, NEARBY_LIST_MAX);
     var best = state.nearbyWaters[0];
     if (!best) { setNearbyMessage('<div class="nearby-empty">No named waters within 20 mi.</div>'); return; }
     state.loc.name = best.name;
@@ -3284,7 +3291,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         _renderWaters(waters, lat, lng);
       } else {
         waters.sort(function(a, b) { return (a.dist - b.dist) || (b.size - a.size); });
-        state.nearbyWaters = waters.slice(0, 15);
+        state.nearbyWaters = waters.slice(0, NEARBY_LIST_MAX);
         renderNearbyWaters();
       }
       writeNearbyCache(lat, lng, state.nearbyWaters);
