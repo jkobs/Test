@@ -385,6 +385,26 @@ button.toggle {
   background: rgba(255, 176, 32, 0.08); border: 1px solid rgba(255, 176, 32, 0.25);
   border-radius: 8px; padding: 8px 10px; margin: 8px 0;
 }
+/* Embedded official WI DNR lake viewer (depth-contour Map tab lives inside) */
+.lake-map-embed { margin: 12px 0; }
+.lake-map-hd { font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+.lake-map-frame { width: 100%; height: 340px; border: 1px solid var(--line);
+  border-radius: 10px; background: #fff; display: block; }
+.lake-map-hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+.lake-map-hint a { color: var(--minor); text-decoration: none; }
+/* Stocking-history summary */
+.lake-stocking { margin: 12px 0; padding: 10px 12px; background: var(--bg2);
+  border: 1px solid var(--line); border-radius: 8px; }
+.lake-stocking-hd { font-size: 13px; font-weight: 700; color: var(--good); }
+.lake-stocking-sp { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+/* Per-species regulations */
+.lake-regs { margin: 10px 0; padding: 10px 12px; background: var(--bg2);
+  border: 1px solid var(--line); border-radius: 8px; }
+.lake-regs-hd { font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+.lake-reg-item { font-size: 12px; color: var(--ink); line-height: 1.45; margin-bottom: 4px; }
+.lake-reg-sp { font-weight: 700; color: var(--minor); }
 .lake-info-nodata { font-size: 12px; color: var(--muted); padding: 4px 0 8px; }
 .lake-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; padding: 10px 12px; background: var(--bg2); border-radius: 8px; border: 1px solid var(--line); }
 .lake-info-item { min-width: 0; }

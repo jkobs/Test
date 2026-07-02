@@ -49,6 +49,16 @@
     return { year: +p[0], month: +p[1], day: +p[2] };
   }
   function stars(n) { return '🐟'.repeat(n) + '·'.repeat(5 - n); }
+  // Escape untrusted text (DNR/OSM field values) before it goes into innerHTML.
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  // "CHINOOK SALMON" / "largemouth bass" -> "Chinook Salmon".
+  function _titleCase(s) {
+    return String(s || '').toLowerCase().replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+  }
   var KIND = { overhead: 'Moon overhead', underfoot: 'Moon underfoot', moonrise: 'Moonrise', moonset: 'Moonset' };
   var PHASE_ICON = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
 
@@ -510,9 +520,13 @@
     state._desigSources = null;
     state.designations = null;
     state.hasLakeRegs = false;
+    state.lakeRegs = null;
+    state.lakeClassNote = null;
+    state.stockingHistory = null;
     _speciesReqKey = null;
     _lakeInfoKey = null;
     _wiDnrKey = null;
+    _stockHistKey = null;
   }
 
   // Resolve the water body at/near a tapped map point. Uses reliable USGS NHD +
@@ -2064,6 +2078,7 @@
     if (info.elevation) rows.push(['Elevation', info.elevation]);
     if (info.trophic) rows.push(['Trophic status', info.trophic]);
     if (info.clarity) rows.push(['Water clarity', info.clarity]);
+    if (info.lakeClass) rows.push(['Lake class', info.lakeClass]);
     var note = _trophicFishingNote(info);
     // Official DNR fisheries designations (e.g. "Walleye Water · Natural
     // Reproduction Only · Confirmed") — the strongest per-lake fish signal
@@ -2076,9 +2091,58 @@
           (sub ? '<span class="sub">' + sub + '</span>' : '') + '</span>';
       }).join('') + '</div>';
     }
-    var regsNote = state.hasLakeRegs
-      ? '<div class="lake-regs-note">⚠️ Lake-specific fishing regulations are on file for this water — check current WI DNR rules before keeping fish.</div>'
-      : '';
+    // Real per-species regulation text (probe round 4 confirmed the field
+    // schema). Fall back to the generic presence note only if we know regs
+    // exist but couldn't parse specifics.
+    var regsNote = '';
+    if (state.lakeRegs && state.lakeRegs.length) {
+      regsNote = '<div class="lake-regs">' +
+        '<div class="lake-regs-hd">📋 Fishing regulations</div>' +
+        state.lakeRegs.map(function(r) {
+          return '<div class="lake-reg-item"><span class="lake-reg-sp">' + r[0] + '</span> ' + esc(r[1]) + '</div>';
+        }).join('') +
+        '<div class="lake-info-caveat">Regulations change — always confirm against the current WI DNR rules before keeping fish.</div>' +
+        '</div>';
+    } else if (state.hasLakeRegs) {
+      regsNote = '<div class="lake-regs-note">⚠️ Lake-specific fishing regulations are on file for this water — check current WI DNR rules before keeping fish.</div>';
+    }
+    // Stocking-history summary ("Stocked N of the last 15 years: species"),
+    // built from the per-lake STOCKING_RECORDS_JSON (probe round 4).
+    var stockingHtml = '';
+    if (state.stockingHistory && state.stockingHistory.length) {
+      var thisYear = new Date().getFullYear();
+      var years = {}, speciesSet = {};
+      state.stockingHistory.forEach(function(rec) {
+        if (rec.year && (thisYear - rec.year) <= 15) {
+          years[rec.year] = true;
+          if (rec.species) speciesSet[_titleCase(rec.species)] = true;
+        }
+      });
+      var yrCount = Object.keys(years).length;
+      var spList = Object.keys(speciesSet);
+      if (yrCount) {
+        stockingHtml = '<div class="lake-stocking">' +
+          '<span class="lake-stocking-hd">🐟 Stocked ' + yrCount + ' of the last 15 years</span>' +
+          (spList.length ? '<div class="lake-stocking-sp">' + esc(spList.join(', ')) + '</div>' : '') +
+          '</div>';
+      }
+    }
+    // Embedded official DNR lake viewer — this is the depth-contour MAP the
+    // user asked to see on the tab. Box 4 of the on-device probe proved the
+    // DNR LakeDetail viewer renders inside an iframe from this origin (the
+    // PDF URLs 404'd; this viewer works and has a Map tab with contours).
+    // WI only (needs a WBIC).
+    var mapCard = '';
+    if (info.wbic && _inWisconsin(info.lat != null ? info.lat : state.loc.lat, info.lng != null ? info.lng : state.loc.lng)) {
+      mapCard = '<div class="lake-map-embed">' +
+        '<div class="lake-map-hd">🗺 Depth map — WI DNR</div>' +
+        '<iframe class="lake-map-frame" loading="lazy" referrerpolicy="no-referrer" ' +
+          'title="WI DNR lake map for ' + esc(info.name) + '" ' +
+          'src="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '"></iframe>' +
+        '<div class="lake-map-hint">Tap <b>Map</b> in the viewer above for the depth-contour map. ' +
+          '<a target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">Open full screen ↗</a></div>' +
+        '</div>';
+    }
     // Split species by source confidence rather than presenting one flat
     // list as if all entries carry equal certainty. WI DNR stocking records
     // are an official record that a species was intentionally introduced
@@ -2118,15 +2182,20 @@
     var reportLink = info.wbic
       ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">📄 WI DNR lake report — surveys &amp; depth contour map ↗</a>'
       : '';
+    var classNote = state.lakeClassNote
+      ? '<div class="lake-info-note">' + esc(state.lakeClassNote) + '</div>' : '';
     el.innerHTML =
-      '<div class="lake-info-name">' + info.name + '</div>' +
+      '<div class="lake-info-name">' + esc(info.name) + '</div>' +
       badges +
       (rows.length ? '<div class="lake-info-grid">' +
         rows.map(function(r) {
-          return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + r[1] + '</div></div>';
+          return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + esc(r[1]) + '</div></div>';
         }).join('') + '</div>' : '<div class="lake-info-nodata">No additional lake data found</div>') +
+      mapCard +
+      stockingHtml +
       speciesLine +
       (note ? '<div class="lake-info-note">' + note + '</div>' : '') +
+      classNote +
       regsNote +
       reportLink;
   }
@@ -2240,7 +2309,10 @@
           var a = feat.attributes || {};
           var s = a.SPECIES_NAME || a.COMMON_NAME;
           if (s) record(s, 'WI DNR stocking record');
-          if (a.WBIC && state.lakeInfo && !state.lakeInfo.wbic) state.lakeInfo.wbic = a.WBIC;
+          if (a.WBIC) {
+            if (state.lakeInfo && !state.lakeInfo.wbic) state.lakeInfo.wbic = a.WBIC;
+            _fetchWiStockingHistory(a.WBIC);
+          }
         });
       }
       finish();
@@ -2298,9 +2370,12 @@
       }
       if (!f) f = feats[0];
       var wbic = f && f.attributes && f.attributes.WATERBODY_WBIC;
-      if (wbic && state.lakeInfo && !state.lakeInfo.wbic) {
-        state.lakeInfo.wbic = wbic;
-        try { renderLakeInfo(); } catch (e) {}
+      if (wbic) {
+        if (state.lakeInfo && !state.lakeInfo.wbic) {
+          state.lakeInfo.wbic = wbic;
+          try { renderLakeInfo(); } catch (e) {}
+        }
+        _fetchWiStockingHistory(wbic);
       }
     }).catch(function() {});
 
@@ -2345,12 +2420,75 @@
       }
     }).catch(function() {});
 
-    // 4. Lake-specific regulations polygons (second DNR server). Field
-    //    schema is unverified, so use PRESENCE only: a polygon on file
-    //    means special regs may apply — link out rather than paraphrase.
-    fetchJson(_wiQueryUrl('https://dnrmaps.wi.gov/arcgis2/rest/services/FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT', 2, lat, lng, 150), 9000).then(function(j) {
-      if (((j && j.features) || []).length) {
-        state.hasLakeRegs = true;
+    // 4. Lake-specific regulations (second DNR server). Schema confirmed by
+    //    probe round 4: one text field per species group (PANFISH,
+    //    WALLEYE_SAUGER_AND_HYBRIDS, ...) — render the actual rules.
+    fetchJson(_wiQueryUrl(WI_ARCGIS2 + '/FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT', 2, lat, lng, 150), 9000).then(function(j) {
+      var f = j && j.features && j.features[0];
+      if (!f || !f.attributes) return;
+      state.hasLakeRegs = true; // at minimum, a regs record exists for this water
+      var a = f.attributes;
+      var skip = { ID: 1, OBJECTID: 1, WBIC: 1, WATERBODY_NAME: 1 };
+      var items = [];
+      Object.keys(a).forEach(function(k) {
+        var v = a[k];
+        if (skip[k] || k.indexOf('SHAPE') === 0) return;
+        if (typeof v !== 'string' || !v.trim()) return;
+        // "See Panfish." style cross-references add noise, not information.
+        if (/^see /i.test(v.trim())) return;
+        items.push([_humanizeRegKey(k), v.trim()]);
+      });
+      // Generic pamphlet-referral text first if present, then specifics.
+      items.sort(function(x, y) {
+        return (x[0] === 'All Species' ? -1 : 0) - (y[0] === 'All Species' ? -1 : 0);
+      });
+      if (items.length) state.lakeRegs = items.slice(0, 8);
+      try { renderLakeInfo(); } catch (e) {}
+    }).catch(function() {});
+
+    // 5. Lake classification (fish-community type + fishery description +
+    //    surveyed max depth). Schema confirmed by probe round 4.
+    fetchJson(_wiQueryUrl(WI_ARCGIS2 + '/FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT', 0, lat, lng, 150), 9000).then(function(j) {
+      var f = j && j.features && j.features[0];
+      if (!f || !f.attributes || !state.lakeInfo) return;
+      var a = f.attributes;
+      if (a.LAKE_CLASS) state.lakeInfo.lakeClass = a.LAKE_CLASS;
+      if (a.MAXDEP_FT && !state.lakeInfo.maxDepth) {
+        state.lakeInfo.maxDepth = Math.round(a.MAXDEP_FT) + ' ft';
+        state.lakeInfo.maxDepthM = a.MAXDEP_FT / 3.281;
+      }
+      if (a.FISHERIES) state.lakeClassNote = String(a.FISHERIES).trim();
+      try { renderLakeInfo(); } catch (e) {}
+    }).catch(function() {});
+  }
+
+  var WI_ARCGIS2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
+
+  function _humanizeRegKey(k) {
+    return k.toLowerCase().split('_').map(function(w) {
+      return w === 'and' ? '&' : w.charAt(0).toUpperCase() + w.slice(1);
+    }).join(' ');
+  }
+
+  // Full per-lake stocking history keyed by WBIC (probe round 4: each lake
+  // row carries a STOCKING_RECORDS_JSON array of {year, species, age_class,
+  // number_stocked, ...}). Powers the "stocked N of the last 15 years" line.
+  var _stockHistKey = null;
+  function _fetchWiStockingHistory(wbic) {
+    var n = Number(wbic);
+    if (!n || isNaN(n) || _stockHistKey === n) return;
+    _stockHistKey = n;
+    var url = WI_ARCGIS2 + '/FM_WFF/FH_ANNUAL_STOCKING_SUMMARY/MapServer/0/query?f=json' +
+      '&where=' + encodeURIComponent('WBIC=' + n) +
+      '&outFields=*&returnGeometry=false&resultRecordCount=1';
+    fetchJson(url, 9000).then(function(j) {
+      var f = j && j.features && j.features[0];
+      var raw = f && f.attributes && f.attributes.STOCKING_RECORDS_JSON;
+      if (!raw) return;
+      var recs;
+      try { recs = JSON.parse(raw); } catch (e) { return; }
+      if (recs && recs.length) {
+        state.stockingHistory = recs;
         try { renderLakeInfo(); } catch (e) {}
       }
     }).catch(function() {});

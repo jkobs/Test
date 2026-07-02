@@ -79,10 +79,28 @@ await page.route('**/*', async (route) => {
         { attributes: { SATELLITE_CLARITY_FEET: 9.84, YEAR: 2017 } }
       ]
     }) });
-  // Lake regulations polygon on file.
+  // Lake regulations with a real per-species field (probe round 4 schema).
   if (url.includes('FM_WFF_LAKE_REGULATIONS_WTM_EXT'))
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
-      features: [{ attributes: { OBJECTID: 1 } }]
+      features: [{ attributes: { ID: 1, WBIC: 2615100, WATERBODY_NAME: 'Cedar Lake',
+        WALLEYE_SAUGER_AND_HYBRIDS: 'Minimum length 15 in; daily bag limit 3.',
+        PANFISH: 'See Panfish.' /* cross-ref, should be filtered out */ } }]
+    }) });
+  // Lake classification (fish-community type + fishery note + max depth).
+  if (url.includes('FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT'))
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      features: [{ attributes: { LAKE_CLASS: 'Complex - Riverine', MAXDEP_FT: 32,
+        FISHERIES: 'Complex riverine lakes often support great fisheries for walleye.' } }]
+    }) });
+  // Annual stocking history keyed by WBIC (STOCKING_RECORDS_JSON blob).
+  if (url.includes('FH_ANNUAL_STOCKING_SUMMARY'))
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      features: [{ attributes: { WBIC: 2615100, WATERBODY_NAME: 'Cedar Lake',
+        STOCKING_RECORDS_JSON: JSON.stringify([
+          { year: 2025, species: 'WALLEYE', number_stocked: 5000 },
+          { year: 2023, species: 'MUSKELLUNGE', number_stocked: 300 },
+          { year: 2021, species: 'WALLEYE', number_stocked: 4800 }
+        ]) } }]
     }) });
   return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
 });
@@ -108,8 +126,19 @@ check('water clarity row shows most recent year (9.8 ft, 2017 — not 2004)',
   lakeInfoText.includes('9.8 ft') && lakeInfoText.includes('2017') && !lakeInfoText.includes('4.3 ft'));
 check('WBIC report link resolved from 24K hydrography (not stocking)',
   await page.$eval('.lake-info-link', el => el.href).then(h => h.includes('wbic=2615100')).catch(() => false));
-check('lake-regulations presence note renders',
-  lakeInfoText.includes('regulations are on file'));
+check('real per-species regulation text renders (not just presence note)',
+  lakeInfoText.includes('Minimum length 15 in') && lakeInfoText.includes('Walleye'));
+check('cross-reference "See Panfish." regs are filtered out as noise',
+  !lakeInfoText.includes('See Panfish'));
+check('lake classification + fishery note render',
+  lakeInfoText.includes('Complex - Riverine') && lakeInfoText.includes('support great fisheries'));
+check('stocking-history summary renders (N of last 15 years + species)',
+  /Stocked \d+ of the last 15 years/.test(lakeInfoText) && lakeInfoText.includes('Muskellunge'));
+
+// The embedded DNR depth-map viewer must be present, pointed at the WBIC.
+check('embedded WI DNR lake-map iframe present, keyed by WBIC',
+  await page.$eval('.lake-map-frame', el => el.getAttribute('src'))
+    .then(src => src.includes('LakeDetail.aspx') && src.includes('wbic=2615100')).catch(() => false));
 
 // Species outlook must now include Walleye (it was invisible pre-fix).
 const outlookText = await page.$eval('#species-rows', el => el.textContent).catch(() => '');
