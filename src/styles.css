@@ -69,6 +69,14 @@ header h1 { font-size: 20px; margin: 0; }
   background: none; border: 1px solid var(--line); color: var(--muted);
   border-radius: 8px; padding: 3px 8px; font-size: 12px; margin-left: 6px; cursor: pointer;
 }
+/* ---- Search mode toggle (City / Lake), sits directly above the search box ---- */
+.search-mode { display: flex; gap: 3px; background: var(--card); border-radius: 10px; padding: 3px; margin: 8px 0 0; }
+.sm-btn {
+  flex: 1; text-align: center; padding: 5px 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+  color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit;
+}
+.sm-btn.active { background: var(--card2); color: var(--ink); }
+
 .loc-search { display: flex; gap: 6px; margin: 8px 0 4px; }
 .city-input {
   flex: 1; min-width: 0; background: var(--bg2); border: 1px solid var(--line);

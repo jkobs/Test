@@ -22,6 +22,7 @@
   var _openModalIdx = null; // index of the day-detail modal currently open, or null
   var _speciesFilter = '';
   var _selectedSpeciesName = 'Walleye';
+  var _searchMode = 'city'; // 'city' | 'lake' — toggled by #search-mode, drives #city-go/#city-input Enter handler
 
   var SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   var TOPO_URL = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}';
@@ -2678,11 +2679,131 @@
     });
   }
 
+  // ---- statewide lake-by-name search (USGS NHD layer 12 = waterbodies) ----
+  // Unlike geocodeCity (place names via Open-Meteo), this queries NHD directly
+  // by GNIS_NAME with no geometry filter, so it can find ANY named lake in the
+  // country, not just ones near the user. Reuses parseCityQuery to peel off an
+  // optional trailing state, but NHD layer 12 has no confirmed state field, so
+  // that state is NOT used to filter — it's parsed only so "Trout Lake, WI"
+  // doesn't literally search for a lake named "Trout Lake, WI". Results are
+  // disambiguated by showing coordinates instead.
+  function searchLakeByName(query) {
+    var resEl = document.getElementById('city-results');
+    if (!query || !query.trim()) return;
+    if (typeof fetch === 'undefined') return;
+    if (resEl) resEl.innerHTML = '<div class="city-loading">Searching…</div>';
+
+    var parsed = parseCityQuery(query);
+    var name = (parsed.city || query).trim();
+    var escapedName = name.replace(/'/g, "''"); // SQL-style escaping, matches existing DNR query pattern
+
+    // Two where-clause forms to survive per-server SQL restrictions the live
+    // NHD MapServer couldn't be tested for from the build sandbox: some
+    // ArcGIS services reject UPPER() wrapped on a column, or reject
+    // orderByFields on geometry-less queries. Try the case-insensitive
+    // ordered form first; on HTTP error OR zero rows, retry a plainer
+    // GNIS_NAME LIKE form with no server-side ordering and sort client-side.
+    var primaryWhere  = "UPPER(GNIS_NAME) LIKE UPPER('%" + escapedName + "%')";
+    var fallbackWhere = "GNIS_NAME LIKE '%" + escapedName + "%'";
+    function buildUrl(where, ordered) {
+      return NHD_BASE + '12/query?f=geojson&where=' + encodeURIComponent(where) +
+        '&outFields=' + encodeURIComponent('GNIS_NAME,AREASQKM,FTYPE') +
+        '&returnGeometry=true&outSR=4326&resultRecordCount=30' +
+        (ordered ? '&orderByFields=' + encodeURIComponent('AREASQKM DESC') : '');
+    }
+
+    function parseResults(fc) {
+      var feats = (fc && fc.features) || [];
+      var results = [], seen = {};
+      for (var i = 0; i < feats.length; i++) {
+        var f = feats[i];
+        var props = f.properties || {};
+        var gname = props.GNIS_NAME;
+        if (!gname) continue;
+        var b = _geojsonBounds(f.geometry);
+        if (!b) continue;
+        var clat = (b.minlat + b.maxlat) / 2;
+        var clng = (b.minlon + b.maxlon) / 2;
+        var latSpanMi = (b.maxlat - b.minlat) * 69;
+        var lngSpanMi = (b.maxlon - b.minlon) * 69 * Math.cos(clat * Math.PI / 180);
+        var radiusM = _searchRadiusM(latSpanMi, lngSpanMi);
+        var acres = (props.AREASQKM != null) ? Math.round(props.AREASQKM * 247.105) : null;
+        var key = gname.toLowerCase() + '|' + clat.toFixed(2) + ',' + clng.toFixed(2);
+        if (seen[key]) continue;
+        seen[key] = true;
+        results.push({ name: gname, lat: clat, lng: clng, radiusM: radiusM, acres: acres });
+      }
+      // Sort biggest-first client-side too, so results are ordered even on the
+      // fallback path where server-side orderByFields was dropped.
+      results.sort(function(a, b) { return (b.acres || 0) - (a.acres || 0); });
+      return results.slice(0, 12);
+    }
+
+    function render(results) {
+      if (!results.length) {
+        if (resEl) resEl.innerHTML = '<div class="city-noresult">No lakes found for "' + esc(query.trim()) + '"</div>';
+        return;
+      }
+      if (!resEl) return;
+      resEl.innerHTML = results.map(function(r, i) {
+        var acresStr = r.acres != null ? r.acres + ' ac' : '? ac';
+        return '<div class="city-result" data-idx="' + i + '">🫧 ' + esc(r.name) + ' · ' + acresStr + ' · ' +
+          r.lat.toFixed(2) + ', ' + r.lng.toFixed(2) + '</div>';
+      }).join('');
+      resEl.querySelectorAll('.city-result').forEach(function(row) {
+        row.onclick = function() {
+          var r = results[+row.dataset.idx];
+          selectWater(r.name, r.lat, r.lng, r.radiusM);
+          resEl.innerHTML = '';
+          var inp = document.getElementById('city-input');
+          if (inp) inp.value = '';
+        };
+      });
+    }
+
+    fetchJson(buildUrl(primaryWhere, true)).then(function(fc) {
+      var results = parseResults(fc);
+      if (results.length) { render(results); return; }
+      // Primary succeeded but returned nothing — try the plainer form before
+      // concluding there's no such lake (handles case/whitespace quirks).
+      return fetchJson(buildUrl(fallbackWhere, false)).then(function(fc2) { render(parseResults(fc2)); });
+    }).catch(function() {
+      // Primary errored (UPPER()/orderBy rejected, etc.) — retry the fallback.
+      fetchJson(buildUrl(fallbackWhere, false)).then(function(fc2) { render(parseResults(fc2)); })
+        .catch(function() {
+          if (resEl) resEl.innerHTML = '<div class="city-noresult">Lake search unavailable — check connection.</div>';
+        });
+    });
+  }
+
   function wireCitySearch() {
     var inp = document.getElementById('city-input');
     var btn = document.getElementById('city-go');
-    if (btn) btn.onclick = function() { geocodeCity(inp ? inp.value : ''); };
-    if (inp) inp.onkeydown = function(e) { if (e.key === 'Enter') { e.preventDefault(); geocodeCity(inp.value); } };
+    function doSearch() {
+      var q = inp ? inp.value : '';
+      if (_searchMode === 'lake') searchLakeByName(q); else geocodeCity(q);
+    }
+    if (btn) btn.onclick = doSearch;
+    if (inp) inp.onkeydown = function(e) { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } };
+  }
+
+  // Toggle between "City" (geocodeCity) and "Lake" (searchLakeByName) search
+  // modes via the #search-mode segmented control above the search box.
+  function wireSearchMode() {
+    var modeEl = document.getElementById('search-mode');
+    if (!modeEl) return;
+    var btns = modeEl.querySelectorAll('.sm-btn');
+    btns.forEach(function(btn) {
+      btn.onclick = function() {
+        _searchMode = btn.dataset.mode;
+        btns.forEach(function(b) { b.classList.toggle('active', b === btn); });
+        var inp = document.getElementById('city-input');
+        if (inp) inp.placeholder = _searchMode === 'lake' ?
+          'Search lake name (e.g. Trout Lake, WI)' : 'Search city, state (e.g. Madison, WI)';
+        var resEl = document.getElementById('city-results');
+        if (resEl) resEl.innerHTML = '';
+      };
+    });
   }
 
   function useMyLocation() {
@@ -2733,6 +2854,7 @@
   function init() {
     document.getElementById('notify-btn').onclick = enableNotifications;
     wireCitySearch();
+    wireSearchMode();
     wireTabs();
     renderLakeJump();
     recompute();
