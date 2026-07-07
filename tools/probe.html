@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fishing Advisor — Data Source Probe (round 4)</title>
+<title>Fishing Advisor — Data Source Probe (round 5: depth mismatch)</title>
 <style>
   :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553;
           --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; }
@@ -19,19 +19,20 @@
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 8px; }
   .row { font-size:12.5px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,.05); word-break:break-all; }
   .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
-  iframe.probe { width:100%; height:300px; background:#fff; border:2px solid var(--line); border-radius:8px; margin:6px 0; }
-  .imgnote { font-size:11.5px; color:var(--muted); }
-  .frame-label { font-weight:700; font-size:13px; margin-top:10px; color:var(--major); }
+  .hit { background:rgba(61,220,132,.12); border-radius:4px; padding:1px 4px; }
   textarea { width:100%; height:80px; background:#0d2330; color:var(--ink); border:1px solid var(--line); }
 </style>
 </head>
 <body>
-<h1>🎣 Data Source Probe — round 4</h1>
+<h1>🎣 Data Source Probe — round 5: Cedar Lake depth mismatch</h1>
 <div class="intro">
-  Goal: put the official DNR depth-contour map ON the Lake tab. The boxes in section 1 each try
-  a candidate URL for Cedar Lake's map — <b>tell me which box numbers actually show a lake
-  contour map</b> (screenshot is perfect). The other sections run automatically. When done, tap
-  <b>Copy report</b> and paste it back along with which boxes worked.
+  The app's card shows 28 ft; the DNR's own embedded lake page says 32 ft. This
+  round asks the WI DNR classification service for Cedar Lake's RAW record
+  three different ways — the exact query the app uses (a 150m point search),
+  a wider net (5000m), and a direct WBIC lookup (unambiguous, no distance
+  involved) — to see exactly what number it actually has on file, and whether
+  the app's query is even finding the right record. Wait ~15s, tap
+  <b>Copy report</b>, paste it back.
 </div>
 <button id="copy">📋 Copy report</button>
 <div id="out"></div>
@@ -40,7 +41,7 @@
 <script>
 (function () {
   'use strict';
-  var R = { generated: new Date().toISOString(), round: 4, results: [] };
+  var R = { generated: new Date().toISOString(), round: 5, results: [] };
   var out = document.getElementById('out');
 
   function sec(title) {
@@ -71,91 +72,79 @@
     }, function (e) { clearTimeout(t); throw e; });
   }
 
-  var WBIC = '2615100'; // Cedar Lake, New Richmond
+  var LAT = 45.21614, LNG = -92.57153; // Cedar Lake centroid (confirmed via WBIC lookup, prior probe rounds)
+  var WBIC = 2615100;
+  var CLASS_SVC = 'https://dnrmaps.wi.gov/arcgis2/rest/services/FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT/MapServer/0';
 
-  // ---- 1. Candidate lake-map URLs, visually testable in iframes ----
-  var log1 = sec('1 · Cedar Lake contour-map candidates — WHICH BOXES SHOW A MAP?');
-  var CANDIDATES = [
-    'https://apps.dnr.wi.gov/lakes/maps/DNR/' + WBIC + 'a.pdf',
-    'https://dnr.wi.gov/lakes/maps/DNR/' + WBIC + 'a.pdf',
-    'https://apps.dnr.wi.gov/lakes/maps/DNR/' + WBIC + '.pdf',
-    'https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + WBIC
-  ];
-  CANDIDATES.forEach(function (url, i) {
-    var d = log1('none', '<span class="frame-label">BOX ' + (i + 1) + '</span><br><span class="imgnote">' + esc(url) + '</span>');
-    var f = document.createElement('iframe');
-    f.className = 'probe';
-    f.src = url;
-    f.onload = function () { log1('warn', 'BOX ' + (i + 1) + ' — frame loaded (may still be blank/error page; judge visually)'); };
-    d.appendChild(f);
-  });
+  function pointQuery(distM) {
+    return CLASS_SVC + '/query?f=json' +
+      '&geometry=' + LNG + ',' + LAT + '&geometryType=esriGeometryPoint&inSR=4326' +
+      '&spatialRel=esriSpatialRelIntersects&distance=' + distM + '&units=esriSRUnit_Meter' +
+      '&outFields=*&returnGeometry=false&resultRecordCount=5';
+  }
+  function wbicQuery() {
+    return CLASS_SVC + '/query?f=json&where=' + encodeURIComponent('WBIC=' + WBIC) +
+      '&outFields=*&returnGeometry=false&resultRecordCount=5';
+  }
 
-  // ---- 2. Can JS verify those URLs programmatically? (CORS check) ----
-  var log2 = sec('2 · CORS check on map URLs (can the app auto-detect a map exists?)');
-  CANDIDATES.slice(0, 3).forEach(function (url, i) {
-    var ctrl = new AbortController();
-    var t = setTimeout(function () { ctrl.abort(); }, 12000);
-    fetch(url, { method: 'GET', signal: ctrl.signal }).then(function (r) {
-      clearTimeout(t);
-      log2('ok', 'URL ' + (i + 1) + ' — CORS-readable, HTTP ' + r.status + ', type ' + (r.headers.get('content-type') || '?'));
-    }).catch(function (e) {
-      clearTimeout(t);
-      log2('warn', 'URL ' + (i + 1) + ' — not CORS-readable (' + esc(e.message) + ') — embed may still work visually');
+  function reportFeatures(logFn, label, js) {
+    var feats = (js && js.features) || [];
+    if (!feats.length) { logFn('warn', label + ' — 0 records'); return; }
+    feats.forEach(function (f) {
+      var a = JSON.stringify(f.attributes);
+      var hasDepth = f.attributes && f.attributes.MAXDEP_FT != null;
+      logFn(hasDepth ? 'ok' : 'warn', '<b>' + label + '</b> → ' +
+        (hasDepth ? '<span class="hit">MAXDEP_FT=' + f.attributes.MAXDEP_FT + '</span> — ' : '(no MAXDEP_FT field) — ') +
+        esc(a));
     });
-  });
+  }
 
-  // ---- 3. Stocking history schema (for "stocked N of last 15 years") ----
-  var log3 = sec('3 · Annual stocking summary — layers + sample record');
-  var A2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
-  j(A2 + '/FM_WFF/FH_ANNUAL_STOCKING_SUMMARY/MapServer/layers?f=json').then(function (js) {
-    var layers = js.layers || [];
-    log3('ok', 'Layers: ' + esc(layers.map(function (l) { return l.id + ':' + l.name; }).join(' | ') || '(none)'));
-    layers.slice(0, 3).forEach(function (l) {
-      j(A2 + '/FM_WFF/FH_ANNUAL_STOCKING_SUMMARY/MapServer/' + l.id +
-        '/query?f=json&where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2').then(function (q) {
-        (q.features || []).slice(0, 2).forEach(function (f) {
-          var a = JSON.stringify(f.attributes);
-          if (a.length > 700) a = a.slice(0, 700) + '…';
-          log3('ok', '<b>[' + l.id + ' ' + esc(l.name) + ']</b> → ' + esc(a));
-        });
-        if (!(q.features || []).length) log3('warn', '[' + l.id + ' ' + esc(l.name) + '] 0 records');
-      }).catch(function (e) { log3('bad', '[' + l.id + '] ' + esc(e.message)); });
-    });
-  }).catch(function (e) { log3('bad', esc(e.message)); });
+  // ---- 1. EXACT query the app uses in production (150m point search) ----
+  var log1 = sec('1 · App\'s exact query — 150m point-intersect (what the app actually gets)');
+  j(pointQuery(150)).then(function (js) {
+    reportFeatures(log1, '150m point search', js);
+  }).catch(function (e) { log1('bad', '150m point search failed: ' + esc(e.message)); });
 
-  // ---- 4. Lake regulations + classifications field schemas ----
-  var log4 = sec('4 · Regulations & lake-classification field schemas');
-  [['FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT', 2, 'Regulations'],
-   ['FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT', 0, 'Classifications']].forEach(function (p) {
-    j(A2 + '/' + p[0] + '/MapServer/' + p[1] +
-      '/query?f=json&where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2').then(function (q) {
-      (q.features || []).slice(0, 2).forEach(function (f) {
-        var a = JSON.stringify(f.attributes);
-        if (a.length > 800) a = a.slice(0, 800) + '…';
-        log4('ok', '<b>' + p[2] + '</b> → ' + esc(a));
+  // ---- 2. Wider net — is 150m just too tight? ----
+  var log2 = sec('2 · Wider net — 5000m point-intersect (is the real polygon centroid farther away?)');
+  j(pointQuery(5000)).then(function (js) {
+    reportFeatures(log2, '5000m point search', js);
+  }).catch(function (e) { log2('bad', '5000m point search failed: ' + esc(e.message)); });
+
+  // ---- 3. Direct WBIC lookup — unambiguous, no distance/geometry involved ----
+  var log3 = sec('3 · Direct WBIC=2615100 lookup (no distance — the definitive record)');
+  j(wbicQuery()).then(function (js) {
+    reportFeatures(log3, 'WBIC lookup', js);
+  }).catch(function (e) { log3('bad', 'WBIC lookup failed: ' + esc(e.message)); });
+
+  // ---- 4. For reference: confirm Wikidata's conflicting number is really 28 ----
+  var log4 = sec('4 · Wikidata\'s depth claim (for reference — already suspected to be 28 ft)');
+  var q = '[out:json][timeout:10];(' +
+    'way["natural"="water"]["name"~"Cedar Lake",i](around:3000,' + LAT + ',' + LNG + ');' +
+  ');out tags;';
+  fetch('https://overpass.private.coffee/api/interpreter', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'data=' + encodeURIComponent(q)
+  }).then(function (r) { return r.json(); }).then(function (ov) {
+    var el = (ov.elements || []).find(function (e) { return e.tags && e.tags.wikidata; });
+    if (!el) { log4('warn', 'No OSM element with a wikidata tag found nearby'); return; }
+    var qid = el.tags.wikidata;
+    log4('ok', 'Found wikidata QID: ' + qid);
+    return j('https://www.wikidata.org/wiki/Special:EntityData/' + qid + '.json').then(function (wd) {
+      var claims = (wd.entities && wd.entities[qid] && wd.entities[qid].claims) || {};
+      var depths = (claims.P4511 || []).map(function (c) {
+        var dv = c.mainsnak && c.mainsnak.datavalue;
+        return dv ? dv.value.amount + ' ' + (dv.value.unit || '') : '?';
       });
-      if (!(q.features || []).length) log4('warn', p[2] + ': 0 records');
-    }).catch(function (e) { log4('bad', p[2] + ': ' + esc(e.message)); });
-  });
-
-  // ---- 5. Hidden fish-survey service guesses ----
-  var log5 = sec('5 · Hidden fish-survey service guesses');
-  var A1 = 'https://dnrmaps.wi.gov/arcgis/rest/services';
-  [[A2, 'FM_SURVEYS/FM_SURVEYS_EXT'], [A2, 'FM_SURVEYS/FM_FISH_SURVEYS_WTM_EXT'],
-   [A2, 'FM_SURVEYS/FM_SURVEYS_PUBLIC'], [A2, 'FM_DFM/FM_DFM_EXT'],
-   [A1, 'FM_Fisheries/FM_Fish_Surveys_Public'], [A1, 'FM_Fisheries/FM_FMDB_Public']].forEach(function (p) {
-    j(p[0] + '/' + p[1] + '/MapServer?f=json', 9000).then(function (js) {
-      if (js.error) { log5('warn', p[1] + ' — ' + esc(JSON.stringify(js.error).slice(0, 120))); return; }
-      log5('ok', '<b>' + esc(p[1]) + ' EXISTS!</b> layers: ' +
-        esc((js.layers || []).map(function (l) { return l.id + ':' + l.name; }).join(' | ') || '(none)'));
-    }).catch(function (e) { log5('warn', p[1] + ' — ' + esc(e.message)); });
-  });
+      log4(depths.length ? 'ok' : 'warn', 'P4511 depth claims: ' + esc(depths.join(' | ') || '(none)'));
+    });
+  }).catch(function (e) { log4('warn', 'Wikidata chain failed: ' + esc(e.message)); });
 
   // ---- copy report ----
   document.getElementById('copy').onclick = function () {
-    var txt = 'PROBE REPORT r4 ' + R.generated + '\n\n' + R.results.join('\n');
+    var txt = 'PROBE REPORT r5 ' + R.generated + '\n\n' + R.results.join('\n');
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(txt).then(function () { alert('Copied — paste it into the chat, and note which BOX numbers showed a map.'); },
+      navigator.clipboard.writeText(txt).then(function () { alert('Copied — paste it into the chat.'); },
         function () { showFallback(txt); });
     } else showFallback(txt);
     function showFallback(t) {
