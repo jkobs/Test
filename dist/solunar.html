@@ -3688,10 +3688,17 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       var ft = toFeet(parseFloat(dv.value.amount), dv.value.unit || '');
       if (ft != null && !isNaN(ft)) depthFt.push(ft);
     });
-    if (depthFt.length) {
+    // Depth here is crowd-sourced (Wikidata) and lower-confidence than the WI
+    // DNR's own surveyed max depth (fetchWiDnrLakeData's classification query,
+    // which sets info.maxDepthSource = 'wi-dnr'). Both fetches are async and
+    // can resolve in either order, so this must not clobber a DNR value that
+    // already arrived — and must not be immune to being clobbered BY a later-
+    // arriving DNR value either (that side is handled where 'wi-dnr' is set).
+    if (depthFt.length && info.maxDepthSource !== 'wi-dnr') {
       depthFt.sort(function (a, b) { return b - a; });
       info.maxDepth = Math.round(depthFt[0]) + ' ft';
       info.maxDepthM = depthFt[0] / 3.281;
+      info.maxDepthSource = info.maxDepthSource || 'wikidata';
       var mean = depthFt.find(function (v) { return v < depthFt[0] * 0.98; });
       if (mean != null) info.avgDepth = Math.round(mean) + ' ft';
     }
@@ -4156,9 +4163,16 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       if (!f || !f.attributes || !state.lakeInfo) return;
       var a = f.attributes;
       if (a.LAKE_CLASS) state.lakeInfo.lakeClass = a.LAKE_CLASS;
-      if (a.MAXDEP_FT && !state.lakeInfo.maxDepth) {
+      // WI DNR's own surveyed max depth is authoritative for this lake — it's
+      // the exact source the DNR's own embedded lake-report page displays — so
+      // it always wins over Wikidata's crowd-sourced figure REGARDLESS of
+      // which async fetch resolves first: it overwrites here unconditionally,
+      // and maxDepthSource='wi-dnr' makes _applyWikidata refuse to clobber it
+      // if Wikidata's response lands after this one.
+      if (a.MAXDEP_FT) {
         state.lakeInfo.maxDepth = Math.round(a.MAXDEP_FT) + ' ft';
         state.lakeInfo.maxDepthM = a.MAXDEP_FT / 3.281;
+        state.lakeInfo.maxDepthSource = 'wi-dnr';
       }
       if (a.FISHERIES) state.lakeClassNote = String(a.FISHERIES).trim();
       try { renderLakeInfo(); } catch (e) {}

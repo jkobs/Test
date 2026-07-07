@@ -49,7 +49,26 @@ await page.route('**/*', async (route) => {
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(NHD_WB) });
   if (url.includes('hydro.nationalmap.gov') || url.includes('services.arcgis.com'))
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [] }) });
-  if (url.includes('/api/interpreter')) return route.abort('failed');
+  // Source-of-truth regression: Wikidata claims Cedar Lake is 28 ft deep (a
+  // stale/wrong crowd-sourced value); the WI DNR's own surveyed classification
+  // below says 32 ft (matches the real embedded DNR lake-report page). The DNR
+  // figure must win regardless of which async source answers first — so
+  // Wikidata is wired to resolve via a real Overpass->wikidata.org chain here.
+  if (url.includes('/api/interpreter')) {
+    const body = decodeURIComponent(route.request().postData() || '');
+    if (body.indexOf('Cedar Lake') !== -1 && body.indexOf('out tags;') !== -1) {
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        elements: [{ type: 'way', tags: { natural: 'water', name: 'Cedar Lake', wikidata: 'Q_CEDAR_TEST' } }]
+      }) });
+    }
+    return route.abort('failed'); // other Overpass calls (nearby-waters fallback) — USGS/Esri already answer
+  }
+  if (url.includes('wikidata.org') && url.includes('Q_CEDAR_TEST'))
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      entities: { Q_CEDAR_TEST: { claims: { P4511: [
+        { mainsnak: { datavalue: { value: { amount: '28', unit: 'http://www.wikidata.org/entity/Q3710' } } } }
+      ] } } }
+    }) });
   // Stocking records: EMPTY — the whole point is walleye were never stocked here.
   if (url.includes('FM_Fish_Stocking_Public'))
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ features: [] }) });
@@ -132,6 +151,11 @@ check('cross-reference "See Panfish." regs are filtered out as noise',
   !lakeInfoText.includes('See Panfish'));
 check('lake classification + fishery note render',
   lakeInfoText.includes('Complex - Riverine') && lakeInfoText.includes('support great fisheries'));
+// Source-of-truth regression: Wikidata says 28 ft (mocked, stale/wrong); WI
+// DNR's own survey says 32 ft (matches the real embedded lake-report page).
+// The DNR figure must win regardless of which async fetch resolves first.
+check('WI DNR surveyed max depth (32 ft) wins over conflicting Wikidata value (28 ft)',
+  lakeInfoText.includes('32 ft') && !lakeInfoText.includes('28 ft'));
 check('stocking-history summary renders (N of last 15 years + species)',
   /Stocked \d+ of the last 15 years/.test(lakeInfoText) && lakeInfoText.includes('Muskellunge'));
 

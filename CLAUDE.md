@@ -6,22 +6,28 @@ workflow triggers on `master`, not `main`).
 
 ## Working model preference (set by the user)
 
-Use an **Opus model as the ADVISOR**; the **EXECUTOR is Sonnet or Haiku**,
-chosen per task to maximize token efficiency (fewest total tokens to a
-*correct* result — not lowest price per token; a weak executor that loops on
-failing tests costs more than one clean pass).
-- Opus (advisor): understands the request, inspects the codebase, designs the
-  approach, writes a precise self-contained spec, and reviews the result.
-- Executor (Agent tool with `model: "haiku"` or `"sonnet"`): implements code,
-  builds, runs tests. Pick the tier:
-  - **Haiku** for tightly-specced, mechanical work — reusing existing
-    functions, contained edits, clear acceptance criteria.
-  - **Sonnet** for iterative test-debugging-to-green, novel integration (new
-    data source / new UI mode), or anything not fully pinnable up front.
-  - **Haiku-first with escalation** when borderline: start Haiku; if it stalls
-    (tests won't go green, loops), escalate that task to Sonnet.
+Use a **Sonnet model as the ADVISOR/ORCHESTRATOR**; the **EXECUTOR is Haiku**
+by default, to maximize token efficiency (fewest total tokens to a *correct*
+result — not lowest price per token; a weak executor that loops on failing
+tests costs more than one clean pass).
+- Sonnet (advisor): understands the request, inspects the codebase, designs
+  the approach, writes a precise self-contained spec, and reviews the result.
+- Haiku (executor, Agent tool with `model: "haiku"`): implements code, builds,
+  runs tests, for tightly-specced, mechanical work — reusing existing
+  functions, contained edits, clear acceptance criteria.
+- **Escalate to Sonnet as executor** (`model: "sonnet"`) when a task needs
+  iterative test-debugging-to-green, novel integration (new data source / new
+  UI mode), or isn't fully pinnable up front — or when a Haiku attempt stalls
+  (tests won't go green, loops).
+- For small, surgical fixes (a few lines, precise root cause already known),
+  the advisor may just make the edit directly rather than dispatching an
+  executor — dispatch overhead isn't worth it for trivial diffs.
 - The advisor handles final review, commit/push to `master`, and deploy
   verification.
+
+(Historical note: this project started with Opus-advisor/Sonnet-executor,
+then moved to Sonnet-advisor/Haiku-executor per the user's later preference,
+set 2026-07 to cut token spend further.)
 
 ### Response format (user preference)
 
