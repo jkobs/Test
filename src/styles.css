@@ -471,10 +471,13 @@ button.toggle {
 .lake-map-hd { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em;
   color: var(--muted); font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; }
 .lake-map-well {
-  position: relative; min-height: 300px; border-radius: var(--r-md); overflow: hidden;
+  position: relative; min-height: 380px; border-radius: var(--r-md); overflow: hidden;
   background: var(--surface-0); border: 1px solid var(--surface-0-line);
 }
-.lake-map-frame { width: 100%; height: 340px; min-height: 300px; border: none;
+/* Taller than the old LakeDetail.aspx embed (340px) — these DNR survey PDFs
+   are large-format sheets; more vertical room helps once width-fit takes
+   effect, regardless of exact per-device PDF-viewer behavior. */
+.lake-map-frame { width: 100%; height: 420px; min-height: 380px; border: none;
   border-radius: var(--r-md); background: var(--surface-0); display: block; position: relative; z-index: 1; }
   /* Dark, not white: onload fires even for a blocked/offline navigation, so a
      genuinely blank frame (no real DNR content painted) must fall back to the

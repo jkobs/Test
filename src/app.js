@@ -2238,12 +2238,21 @@
     var mapCard = '';
     if (info.wbic && _inWisconsin(info.lat != null ? info.lat : state.loc.lat, info.lng != null ? info.lng : state.loc.lng)) {
       var mapUrl = 'https://apps.dnr.wi.gov/doclink/lakes_maps/' + info.wbic + 'a.pdf';
+      // These DNR survey sheets are large-format scans; embedded in a small
+      // iframe with no view hint, browsers' native PDF renderers tend to open
+      // at 100% actual-size zoom — cropped into the title block corner rather
+      // than showing the lake. #view=FitH is a standard PDF open-parameter
+      // ("fit page width") that most PDF.js-based viewers (Chrome, Firefox)
+      // honor; support in iOS Safari's native PDF renderer varies by version
+      // and could NOT be verified from this sandbox (no network access to
+      // fetch the real file) — needs on-device confirmation.
+      var mapEmbedUrl = mapUrl + '#view=FitH';
       mapCard = '<div class="lake-map-embed">' +
         '<div class="lake-map-hd">' + ic('layers', 14) + 'Depth map — WI DNR</div>' +
         '<div class="lake-map-well">' +
           '<iframe class="lake-map-frame" loading="lazy" referrerpolicy="no-referrer" ' +
             'title="WI DNR depth-contour survey for ' + esc(info.name) + '" ' +
-            'src="' + mapUrl + '"></iframe>' +
+            'src="' + mapEmbedUrl + '"></iframe>' +
           '<div class="lake-map-skeleton">' + ic('layers', 26) +
             '<span class="lms-label">Loading depth contours…</span>' +
             '<span class="lms-shimmer"></span>' +

@@ -66,6 +66,18 @@ The UI is tabbed (`Today` / `Forecast` / `Lake`). Content in a hidden
 default `waitForSelector()` fail until you click the owning tab
 (`.tab[data-tab="lake"]` etc.). `page.$eval` / `page.evaluate` work regardless.
 
+### Untestable-from-sandbox: the embedded DNR depth-map PDF
+
+`.lake-map-frame` embeds a real `apps.dnr.wi.gov/doclink/lakes_maps/<WBIC>a.pdf`
+survey PDF. This sandbox has no network access to fetch that file, so **no
+automated test (mocked network) can verify how it actually renders** — only
+that the iframe's `src` attribute is correct. Real third-party PDF-viewer
+rendering behavior (zoom level, crop, whether `#view=FitH` is honored) varies
+by browser/OS and can only be confirmed by the user on a real device. Any
+change touching this embed (URL pattern, view params, sizing) must be called
+out explicitly to the user for on-device visual confirmation as a standing
+QA step — don't mark this kind of change "done" on green tests alone.
+
 ## Architecture notes
 
 - **Nearby waters**: `fetchNearestLake(lat,lng)` fills `state.nearbyWaters`
