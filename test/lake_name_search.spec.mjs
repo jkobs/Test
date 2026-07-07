@@ -141,14 +141,19 @@ await page.waitForFunction(() => {
 
 const rows = await page.$$eval('.city-result', els => els.map(e => e.textContent.trim()));
 console.log('Result rows (after reverse-geocode):'); rows.forEach(r => console.log('  - ' + r));
-check('(b) row 1 resolves to its mocked place (Lake Villa, Lake County, IL)',
-  rows[0].indexOf('Lake Villa') !== -1 && rows[0].indexOf('Lake County') !== -1 && rows[0].indexOf('IL') !== -1);
-check('(b) row 2 resolves to its (different) mocked place (Presque Isle, Vilas County, WI)',
-  rows[1].indexOf('Presque Isle') !== -1 && rows[1].indexOf('Vilas County') !== -1 && rows[1].indexOf('WI') !== -1);
+// Place-name checks are order-independent (row order is now by proximity, see
+// section (d)); find each fixture's row by its resolved place.
+const villaRow = rows.find(r => r.indexOf('Lake Villa') !== -1) || '';
+const presqueRow = rows.find(r => r.indexOf('Presque Isle') !== -1) || '';
+check('(b) one row resolves to Lake Villa, Lake County, IL',
+  villaRow.indexOf('Lake County') !== -1 && villaRow.indexOf('IL') !== -1);
+check('(b) another row resolves to Presque Isle, Vilas County, WI',
+  presqueRow.indexOf('Vilas County') !== -1 && presqueRow.indexOf('WI') !== -1);
 // The two resolvable fixture lakes are in different places — confirms
 // results aren't deduped into one and that LOCATION genuinely disambiguates
 // them now (not raw coordinates).
-check('(b) the two resolved rows show DIFFERENT location labels (disambiguation, not one merged result)', rows[0] !== rows[1]);
+check('(b) the two resolved rows show DIFFERENT location labels (disambiguation, not one merged result)',
+  villaRow && presqueRow && villaRow !== presqueRow);
 // Row 3's reverse-geocode lookup was mocked to fail (aborted request) — it
 // must fall back to showing raw coordinates rather than being left blank,
 // proving the "nothing resolved / request errors" fallback path.
@@ -159,6 +164,21 @@ check('(b) row 3 (failed reverse-geocode) falls back to showing coordinates',
 const titles = await page.$$eval('.city-result', els => els.map(e => e.getAttribute('title')));
 check('(b) each row keeps raw coordinates in its title attribute',
   titles.every(t => /-?\d+\.\d{2},\s*-?\d+\.\d{2}/.test(t || '')));
+
+// (d) Results are ordered nearest-first relative to the app's current location
+// (default Yellow Lake, 45.94,-92.38). Of the fixtures, #2 (45.115,-90.485 →
+// Presque Isle) is closest, then #1 (46.04,-89.65 → Lake Villa), then #3
+// (44.015,-90.985). Each row also shows a "· X mi" distance so the ordering
+// is legible.
+check('(d) every row shows a distance label', rows.every(r => /(\d+(\.\d+)?\s*mi|<\s*0\.1\s*mi)/.test(r)));
+check('(d) nearest lake (Presque Isle) is listed first', rows[0].indexOf('Presque Isle') !== -1);
+const miles = rows.map(r => {
+  var m = r.match(/(\d+(?:\.\d+)?)\s*mi/);
+  return m ? parseFloat(m[1]) : (/<\s*0\.1/.test(r) ? 0 : NaN);
+});
+console.log('Row distances (mi): ' + miles.join(', '));
+check('(d) rows are in ascending distance order (nearest first)',
+  miles.every((v, i) => i === 0 || (!isNaN(v) && v >= miles[i - 1])));
 
 // Screenshot of the populated, resolved result rows (390x844, per the spec).
 await page.screenshot({ path: SCREENSHOT });

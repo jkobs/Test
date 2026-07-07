@@ -2733,6 +2733,10 @@
     var name = (parsed.city || query).trim();
     var escapedName = name.replace(/'/g, "''"); // SQL-style escaping, matches existing DNR query pattern
 
+    // Reference point for proximity ordering: the app's current location.
+    var refLat = state.loc.lat, refLng = state.loc.lng;
+    var refCos = Math.cos(refLat * Math.PI / 180);
+
     // Query the national NHD waterbody layer by name. Two where-clause forms
     // for resilience against per-server SQL quirks that can't be tested from
     // the build sandbox:
@@ -2776,11 +2780,19 @@
         var key = gname.toLowerCase() + '|' + clat.toFixed(2) + ',' + clng.toFixed(2);
         if (seen[key]) continue;
         seen[key] = true;
-        results.push({ name: gname, lat: clat, lng: clng, radiusM: radiusM, acres: acres });
+        // distDeg = squared great-circle-ish distance (lng scaled by cos(lat))
+        // from the user's current location, used to order results nearest-first
+        // and to show a "· X mi" label. fmtDist() turns distDeg into miles.
+        var dlat = clat - refLat, dlng = (clng - refLng) * refCos;
+        var distDeg = dlat * dlat + dlng * dlng;
+        results.push({ name: gname, lat: clat, lng: clng, radiusM: radiusM, acres: acres, distDeg: distDeg });
       }
-      // Sort biggest-first client-side too, so results are ordered even on the
-      // fallback path where server-side orderByFields was dropped.
-      results.sort(function(a, b) { return (b.acres || 0) - (a.acres || 0); });
+      // Order by proximity to the user's current location (nearest first) —
+      // when you search "Cedar Lake" the ones near you matter more than the
+      // biggest one across the country. Reference is the app's current location
+      // (GPS-resolved on load, or the last place picked). We then keep the 12
+      // nearest.
+      results.sort(function(a, b) { return a.distDeg - b.distDeg; });
       return results.slice(0, 12);
     }
 
@@ -2795,11 +2807,12 @@
       var token = ++_lakeSearchToken;
       resEl.innerHTML = results.map(function(r, i) {
         var acresStr = r.acres != null ? r.acres + ' ac' : '? ac';
+        var distStr = fmtDist(r.distDeg);
         var coordStr = r.lat.toFixed(2) + ', ' + r.lng.toFixed(2);
         // Coordinate placeholder shown immediately; reverse-geocoded location
         // context (nearest city/county/state) fills in below once resolved —
         // keeps the raw coords available via title in the meantime.
-        return '<div class="city-result" data-idx="' + i + '" title="' + esc(coordStr) + '">🫧 ' + esc(r.name) + ' · ' + acresStr + ' · ' +
+        return '<div class="city-result" data-idx="' + i + '" title="' + esc(coordStr) + '">🫧 ' + esc(r.name) + ' · ' + distStr + ' · ' + acresStr + ' · ' +
           '<span class="loc-ctx" data-idx="' + i + '">…</span></div>';
       }).join('');
       resEl.querySelectorAll('.city-result').forEach(function(row) {
