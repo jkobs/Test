@@ -58,6 +58,10 @@ const BDC_LAKE2 = { city: 'Presque Isle', principalSubdivision: 'Wisconsin', pri
 let failures = 0;
 function check(label, cond) { console.log((cond ? 'PASS  ' : 'FAIL  ') + label); if (!cond) failures++; }
 
+// Captures every NHD name-query URL the app fires, to confirm the two-prong
+// (nearby-envelope + national) query strategy that guarantees local lakes.
+const nhdNameQueryUrls = [];
+
 const browser = await chromium.launch({ executablePath: CHROME });
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 
@@ -76,8 +80,11 @@ await page.route('**/*', async (route) => {
   }
   // NHD layer 12 (waterbodies) name-query: hydro.nationalmap.gov + MapServer/12/query
   // + a GNIS_NAME ... LIKE where-clause distinguishes this from the app's other
-  // NHD point-intersect calls (nearby-waters lookup on load).
+  // NHD point-intersect calls (nearby-waters lookup on load). Record each such
+  // URL so the test can confirm BOTH prongs fire (one geographically filtered,
+  // one national).
   if (url.includes('hydro.nationalmap.gov') && url.includes('MapServer/12/query') && url.includes('LIKE')) {
+    nhdNameQueryUrls.push(url);
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(NHD_NAME_SEARCH) });
   }
   // BigDataCloud reverse-geocode-client — routed per-centroid so the two
@@ -179,6 +186,15 @@ const miles = rows.map(r => {
 console.log('Row distances (mi): ' + miles.join(', '));
 check('(d) rows are in ascending distance order (nearest first)',
   miles.every((v, i) => i === 0 || (!isNaN(v) && v >= miles[i - 1])));
+
+// (e) The fix for "a nearby lake is missing": the app must fire TWO NHD
+// name-queries — one geographically filtered to a box around the user (so a
+// local match can't be crowded out of the arbitrary national result cap) and
+// one national (no geometry) for far-away lakes.
+check('(e) a geographically-filtered (nearby) NHD query was fired',
+  nhdNameQueryUrls.some(u => u.indexOf('esriGeometryEnvelope') !== -1));
+check('(e) a national (no-geometry) NHD query was also fired',
+  nhdNameQueryUrls.some(u => u.indexOf('esriGeometryEnvelope') === -1));
 
 // Screenshot of the populated, resolved result rows (390x844, per the spec).
 await page.screenshot({ path: SCREENSHOT });

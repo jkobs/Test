@@ -1687,6 +1687,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   var _pressureReqId = 0;
   var _geoWatchId = null;
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
+  var _gpsLat = null, _gpsLng = null; // live GPS position, updated on EVERY fix even after a manual lake pick — the anchor for lake-search proximity ordering
   var _manualLoc = false; // true when user picked a chip/map-click; suppresses GPS overrides
   var _openModalIdx = null; // index of the day-detail modal currently open, or null
   var _speciesFilter = '';
@@ -4202,6 +4203,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var lng = +pos.coords.longitude.toFixed(5);
     var acc = Math.round(pos.coords.accuracy);
 
+    // Always track the live GPS position — even when the user has manually
+    // picked a lake (which short-circuits the rest of this handler) — so lake
+    // search can order results by distance from where the user physically is,
+    // not from whatever faraway lake they last tapped into.
+    _gpsLat = lat; _gpsLng = lng;
+
     if (_map && _locMarker) {
       _locMarker.setLatLng([lat, lng]);
       if (_accCircle) { _accCircle.remove(); _accCircle = null; }
@@ -4402,8 +4409,12 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var name = (parsed.city || query).trim();
     var escapedName = name.replace(/'/g, "''"); // SQL-style escaping, matches existing DNR query pattern
 
-    // Reference point for proximity ordering: the app's current location.
-    var refLat = state.loc.lat, refLng = state.loc.lng;
+    // Reference point for proximity ordering: the user's live GPS position when
+    // available (so results stay anchored to where they physically are, even
+    // after tapping into a faraway lake), falling back to the app's current
+    // location before any GPS fix has arrived.
+    var refLat = (_gpsLat != null) ? _gpsLat : state.loc.lat;
+    var refLng = (_gpsLng != null) ? _gpsLng : state.loc.lng;
     var refCos = Math.cos(refLat * Math.PI / 180);
 
     // Query the national NHD waterbody layer by name. Two where-clause forms
@@ -4424,15 +4435,31 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var titleName = _titleCase(name).replace(/'/g, "''");
     var primaryWhere  = "UPPER(GNIS_NAME) LIKE '%" + upperName + "%'";
     var fallbackWhere = "GNIS_NAME LIKE '%" + titleName + "%'";
-    function buildUrl(where) {
-      return NHD_BASE + '12/query?f=geojson&where=' + encodeURIComponent(where) +
+    // envelope (optional) = [xmin, ymin, xmax, ymax] in lng/lat — constrains the
+    // query to a box around the user so nearby matches are GUARANTEED to be
+    // fetched. Without it, the national query returns an arbitrary, ID-ordered
+    // 30 rows that can omit a lake right next to you (this is exactly why a
+    // local "Cedar Lake" was missing from results).
+    function buildUrl(where, envelope) {
+      var u = NHD_BASE + '12/query?f=geojson&where=' + encodeURIComponent(where) +
         '&outFields=' + encodeURIComponent('GNIS_NAME,AREASQKM,FTYPE') +
         '&returnGeometry=true&outSR=4326&resultRecordCount=30';
+      if (envelope) {
+        u += '&geometry=' + encodeURIComponent(envelope.join(',')) +
+          '&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects';
+      }
+      return u;
     }
+    // ~±1.8° (≈125 mi N/S) box around the user for the "nearby" prong.
+    var NEARBY_DEG = 1.8;
+    var nearbyEnvelope = [refLng - NEARBY_DEG, refLat - NEARBY_DEG, refLng + NEARBY_DEG, refLat + NEARBY_DEG];
 
-    function parseResults(fc) {
+    // Parse features from ONE NHD response into result objects (with proximity
+    // distance). No sort/dedupe/slice here — that happens once across both
+    // query prongs in mergeResults().
+    function extractFeatures(fc) {
       var feats = (fc && fc.features) || [];
-      var results = [], seen = {};
+      var out = [];
       for (var i = 0; i < feats.length; i++) {
         var f = feats[i];
         var props = f.properties || {};
@@ -4446,23 +4473,29 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         var lngSpanMi = (b.maxlon - b.minlon) * 69 * Math.cos(clat * Math.PI / 180);
         var radiusM = _searchRadiusM(latSpanMi, lngSpanMi);
         var acres = (props.AREASQKM != null) ? Math.round(props.AREASQKM * 247.105) : null;
-        var key = gname.toLowerCase() + '|' + clat.toFixed(2) + ',' + clng.toFixed(2);
-        if (seen[key]) continue;
-        seen[key] = true;
         // distDeg = squared great-circle-ish distance (lng scaled by cos(lat))
-        // from the user's current location, used to order results nearest-first
-        // and to show a "· X mi" label. fmtDist() turns distDeg into miles.
+        // from the reference point, used to order nearest-first and label "· X mi".
         var dlat = clat - refLat, dlng = (clng - refLng) * refCos;
-        var distDeg = dlat * dlat + dlng * dlng;
-        results.push({ name: gname, lat: clat, lng: clng, radiusM: radiusM, acres: acres, distDeg: distDeg });
+        out.push({ name: gname, lat: clat, lng: clng, radiusM: radiusM, acres: acres,
+          distDeg: dlat * dlat + dlng * dlng });
       }
-      // Order by proximity to the user's current location (nearest first) —
-      // when you search "Cedar Lake" the ones near you matter more than the
-      // biggest one across the country. Reference is the app's current location
-      // (GPS-resolved on load, or the last place picked). We then keep the 12
-      // nearest.
-      results.sort(function(a, b) { return a.distDeg - b.distDeg; });
-      return results.slice(0, 12);
+      return out;
+    }
+
+    // Merge the prongs' results, dedupe by name + rounded centroid (the nearby
+    // and national prongs overlap for local lakes), order nearest-first, keep 12.
+    function mergeResults(lists) {
+      var all = [], seen = {};
+      lists.forEach(function(list) {
+        (list || []).forEach(function(r) {
+          var key = r.name.toLowerCase() + '|' + r.lat.toFixed(2) + ',' + r.lng.toFixed(2);
+          if (seen[key]) return;
+          seen[key] = true;
+          all.push(r);
+        });
+      });
+      all.sort(function(a, b) { return a.distDeg - b.distDeg; });
+      return all.slice(0, 12);
     }
 
     function render(results) {
@@ -4507,18 +4540,27 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     }
 
     var LAKE_SEARCH_TIMEOUT = 15000; // national LIKE scans are slow; don't misreport slow as "unavailable"
-    fetchJson(buildUrl(primaryWhere), LAKE_SEARCH_TIMEOUT).then(function(fc) {
-      var results = parseResults(fc);
-      if (results.length) { render(results); return; }
-      // Primary succeeded but returned nothing — try the plainer form before
-      // concluding there's no such lake (handles case quirks / UPPER rejection).
-      return fetchJson(buildUrl(fallbackWhere), LAKE_SEARCH_TIMEOUT).then(function(fc2) { render(parseResults(fc2)); });
-    }).catch(function() {
-      // Primary errored — retry with the fallback form before giving up.
-      fetchJson(buildUrl(fallbackWhere), LAKE_SEARCH_TIMEOUT).then(function(fc2) { render(parseResults(fc2)); })
+    // One prong per query URL, each with primary→fallback where-clause
+    // resilience. Resolves to an array of results, or null if BOTH where-forms
+    // errored (network/SQL failure) — so we can tell "request failed" apart
+    // from "no matching lake".
+    function runProng(envelope) {
+      return fetchJson(buildUrl(primaryWhere, envelope), LAKE_SEARCH_TIMEOUT)
+        .then(function(fc) { return extractFeatures(fc); })
         .catch(function() {
-          if (resEl) resEl.innerHTML = '<div class="city-noresult">Lake search unavailable — check connection.</div>';
+          return fetchJson(buildUrl(fallbackWhere, envelope), LAKE_SEARCH_TIMEOUT)
+            .then(function(fc2) { return extractFeatures(fc2); })
+            .catch(function() { return null; });
         });
+    }
+    // Nearby prong (envelope around the user — guarantees local matches are
+    // fetched) + national prong (no geometry — finds lakes far from the user).
+    Promise.all([runProng(nearbyEnvelope), runProng(null)]).then(function(parts) {
+      if (parts[0] === null && parts[1] === null) {
+        if (resEl) resEl.innerHTML = '<div class="city-noresult">Lake search unavailable — check connection.</div>';
+        return;
+      }
+      render(mergeResults(parts));
     });
   }
 
