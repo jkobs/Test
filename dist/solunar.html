@@ -4402,19 +4402,28 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var name = (parsed.city || query).trim();
     var escapedName = name.replace(/'/g, "''"); // SQL-style escaping, matches existing DNR query pattern
 
-    // Two where-clause forms to survive per-server SQL restrictions the live
-    // NHD MapServer couldn't be tested for from the build sandbox: some
-    // ArcGIS services reject UPPER() wrapped on a column, or reject
-    // orderByFields on geometry-less queries. Try the case-insensitive
-    // ordered form first; on HTTP error OR zero rows, retry a plainer
-    // GNIS_NAME LIKE form with no server-side ordering and sort client-side.
-    var primaryWhere  = "UPPER(GNIS_NAME) LIKE UPPER('%" + escapedName + "%')";
-    var fallbackWhere = "GNIS_NAME LIKE '%" + escapedName + "%'";
-    function buildUrl(where, ordered) {
+    // Query the national NHD waterbody layer by name. Two where-clause forms
+    // for resilience against per-server SQL quirks that can't be tested from
+    // the build sandbox:
+    //   primary  = UPPER(GNIS_NAME) LIKE '%NAME%'  (case-insensitive; the live
+    //              server accepts UPPER() on the column — confirmed by a working
+    //              single-word search on-device)
+    //   fallback = GNIS_NAME LIKE '%Name%'  (Title-cased to match GNIS's native
+    //              casing, in case a server ever rejects UPPER() on the column)
+    // NOTE: no orderByFields — an ordered national geometry query was timing
+    // out / erroring for some multi-word terms (e.g. "Cedar lake" failed while
+    // "Cedar" worked); parseResults() already sorts by area client-side, so the
+    // server-side ordering was both risky and redundant. Timeout is also raised
+    // (national, unindexed LIKE scans are slow) so a slow response isn't
+    // misreported as "unavailable".
+    var upperName = escapedName.toUpperCase();
+    var titleName = _titleCase(name).replace(/'/g, "''");
+    var primaryWhere  = "UPPER(GNIS_NAME) LIKE '%" + upperName + "%'";
+    var fallbackWhere = "GNIS_NAME LIKE '%" + titleName + "%'";
+    function buildUrl(where) {
       return NHD_BASE + '12/query?f=geojson&where=' + encodeURIComponent(where) +
         '&outFields=' + encodeURIComponent('GNIS_NAME,AREASQKM,FTYPE') +
-        '&returnGeometry=true&outSR=4326&resultRecordCount=30' +
-        (ordered ? '&orderByFields=' + encodeURIComponent('AREASQKM DESC') : '');
+        '&returnGeometry=true&outSR=4326&resultRecordCount=30';
     }
 
     function parseResults(fc) {
@@ -4484,15 +4493,16 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       });
     }
 
-    fetchJson(buildUrl(primaryWhere, true)).then(function(fc) {
+    var LAKE_SEARCH_TIMEOUT = 15000; // national LIKE scans are slow; don't misreport slow as "unavailable"
+    fetchJson(buildUrl(primaryWhere), LAKE_SEARCH_TIMEOUT).then(function(fc) {
       var results = parseResults(fc);
       if (results.length) { render(results); return; }
       // Primary succeeded but returned nothing — try the plainer form before
-      // concluding there's no such lake (handles case/whitespace quirks).
-      return fetchJson(buildUrl(fallbackWhere, false)).then(function(fc2) { render(parseResults(fc2)); });
+      // concluding there's no such lake (handles case quirks / UPPER rejection).
+      return fetchJson(buildUrl(fallbackWhere), LAKE_SEARCH_TIMEOUT).then(function(fc2) { render(parseResults(fc2)); });
     }).catch(function() {
-      // Primary errored (UPPER()/orderBy rejected, etc.) — retry the fallback.
-      fetchJson(buildUrl(fallbackWhere, false)).then(function(fc2) { render(parseResults(fc2)); })
+      // Primary errored — retry with the fallback form before giving up.
+      fetchJson(buildUrl(fallbackWhere), LAKE_SEARCH_TIMEOUT).then(function(fc2) { render(parseResults(fc2)); })
         .catch(function() {
           if (resEl) resEl.innerHTML = '<div class="city-noresult">Lake search unavailable — check connection.</div>';
         });
