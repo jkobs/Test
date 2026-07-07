@@ -161,13 +161,16 @@ check('WI DNR surveyed max depth (32 ft) wins over conflicting Wikidata value (2
 // 32 ft for an actual lake, both "official" WI DNR data with no code-level
 // tie-breaker). Max depth and lake class are now source-attributed so that
 // disagreement reads as "two datasets differ," not an app bug.
+// Restyled to a 2-column inset stat-tile grid (.lake-info-grid/.lake-info-item
+// -> .lake-stat-grid/.lake-stat-tile) as part of the Lake tab visual
+// restructure; the attribution-text assertion itself is unchanged.
 check('max depth stat is attributed to the DNR classification survey',
-  await page.$$eval('.lake-info-item', els => {
+  await page.$$eval('.lake-stat-tile', els => {
     const item = els.find(e => e.textContent.includes('Max depth'));
     return !!item && item.textContent.includes('DNR lake classification survey');
   }).catch(() => false));
 check('lake class stat is attributed to the DNR classification survey',
-  await page.$$eval('.lake-info-item', els => {
+  await page.$$eval('.lake-stat-tile', els => {
     const item = els.find(e => e.textContent.includes('Lake class'));
     return !!item && item.textContent.includes('DNR lake classification survey');
   }).catch(() => false));

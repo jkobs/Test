@@ -66,6 +66,32 @@
   var KIND = { overhead: 'Moon overhead', underfoot: 'Moon underfoot', moonrise: 'Moonrise', moonset: 'Moonset' };
   var PHASE_ICON = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
 
+  // ---- inline SVG icon system (replaces raw emoji in structural/nav
+  // positions so glyphs inherit color from context instead of rendering as
+  // OS-specific emoji). 24-unit viewBox; ic(name, px) returns a sized <svg>
+  // with class "ic" for consistent inline alignment (see styles.css). ----
+  var ICON_PATHS = {
+    pin:      '<path d="M12 21s-6.2-5.4-6.2-10a6.2 6.2 0 1 1 12.4 0c0 4.6-6.2 10-6.2 10z"/><circle cx="12" cy="10.6" r="2.2"/>',
+    bell:     '<path d="M18 15.2v-4.4a6 6 0 1 0-12 0v4.4L4.6 17.8h14.8L18 15.2z"/><path d="M10.4 20.4a1.8 1.8 0 0 0 3.2 0"/>',
+    layers:   '<path d="M12 3.5 21 8.5l-9 5-9-5 9-5z"/><path d="M3 13.5l9 5 9-5"/>',
+    document: '<path d="M7 3.5h6.5L18 8v12.5H7z"/><path d="M13.5 3.5V8H18"/><path d="M9.8 12.5h4.4M9.8 15.8h4.4"/>',
+    target:   '<circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="4.4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>',
+    gauge:    '<path d="M4.5 16.5a8.5 8.5 0 1 1 15 0"/><path d="M12 15.5l4-4.5"/><circle cx="12" cy="15.5" r="1.4"/>',
+    award:    '<circle cx="12" cy="9" r="5"/><path d="M8.8 13.2 7.2 21l4.8-2.4L16.8 21l-1.6-7.8"/>',
+    droplet:  '<path d="M12 3.5s5.8 6 5.8 10a5.8 5.8 0 1 1-11.6 0c0-4 5.8-10 5.8-10z"/>',
+    info:     '<circle cx="12" cy="12" r="8.4"/><path d="M12 11v5"/><path d="M12 7.8h.01"/>',
+    chevron:  '<path d="M8.5 10l3.5 3.5L15.5 10"/>',
+    calendar: '<rect x="4" y="5.5" width="16" height="15" rx="2.5"/><path d="M8 3.5v4M16 3.5v4M4 10.5h16"/>',
+    fish:     '<path d="M6.8 12c2.4-3.4 5.7-5.2 9-5.2 1.9 1.7 2.9 3.3 2.9 5.2s-1 3.5-2.9 5.2c-3.3 0-6.6-1.8-9-5.2z"/><path d="M6.8 12 3 8.8v6.4L6.8 12z"/><circle cx="14.6" cy="10.9" r=".9" fill="currentColor" stroke="none"/>'
+  };
+  function ic(name, px, extraClass) {
+    var p = ICON_PATHS[name];
+    if (!p) return '';
+    var size = px || 18;
+    return '<svg class="ic' + (extraClass ? ' ' + extraClass : '') + '" viewBox="0 0 24 24" width="' + size + '" height="' + size + '" ' +
+      'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>';
+  }
+
   // ---- bite scale + species outlook ----
   var BITE_LABELS = ['No Bite', 'Slow', 'Moderate', 'Active', 'Hot Bite'];
 
@@ -442,7 +468,7 @@
       return '<option value="' + s.name + '"' + (s.name === sp.name ? ' selected' : '') + '>' + s.name + '</option>';
     }).join('');
     return '<div class="conditions-head">' +
-        '<div class="bite-scale-label">Bite Conditions</div>' +
+        '<div class="bite-scale-label">' + ic('target', 13) + 'Bite Conditions</div>' +
         '<select id="conditions-species-select" class="conditions-species-select">' + opts + '</select>' +
       '</div>' +
       '<div class="bite-scale-wrap">' + biteScaleHtml(sc) + '</div>' +
@@ -1361,7 +1387,7 @@
     var hdEl = document.querySelector('.advisor-hd');
     if (hdEl && !hdEl._expandWired) {
       hdEl._expandWired = true;
-      hdEl.innerHTML = '📍 Fishing Advisor <span class="tap-hint" style="float:right;letter-spacing:0">↗ expand</span>';
+      hdEl.innerHTML = ic('pin', 15) + 'Fishing Advisor <span class="tap-hint" style="float:right;letter-spacing:0">↗ expand</span>';
       hdEl.style.cursor = 'pointer';
       hdEl.onclick = openAdvisorModal;
     }
@@ -1960,7 +1986,7 @@
     }
     el.innerHTML =
       '<div class="gauge-head">' +
-        '<span class="gauge-name">💧 ' + cleanGaugeName(gauge.name) + '</span>' +
+        '<span class="gauge-name">' + ic('droplet', 14) + cleanGaugeName(gauge.name) + '</span>' +
         '<span class="gauge-dist">' + dist + ' away</span>' +
       '</div>' +
       '<div class="gauge-vals">' +
@@ -2137,27 +2163,32 @@
     if (state.designations && state.designations.length) {
       badges = '<div class="lake-badges">' + state.designations.map(function(d) {
         var sub = [d.subtype, d.status].filter(Boolean).join(' · ');
-        return '<span class="lake-badge">🎯 ' + d.label +
-          (sub ? '<span class="sub">' + sub + '</span>' : '') + '</span>';
+        return '<span class="lake-badge">' + ic('award', 16) +
+          '<span class="badge-text">' + esc(d.label) +
+          (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</span></span>';
       }).join('') + '</div>';
     }
     // Real per-species regulation text (probe round 4 confirmed the field
     // schema). Fall back to the generic presence note only if we know regs
-    // exist but couldn't parse specifics.
-    var regsNote = '';
+    // exist but couldn't parse specifics. Demoted into the Tier B "Sources &
+    // regulations" disclosure below (finding #3/#4 restructure) — still real
+    // content, just collapsed by default since it's reference detail rather
+    // than at-a-glance info.
+    var regsBody = '';
     if (state.lakeRegs && state.lakeRegs.length) {
-      regsNote = '<div class="lake-regs">' +
-        '<div class="lake-regs-hd">📋 Fishing regulations</div>' +
+      regsBody = '<div class="lake-regs">' +
+        '<div class="lake-regs-hd">' + ic('document', 14) + 'Fishing regulations</div>' +
         state.lakeRegs.map(function(r) {
           return '<div class="lake-reg-item"><span class="lake-reg-sp">' + r[0] + '</span> ' + esc(r[1]) + '</div>';
         }).join('') +
-        '<div class="lake-info-caveat">Regulations change — always confirm against the current WI DNR rules before keeping fish.</div>' +
-        '</div>';
+        '</div>' +
+        '<div class="lake-info-caveat">Regulations change — always confirm against the current WI DNR rules before keeping fish.</div>';
     } else if (state.hasLakeRegs) {
-      regsNote = '<div class="lake-regs-note">⚠️ Lake-specific fishing regulations are on file for this water — check current WI DNR rules before keeping fish.</div>';
+      regsBody = '<div class="lake-regs-note">⚠️ Lake-specific fishing regulations are on file for this water — check current WI DNR rules before keeping fish.</div>';
     }
     // Stocking-history summary ("Stocked N of the last 15 years: species"),
     // built from the per-lake STOCKING_RECORDS_JSON (probe round 4).
+    // Compressed into one inset summary row rather than its own card.
     var stockingHtml = '';
     if (state.stockingHistory && state.stockingHistory.length) {
       var thisYear = new Date().getFullYear();
@@ -2171,26 +2202,39 @@
       var yrCount = Object.keys(years).length;
       var spList = Object.keys(speciesSet);
       if (yrCount) {
-        stockingHtml = '<div class="lake-stocking">' +
-          '<span class="lake-stocking-hd">🐟 Stocked ' + yrCount + ' of the last 15 years</span>' +
-          (spList.length ? '<div class="lake-stocking-sp">' + esc(spList.join(', ')) + '</div>' : '') +
-          '</div>';
+        stockingHtml = '<div class="lake-stocking">' + ic('fish', 16) +
+          '<div class="lake-stocking-body">' +
+            '<span class="lake-stocking-hd">Stocked ' + yrCount + ' of the last 15 years</span>' +
+            (spList.length ? '<div class="lake-stocking-sp">' + esc(spList.join(', ')) + '</div>' : '') +
+          '</div></div>';
       }
     }
     // Embedded official DNR lake viewer — this is the depth-contour MAP the
     // user asked to see on the tab. Box 4 of the on-device probe proved the
     // DNR LakeDetail viewer renders inside an iframe from this origin (the
     // PDF URLs 404'd; this viewer works and has a Map tab with contours).
-    // WI only (needs a WBIC).
+    // WI only (needs a WBIC). Wrapped in a recessed "well" with a loading
+    // skeleton (concentric rings + shimmer) that fades out once the
+    // cross-origin iframe fires onload — it still fires even though we can't
+    // read the iframe's contents, so this works without touching DNR's page.
+    // If the iframe is blocked/offline, the skeleton just stays up looking
+    // intentional instead of the iframe's own white background flashing in.
     var mapCard = '';
     if (info.wbic && _inWisconsin(info.lat != null ? info.lat : state.loc.lat, info.lng != null ? info.lng : state.loc.lng)) {
+      var mapUrl = 'https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic;
       mapCard = '<div class="lake-map-embed">' +
-        '<div class="lake-map-hd">🗺 Depth map — WI DNR</div>' +
-        '<iframe class="lake-map-frame" loading="lazy" referrerpolicy="no-referrer" ' +
-          'title="WI DNR lake map for ' + esc(info.name) + '" ' +
-          'src="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '"></iframe>' +
+        '<div class="lake-map-hd">' + ic('layers', 14) + 'Depth map — WI DNR</div>' +
+        '<div class="lake-map-well">' +
+          '<iframe class="lake-map-frame" loading="lazy" referrerpolicy="no-referrer" ' +
+            'title="WI DNR lake map for ' + esc(info.name) + '" ' +
+            'src="' + mapUrl + '"></iframe>' +
+          '<div class="lake-map-skeleton">' + ic('layers', 26) +
+            '<span class="lms-label">Loading depth contours…</span>' +
+            '<span class="lms-shimmer"></span>' +
+          '</div>' +
+        '</div>' +
         '<div class="lake-map-hint">Tap <b>Map</b> in the viewer above for the depth-contour map. ' +
-          '<a target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">Open full screen ↗</a></div>' +
+          '<a target="_blank" rel="noopener" href="' + mapUrl + '">Open full screen ↗</a></div>' +
         '</div>';
     }
     // Split species by source confidence rather than presenting one flat
@@ -2201,6 +2245,7 @@
     // location are not independently confirmed. Neither source is a
     // comprehensive survey of everything living in the lake.
     var speciesLine = '';
+    var speciesCaveat = '';
     if (state.knownSpecies && state.knownSpecies.length) {
       var dnrSpecies = [], obsOnlySpecies = [];
       state.knownSpecies.forEach(function(s) {
@@ -2226,29 +2271,59 @@
         parts.push('<div class="species-group"><div class="species-group-lbl low">◌ Reported nearby · unverified</div>' +
           chipRow(obsOnlySpecies, true) + '</div>');
       }
-      parts.push('<div class="lake-info-caveat">Sources cover WI DNR records (stocking + designated waters) and nearby citizen observations — none is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>');
       speciesLine = parts.join('');
+      // Demoted into the Tier B disclosure along with the regs caveat —
+      // still real content, not deleted, just no longer always-on italic text.
+      speciesCaveat = '<div class="lake-info-caveat">Sources cover WI DNR records (stocking + designated waters) and nearby citizen observations — none is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>';
     }
     var reportLink = info.wbic
-      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">📄 WI DNR lake report — surveys &amp; depth contour map ↗</a>'
+      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">' + ic('document', 14) + 'WI DNR lake report — surveys &amp; depth contour map ↗</a>'
       : '';
-    var classNote = state.lakeClassNote
-      ? '<div class="lake-info-note">' + esc(state.lakeClassNote) + '</div>' : '';
+    // One-line fishery/trophic character notes (our own derived note, plus
+    // the DNR classification's own FISHERIES text when available) — closes
+    // out the "at a glance" card.
+    var fisheryNotes = '';
+    if (note) fisheryNotes += '<div class="lake-info-fishery-note">' + ic('droplet', 14) + '<span>' + note + '</span></div>';
+    if (state.lakeClassNote) fisheryNotes += '<div class="lake-info-fishery-note">' + ic('droplet', 14) + '<span>' + esc(state.lakeClassNote) + '</span></div>';
+
+    // Tier A — "at a glance": name, badges, stat grid, depth map, stocking,
+    // species, fishery notes. Tier B — demoted detail (regs table, both
+    // source caveats, DNR report link) behind one collapsed disclosure.
+    var statGrid = rows.length
+      ? '<div class="lake-stat-grid">' + rows.map(function(r) {
+          return '<div class="lake-stat-tile"><div class="lake-stat-label">' + r[0] + '</div><div class="lake-stat-val">' + esc(r[1]) + '</div>' +
+            (r[2] ? '<div class="lake-stat-src">' + esc(r[2]) + '</div>' : '') + '</div>';
+        }).join('') + '</div>'
+      : '<div class="lake-info-nodata">No additional lake data found</div>';
+
+    var detailsBody = regsBody + speciesCaveat + reportLink;
+    var sourcesDisclosure = detailsBody
+      ? '<details class="lake-sources-details"><summary class="lake-sources-summary">' +
+          '<span>' + ic('info', 14) + 'Sources &amp; regulations</span>' + ic('chevron', 14, 'lsd-chevron') +
+        '</summary><div class="lake-sources-body">' + detailsBody + '</div></details>'
+      : '';
+
     el.innerHTML =
       '<div class="lake-info-name">' + esc(info.name) + '</div>' +
       badges +
-      (rows.length ? '<div class="lake-info-grid">' +
-        rows.map(function(r) {
-          return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + esc(r[1]) + '</div>' +
-            (r[2] ? '<div class="lake-info-src">' + esc(r[2]) + '</div>' : '') + '</div>';
-        }).join('') + '</div>' : '<div class="lake-info-nodata">No additional lake data found</div>') +
+      statGrid +
       mapCard +
       stockingHtml +
       speciesLine +
-      (note ? '<div class="lake-info-note">' + note + '</div>' : '') +
-      classNote +
-      regsNote +
-      reportLink;
+      fisheryNotes +
+      sourcesDisclosure;
+
+    // Wire the depth-map skeleton to fade out once the (cross-origin) iframe
+    // fires onload — it still fires even though we can't read the content,
+    // so this works without any cooperation from the DNR page.
+    var mapIframeEl = el.querySelector('.lake-map-frame');
+    var mapSkelEl = el.querySelector('.lake-map-skeleton');
+    if (mapIframeEl && mapSkelEl) {
+      mapIframeEl.onload = function() {
+        mapSkelEl.style.opacity = '0';
+        setTimeout(function() { mapSkelEl.style.display = 'none'; }, 300);
+      };
+    }
   }
 
   // Merge species from record-based sources (stocking + iNaturalist) and
@@ -2695,7 +2770,7 @@
       if (!resEl) return;
       resEl.innerHTML = results.map(function(r, i) {
         var place = [r.name, r.admin1, r.country_code].filter(Boolean).join(', ');
-        return '<div class="city-result" data-idx="' + i + '">📍 ' + place + '</div>';
+        return '<div class="city-result" data-idx="' + i + '">' + ic('pin', 14) + place + '</div>';
       }).join('');
       resEl.querySelectorAll('.city-result').forEach(function(row) {
         row.onclick = function() {

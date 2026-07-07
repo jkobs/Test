@@ -673,22 +673,56 @@ svg.leaflet-image-layer.leaflet-interactive path {
 </style>
   <style>
 :root {
-  --bg: #0b1f2a;
-  --bg2: #102b38;
-  --card: #15323f;
-  --card2: #1b3c4b;
-  --ink: #eaf4f7;
-  --muted: #8fb3c0;
-  --major: #ffb020;
-  --minor: #56b3f0;
-  --sun: #ff7a3d;
-  --good: #4fd07a;
+  --bg:     #0b1f2a;
+  --bg2:    #102b38;
+  --ink:    #eaf4f7;
+  --muted:  #8fb3c0;
+  --line:   #25505f;
+  --major:  #ffb020;
+  --minor:  #56b3f0;
+  --sun:    #ff7a3d;
+  --good:   #4fd07a;
   --accent: #2dd4bf;
-  --line: #25505f;
-  --radius: 14px;
-  /* Shared vertical rhythm for stacked top-level sections (banner, pickers,
-     cards) — was a mix of 8/10/12/14px across sections added over time. */
-  --stack-gap: 12px;
+
+  --surface-hero: linear-gradient(160deg, #103a3a 0%, #0d2b3a 55%, #102b38 100%);
+  --surface-hero-line: #1c4a4a;
+  --surface-1: #15323f;
+  --surface-1-line: #25505f;
+  --surface-0: #0e2530;
+  --surface-0-line: rgba(255,255,255,.05);
+  --raised: #1b3c4b;
+
+  --t-xs: 11px;
+  --t-sm: 13px;
+  --t-md: 15px;
+  --t-lg: 20px;
+  --t-xl: 28px;
+
+  --r-lg: 20px;
+  --r-md: 12px;
+  --r-sm: 8px;
+
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+  --stack-gap: var(--sp-3);
+
+  --score-1: #7e97a3;
+  --score-2: #56b3f0;
+  --score-3: #ffb020;
+  --score-4: #a8d94a;
+  --score-5: #4fd07a;
+  --score-1-bg: rgba(126,151,163,.14);
+  --score-2-bg: rgba(86,179,240,.14);
+  --score-3-bg: rgba(255,176,32,.14);
+  --score-4-bg: rgba(168,217,74,.14);
+  --score-5-bg: rgba(79,208,122,.14);
+
+  /* Compatibility aliases — most call sites were audited and moved to the
+     explicit surface-1/surface-0/raised tier per site (see styles.css
+     history), but keep these so any rule not yet touched still resolves to
+     a sane tier instead of breaking. */
+  --card: var(--surface-1);
+  --card2: var(--surface-1);
+  --radius: var(--r-lg);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -704,67 +738,76 @@ html, body {
 .wrap { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
 
 header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-header h1 { font-size: 20px; margin: 0; }
-.loc { color: var(--muted); font-size: 13px; }
-.clock { color: var(--ink); font-size: 17px; font-weight: 600; letter-spacing: 0.01em; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+header h1 { font-size: var(--t-lg); margin: 0; }
+.loc { color: var(--muted); font-size: var(--t-sm); }
+.clock { color: var(--ink); font-size: var(--t-lg); font-weight: 600; letter-spacing: 0.01em; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+
+/* Inline SVG icons used in place of raw emoji in structural/navigational
+   positions — inherit color from context, consistent stroke weight. */
+svg.ic { vertical-align: -3px; margin-right: 4px; flex-shrink: 0; }
+svg.ic.ic-tight { margin-right: 2px; }
 
 /* ---- Hero: the single glanceable "is it good right now" summary ---- */
 .hero {
-  border-radius: 20px; padding: 18px 18px 14px; margin: var(--stack-gap) 0;
-  background: linear-gradient(160deg, #103a3a 0%, #0d2b3a 55%, var(--bg2) 100%);
-  border: 1px solid #1c4a4a; position: relative; overflow: hidden;
+  border-radius: var(--r-lg); padding: 18px 18px 14px; margin: var(--stack-gap) 0;
+  background: var(--surface-hero);
+  border: 1px solid var(--surface-hero-line); position: relative; overflow: hidden;
 }
 .hero:empty { display: none; }
-.hero-label { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
-.hero-loading { font-size: 13px; color: var(--muted); padding: 4px 0 2px; }
+.hero-label { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .1em; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
+.hero-loading { font-size: var(--t-sm); color: var(--muted); padding: 4px 0 2px; }
 .hero-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.hero-rating { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
-.hero-rating .fish { font-size: 18px; letter-spacing: 1px; display: block; margin-top: 4px; }
+.hero-rating { font-size: var(--t-xl); font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.hero-rating .fish { font-size: var(--t-md); letter-spacing: 1px; display: block; margin-top: 4px; }
 .hero-count { text-align: right; }
-.hero-count .num { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--major); line-height: 1; }
-.hero-count .lbl { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.hero-count .num { font-size: var(--t-xl); font-weight: 800; font-variant-numeric: tabular-nums; color: var(--major); line-height: 1; }
+.hero-count .lbl { font-size: var(--t-xs); color: var(--muted); margin-top: 3px; }
 .hero-why {
   margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08);
-  font-size: 13px; color: #cfe9e6; line-height: 1.5; display: flex; gap: 8px; align-items: flex-start;
+  font-size: var(--t-sm); color: #cfe9e6; line-height: 1.5; display: flex; gap: 8px; align-items: flex-start;
 }
-.hero-why .ic { font-size: 15px; flex-shrink: 0; }
+.hero-why .ic { font-size: var(--t-sm); flex-shrink: 0; }
 
 /* ---- Segmented tabs (Today / Forecast / Lake) ---- */
-.tabs { display: flex; gap: 4px; background: var(--card); border-radius: 14px; padding: 4px; margin: var(--stack-gap) 0; }
-.tab { flex: 1; text-align: center; padding: 9px 0; border-radius: 10px; font-size: 13px; font-weight: 600;
-  color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit; }
-.tab.active { background: var(--card2); color: var(--ink); }
+.tabs { display: flex; gap: 4px; background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-md); padding: 4px; margin: var(--stack-gap) 0; }
+.tab {
+  flex: 1; display: flex; align-items: center; justify-content: center; min-height: 48px;
+  text-align: center; padding: 0 4px; border-radius: var(--r-sm); font-size: var(--t-sm); font-weight: 600;
+  color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit;
+}
+.tab.active { background: var(--raised); color: var(--ink); }
 .tab-panel[hidden] { display: none; }
 
 /* ---- Generic card panel (used for the Lake tab's lake-info card) ---- */
-.card-panel { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: var(--stack-gap) 0; }
+.card-panel { background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-lg); padding: 16px; margin: var(--stack-gap) 0; }
 .card-panel:empty { display: none; }
 .loc button {
   background: none; border: 1px solid var(--line); color: var(--muted);
-  border-radius: 8px; padding: 3px 8px; font-size: 12px; margin-left: 6px; cursor: pointer;
+  border-radius: var(--r-sm); padding: 3px 8px; font-size: var(--t-xs); margin-left: 6px; cursor: pointer;
 }
 /* ---- Search mode toggle (City / Lake), sits directly above the search box ---- */
-.search-mode { display: flex; gap: 3px; background: var(--card); border-radius: 10px; padding: 3px; margin: 8px 0 0; }
+.search-mode { display: flex; gap: 3px; background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-md); padding: 3px; margin: 8px 0 0; }
 .sm-btn {
-  flex: 1; text-align: center; padding: 5px 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+  flex: 1; text-align: center; padding: 5px 0; min-height: 32px; border-radius: var(--r-sm); font-size: var(--t-xs); font-weight: 600;
   color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit;
 }
-.sm-btn.active { background: var(--card2); color: var(--ink); }
+.sm-btn.active { background: var(--raised); color: var(--ink); }
 
 .loc-search { display: flex; gap: 6px; margin: 8px 0 4px; }
 .city-input {
   flex: 1; min-width: 0; background: var(--bg2); border: 1px solid var(--line);
-  border-radius: 8px; color: var(--ink); font-size: 14px; padding: 8px 10px; outline: none;
+  border-radius: var(--r-sm); color: var(--ink); font-size: var(--t-md); padding: 8px 10px; outline: none;
+  min-height: 44px;
 }
 .city-input:focus { border-color: var(--minor); }
 .city-go {
   background: var(--minor); border: none; color: #06222e; font-weight: 700;
-  border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+  border-radius: var(--r-sm); padding: 8px 14px; font-size: var(--t-md); cursor: pointer; min-height: 44px;
 }
 .lake-jump { margin: 4px 0; }
 .lake-jump-select {
-  width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
-  color: var(--ink); font-size: 14px; padding: 8px 10px; cursor: pointer;
+  width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--ink); font-size: var(--t-md); padding: 8px 10px; cursor: pointer; min-height: 44px;
   outline: none; -webkit-appearance: none; appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237a8a93' d='M2 4l4 4 4-4z'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px;
@@ -772,25 +815,25 @@ header h1 { font-size: 20px; margin: 0; }
 .lake-jump-select:focus { border-color: var(--minor); }
 .city-results { margin-bottom: 4px; }
 .city-result {
-  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
-  padding: 8px 10px; font-size: 13px; color: var(--ink); margin-top: 4px; cursor: pointer;
+  background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-sm);
+  padding: 8px 10px; font-size: var(--t-sm); color: var(--ink); margin-top: 4px; cursor: pointer;
 }
-.city-result:hover { border-color: var(--minor); background: var(--card2); }
-.city-loading, .city-noresult { color: var(--muted); font-size: 12px; padding: 6px 0; }
+.city-result:hover { border-color: var(--minor); background: var(--raised); }
+.city-loading, .city-noresult { color: var(--muted); font-size: var(--t-sm); padding: 6px 0; }
 .loc-ctx { color: var(--muted); } /* de-emphasized location context on lake-search result rows */
 
 /* Next-period banner + countdown */
 .next {
-  margin: var(--stack-gap) 0; padding: 14px 16px; border-radius: var(--radius);
-  background: var(--card2); border: 1px solid var(--line);
+  margin: var(--stack-gap) 0; padding: 14px 16px; border-radius: var(--r-lg);
+  background: var(--surface-1); border: 1px solid var(--surface-1-line);
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   transition: border-color .15s, background .15s;
 }
 .next:hover { border-color: var(--minor); background: #183847; }
-.next .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
-.next .when { font-size: 15px; font-weight: 600; }
-.next-hint { font-size: 10px; color: var(--muted); margin-top: 3px; }
-.next .countdown { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; }
+.next .label { color: var(--muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em; }
+.next .when { font-size: var(--t-md); font-weight: 600; }
+.next-hint { font-size: var(--t-xs); color: var(--muted); margin-top: 3px; }
+.next .countdown { font-variant-numeric: tabular-nums; font-size: var(--t-xl); font-weight: 700; }
 .next.major .countdown { color: var(--major); }
 .next.minor .countdown { color: var(--minor); }
 .next.active .countdown { color: var(--good); }
@@ -798,15 +841,15 @@ header h1 { font-size: 20px; margin: 0; }
 /* Range picker */
 .range-picker { display: flex; gap: 8px; margin: var(--stack-gap) 0; }
 .range-btn {
-  flex: 1; padding: 7px 0; border-radius: 10px; border: 1px solid var(--line);
-  background: var(--card2); color: var(--muted); font-size: 13px; cursor: pointer;
+  flex: 1; padding: 7px 0; min-height: 44px; border-radius: var(--r-md); border: 1px solid var(--surface-1-line);
+  background: var(--surface-1); color: var(--muted); font-size: var(--t-md); cursor: pointer;
   transition: background .15s, color .15s;
 }
 .range-btn.active { background: var(--major); color: #000; border-color: var(--major); font-weight: 700; }
 
 /* Day cards */
 .card {
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-lg);
   padding: 14px 16px; margin: var(--stack-gap) 0; cursor: pointer;
   transition: border-color .15s, background .15s;
 }
@@ -816,39 +859,39 @@ header h1 { font-size: 20px; margin: 0; }
 .day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .day-head .date { font-weight: 600; }
 .day-head .stars { color: var(--major); letter-spacing: 2px; }
-.tap-hint { font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0; vertical-align: middle; }
-.day-sub { color: var(--muted); font-size: 13px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 10px; }
-.sun-times { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin: 6px 0 3px; }
+.tap-hint { font-size: var(--t-xs); color: var(--muted); font-weight: 400; letter-spacing: 0; vertical-align: middle; }
+.day-sub { color: var(--muted); font-size: var(--t-sm); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 10px; }
+.sun-times { display: flex; justify-content: space-between; font-size: var(--t-sm); color: var(--muted); margin: 6px 0 3px; }
 .sun-times strong { color: var(--ink); }
 
 .periods { margin-top: 10px; display: grid; gap: 8px; }
 .period {
   display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 10px;
-  padding: 8px 10px; border-radius: 10px; background: var(--card2);
+  padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-0); border: 1px solid var(--surface-0-line);
 }
 .period .tag {
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
-  padding: 3px 6px; border-radius: 6px; text-align: center;
+  font-size: var(--t-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  padding: 3px 6px; border-radius: var(--r-sm); text-align: center;
 }
 .period.major .tag { background: rgba(255,176,32,.18); color: var(--major); }
 .period.minor .tag { background: rgba(86,179,240,.18); color: var(--minor); }
-.period .kind { font-size: 13px; color: var(--muted); }
+.period .kind { font-size: var(--t-sm); color: var(--muted); }
 .period .time { font-weight: 600; font-variant-numeric: tabular-nums; }
-.period .range { color: var(--muted); font-size: 12px; }
-.period.sun::after { content: "☀ near sun"; color: var(--sun); font-size: 11px; }
-.sun-badge { color: var(--sun); font-size: 11px; }
+.period .range { color: var(--muted); font-size: var(--t-xs); }
+.period.sun::after { content: "☀ near sun"; color: var(--sun); font-size: var(--t-xs); }
+.sun-badge { color: var(--sun); font-size: var(--t-xs); }
 
-.weather { margin-top: 10px; color: var(--muted); font-size: 13px; }
+.weather { margin-top: 10px; color: var(--muted); font-size: var(--t-md); }
 .weather strong { color: var(--ink); }
 
-.legend { color: var(--muted); font-size: 12px; margin-top: 18px; line-height: 1.6; }
+.legend { color: var(--muted); font-size: var(--t-sm); margin-top: 18px; line-height: 1.6; }
 .legend b.major { color: var(--major); }
 .legend b.minor { color: var(--minor); }
 
-.note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.note { color: var(--muted); font-size: var(--t-sm); margin-top: 8px; }
 button.toggle {
-  width: 100%; margin: var(--stack-gap) 0; padding: 10px; border-radius: 10px; cursor: pointer;
-  background: var(--card2); color: var(--ink); border: 1px solid var(--line); font-size: 14px;
+  width: 100%; margin: var(--stack-gap) 0; padding: 10px; min-height: 44px; border-radius: var(--r-md); cursor: pointer;
+  background: var(--surface-1); color: var(--ink); border: 1px solid var(--surface-1-line); font-size: var(--t-md);
 }
 
 /* ---- Modal ---- */
@@ -861,7 +904,7 @@ button.toggle {
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .modal {
-  background: #0f2533; border: 1px solid var(--line); border-radius: 20px 20px 0 0;
+  background: #0f2533; border: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0;
   width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto;
   padding: 20px 16px 40px;
   animation: slide-up .2s ease;
@@ -871,19 +914,19 @@ button.toggle {
 .modal-head {
   display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px;
 }
-.modal-date { font-size: 18px; font-weight: 700; }
+.modal-date { font-size: var(--t-lg); font-weight: 700; }
 .modal-stars { color: var(--major); letter-spacing: 2px; margin-top: 2px; }
 .modal-close {
-  background: var(--card2); border: none; color: var(--muted);
-  width: 32px; height: 32px; border-radius: 50%; font-size: 16px;
-  cursor: pointer; flex-shrink: 0; line-height: 32px; padding: 0;
+  background: var(--surface-0); border: 1px solid var(--surface-0-line); color: var(--muted);
+  width: 40px; height: 40px; min-width: 40px; min-height: 40px; border-radius: 50%; font-size: var(--t-md);
+  cursor: pointer; flex-shrink: 0; line-height: 40px; padding: 0;
 }
 .modal-section { margin-bottom: 20px; }
 /* Shared small-caps section/field label used across modal sections, the
    advisor grid, lake info, gauge card, and nearby-waters — unified to one
    consistent size/tracking so these read as one visual language. */
-.modal-section-label, .bite-scale-label, .adv-label, .lake-info-label, .nearby-label {
-  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+.modal-section-label, .bite-scale-label, .adv-label, .nearby-label {
+  font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .07em;
   color: var(--muted);
 }
 .modal-section-label {
@@ -891,13 +934,13 @@ button.toggle {
 }
 .modal-meta { display: flex; gap: 20px; flex-wrap: wrap; }
 .modal-meta > div { min-width: 90px; }
-.modal-meta .muted { color: var(--muted); font-size: 12px; }
+.modal-meta .muted { color: var(--muted); font-size: var(--t-sm); }
 
 /* ---- Day timeline ---- */
 .tl-wrap { user-select: none; }
 .tl-bar {
-  position: relative; height: 28px; background: var(--bg2);
-  border-radius: 8px; overflow: hidden; margin-bottom: 4px;
+  position: relative; height: 28px; background: var(--surface-0);
+  border-radius: var(--r-sm); overflow: hidden; margin-bottom: 4px;
 }
 .tl-band {
   position: absolute; top: 0; height: 100%; opacity: .75;
@@ -920,11 +963,11 @@ button.toggle {
 }
 .tl-labels span {
   position: absolute; transform: translateX(-50%);
-  font-size: 10px; color: var(--muted);
+  font-size: var(--t-xs); color: var(--muted);
 }
 .tl-legend {
   display: flex; align-items: center; gap: 0; margin-top: 6px;
-  font-size: 11px; color: var(--muted);
+  font-size: var(--t-xs); color: var(--muted);
 }
 .tl-leg-dot {
   display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px;
@@ -936,43 +979,44 @@ button.toggle {
 /* ---- Nearby waters dropdown ---- */
 .nearby-label { display: block; margin: 6px 0 3px; }
 .nearby-select {
-  width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
-  color: var(--ink); font-size: 14px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
+  width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--ink); font-size: var(--t-md); padding: 8px 10px; margin-bottom: 6px; cursor: pointer; min-height: 44px;
   outline: none; -webkit-appearance: none; appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237a8a93' d='M2 4l4 4 4-4z'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px;
 }
 .nearby-select:focus { border-color: var(--minor); }
-.nearby-loading, .nearby-empty { font-size: 12px; color: var(--muted); padding: 8px 0 4px; }
+.nearby-loading, .nearby-empty { font-size: var(--t-sm); color: var(--muted); padding: 8px 0 4px; }
 .nearby-retry {
-  width: 100%; background: var(--card2); border: 1px solid var(--line); border-radius: 8px;
-  color: var(--minor); font-size: 13px; padding: 8px 10px; margin: 6px 0; cursor: pointer; text-align: left;
+  width: 100%; background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-sm);
+  color: var(--minor); font-size: var(--t-sm); padding: 8px 10px; margin: 6px 0; cursor: pointer; text-align: left;
+  min-height: 44px;
 }
 .nearby-retry:hover { border-color: var(--minor); }
 
 /* ---- USGS river gauge card ---- */
-.gauge-card { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin: var(--stack-gap) 0; }
+.gauge-card { background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-lg); padding: 12px 16px; margin: var(--stack-gap) 0; }
 .gauge-card:empty { display: none; }
 .gauge-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
-.gauge-name { font-size: 13px; font-weight: 600; color: var(--ink); }
-.gauge-dist { font-size: 11px; color: var(--muted); }
+.gauge-name { font-size: var(--t-md); font-weight: 600; color: var(--ink); }
+.gauge-dist { font-size: var(--t-xs); color: var(--muted); }
 .gauge-vals { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
-.gauge-flow { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--minor); }
-.gauge-temp { font-size: 13px; color: var(--muted); }
-.gauge-tip { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.gauge-flow { font-size: var(--t-lg); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--minor); }
+.gauge-temp { font-size: var(--t-sm); color: var(--muted); }
+.gauge-tip { font-size: var(--t-md); color: var(--muted); line-height: 1.45; }
 
 /* ---- Barometer panel ---- */
 .baro-card {
-  background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-lg);
   padding: 12px 16px; margin: var(--stack-gap) 0;
 }
 .baro-card:empty { display: none; }
 .baro-head {
   display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
 }
-.baro-val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.baro-hpa { color: var(--muted); font-size: 12px; }
-.baro-arrow { font-size: 13px; font-weight: 600; margin-left: auto; }
+.baro-val { font-size: var(--t-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
+.baro-hpa { color: var(--muted); font-size: var(--t-xs); }
+.baro-arrow { font-size: var(--t-sm); font-weight: 600; margin-left: auto; }
 .baro-up   { color: var(--good); }
 .baro-down { color: #f06; }
 .baro-steady { color: var(--muted); }
@@ -983,11 +1027,11 @@ button.toggle {
 }
 .baro-spark-labels span {
   position: absolute; transform: translateX(-50%);
-  font-size: 10px; color: var(--muted);
+  font-size: var(--t-xs); color: var(--muted);
 }
 .baro-legend {
   display: flex; align-items: center; gap: 4px; margin-top: 6px;
-  font-size: 11px; color: var(--muted);
+  font-size: var(--t-xs); color: var(--muted);
 }
 .baro-leg {
   display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-right: 2px;
@@ -995,17 +1039,17 @@ button.toggle {
 .baro-leg.past { background: var(--minor); }
 .baro-leg.future { background: var(--major); opacity: .75; }
 .baro-tip {
-  margin-top: 6px; font-size: 13px; color: var(--muted);
+  margin-top: 6px; font-size: var(--t-md); color: var(--muted);
   border-top: 1px solid var(--line); padding-top: 8px;
 }
 
 /* ---- Fishing Advisor ---- */
 .advisor-card {
-  background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-lg);
   margin: var(--stack-gap) 0; overflow: hidden;
 }
 .advisor-hd {
-  padding: 10px 16px 0; font-size: 11px; text-transform: uppercase;
+  padding: 10px 16px 0; font-size: var(--t-xs); text-transform: uppercase;
   letter-spacing: .08em; color: var(--muted);
 }
 #advisor-map { height: 230px; background: var(--bg2); }
@@ -1013,122 +1057,184 @@ button.toggle {
 .adv-activity {
   display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
 }
-.adv-dots { font-size: 15px; letter-spacing: 3px; }
-.adv-level { font-weight: 700; font-size: 16px; }
+.adv-dots { font-size: var(--t-sm); letter-spacing: 3px; }
+.adv-level { font-weight: 700; font-size: var(--t-md); }
 
 /* ---- bite scale ---- */
 .bite-scale-wrap { margin-bottom: 12px; }
 .conditions-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
-.conditions-species-select { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 12px; padding: 3px 7px; outline: none; cursor: pointer; max-width: 150px; }
+.conditions-species-select { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--ink); font-size: var(--t-xs); padding: 3px 7px; outline: none; cursor: pointer; max-width: 150px; }
 .conditions-species-select:focus { border-color: var(--minor); }
 .bite-bar { display: flex; gap: 3px; }
-.bite-seg { flex: 1; padding: 5px 2px; border-radius: 5px; font-size: 10px; text-align: center; color: var(--muted); background: var(--bg2); border: 1px solid transparent; }
-.bite-1 { color: #a05555; }
-.bite-2 { color: #b07840; }
-.bite-3 { color: #a0a040; }
-.bite-4 { color: #40a060; }
-.bite-5 { color: #30c060; }
+.bite-seg { flex: 1; padding: 5px 2px; border-radius: var(--r-sm); font-size: var(--t-xs); text-align: center; color: var(--muted); background: var(--surface-0); border: 1px solid transparent; }
+.bite-1, .score-1 { color: var(--score-1); }
+.bite-2, .score-2 { color: var(--score-2); }
+.bite-3, .score-3 { color: var(--score-3); }
+.bite-4, .score-4 { color: var(--score-4); }
+.bite-5, .score-5 { color: var(--score-5); }
 .bite-current { font-weight: 700; border: 1px solid currentColor !important; }
-.bite-1.bite-current { background: rgba(160,85,85,.15); }
-.bite-2.bite-current { background: rgba(176,120,64,.15); }
-.bite-3.bite-current { background: rgba(160,160,64,.15); }
-.bite-4.bite-current { background: rgba(64,160,96,.15); }
-.bite-5.bite-current { background: rgba(48,192,96,.15); }
+.bite-1.bite-current { background: var(--score-1-bg); }
+.bite-2.bite-current { background: var(--score-2-bg); }
+.bite-3.bite-current { background: var(--score-3-bg); }
+.bite-4.bite-current { background: var(--score-4-bg); }
+.bite-5.bite-current { background: var(--score-5-bg); }
+/* Species outlook badges reuse the same score ramp: tinted background +
+   thin same-hue border, same visual language as the bite scale. */
+.species-badge.score-1 { background: var(--score-1-bg); border: 1px solid var(--score-1); border-radius: var(--r-sm); padding: 1px 6px; }
+.species-badge.score-2 { background: var(--score-2-bg); border: 1px solid var(--score-2); border-radius: var(--r-sm); padding: 1px 6px; }
+.species-badge.score-3 { background: var(--score-3-bg); border: 1px solid var(--score-3); border-radius: var(--r-sm); padding: 1px 6px; }
+.species-badge.score-4 { background: var(--score-4-bg); border: 1px solid var(--score-4); border-radius: var(--r-sm); padding: 1px 6px; }
+.species-badge.score-5 { background: var(--score-5-bg); border: 1px solid var(--score-5); border-radius: var(--r-sm); padding: 1px 6px; }
 
 /* ---- species outlook ---- */
 .species-section { margin-top: 14px; }
-.species-source-badge { font-size: 10px; font-weight: 600; color: var(--major); background: rgba(255,210,100,0.12); border: 1px solid rgba(255,210,100,0.3); border-radius: 4px; padding: 2px 6px; margin-left: 6px; white-space: nowrap; }
+.species-source-badge { font-size: var(--t-xs); font-weight: 600; color: var(--major); background: rgba(255,210,100,0.12); border: 1px solid rgba(255,210,100,0.3); border-radius: var(--r-sm); padding: 2px 6px; margin-left: 6px; white-space: nowrap; }
 .species-source-badge.muted { color: var(--muted); background: transparent; border-color: var(--line); }
 .species-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.species-filter { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 12px; padding: 4px 8px; width: 90px; outline: none; }
+.species-filter { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--ink); font-size: var(--t-xs); padding: 4px 8px; width: 90px; outline: none; }
 .species-filter:focus { border-color: var(--minor); }
-.species-no-match { color: var(--muted); font-size: 12px; padding: 8px 0; }
+.species-no-match { color: var(--muted); font-size: var(--t-sm); padding: 8px 0; }
 .species-row { padding: 7px 0; border-bottom: 1px solid var(--line); }
 .species-row:last-child { border-bottom: none; }
 .species-row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
-.species-name { font-weight: 600; color: var(--ink); font-size: 13px; }
-.species-badge { font-weight: 700; font-size: 11px; }
-.score-1 { color: #a05555; }
-.score-2 { color: #b07840; }
-.score-3 { color: #a0a040; }
-.score-4 { color: #40a060; }
-.score-5 { color: #30c060; }
-.species-detail { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.species-name { font-weight: 600; color: var(--ink); font-size: var(--t-md); }
+.species-badge { font-weight: 700; font-size: var(--t-xs); }
+.species-detail { color: var(--muted); font-size: var(--t-sm); line-height: 1.5; }
 .species-detail b { color: var(--ink); font-weight: 600; }
 .adv-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;
 }
-.adv-item { background: var(--card); border-radius: 8px; padding: 8px 10px; }
+.adv-item { background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-md); padding: 8px 10px; }
 .adv-label { margin-bottom: 2px; }
-.adv-val { font-size: 13px; font-weight: 500; line-height: 1.3; }
+.adv-val { font-size: var(--t-md); font-weight: 500; line-height: 1.3; }
 .adv-item.adv-wide { grid-column: 1 / -1; }
-.adv-note { font-size: 13px; color: var(--muted); margin-top: 7px; line-height: 1.5; }
-.lake-info-name { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+.adv-note { font-size: var(--t-md); color: var(--muted); margin-top: 7px; line-height: 1.5; }
+
+/* ---- Lake tab: "at a glance" card ---- */
+.lake-info-name { font-size: var(--t-lg); font-weight: 800; color: var(--ink); margin-bottom: 8px; }
 /* Official DNR fisheries designations (Walleye Water etc.) */
 .lake-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 10px; }
 .lake-badge {
-  display: inline-flex; flex-direction: column; gap: 1px;
+  display: inline-flex; align-items: flex-start; gap: 5px; flex-direction: row;
   background: rgba(255, 176, 32, 0.1); border: 1px solid rgba(255, 176, 32, 0.4);
-  border-radius: 10px; padding: 6px 11px; font-size: 12.5px; font-weight: 700; color: var(--major);
+  border-radius: var(--r-md); padding: 6px 11px; font-size: var(--t-sm); font-weight: 700; color: var(--major);
 }
-.lake-badge .sub { font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.lake-badge .badge-text { display: flex; flex-direction: column; gap: 1px; }
+.lake-badge svg.ic { margin-right: 0; margin-top: 1px; }
+.lake-badge .sub { font-size: var(--t-xs); font-weight: 500; color: var(--muted); }
 .lake-regs-note {
-  font-size: 12px; color: var(--major); line-height: 1.5;
+  font-size: var(--t-sm); color: var(--major); line-height: 1.5;
   background: rgba(255, 176, 32, 0.08); border: 1px solid rgba(255, 176, 32, 0.25);
-  border-radius: 8px; padding: 8px 10px; margin: 8px 0;
+  border-radius: var(--r-md); padding: 8px 10px; margin: 8px 0;
 }
-/* Embedded official WI DNR lake viewer (depth-contour Map tab lives inside) */
+/* 2-column inset stat-tile grid — replaces the old flat .lake-info-grid /
+   .lake-info-item list. Nested/inset tier (surface-0), same rule as chip
+   rows and the tab track. */
+.lake-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+.lake-stat-tile { background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-md); padding: 8px 10px; min-width: 0; }
+.lake-stat-label { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 2px; }
+.lake-stat-val { font-size: var(--t-md); font-weight: 700; color: var(--ink); }
+.lake-stat-src { font-size: var(--t-xs); color: var(--muted); margin-top: 3px; line-height: 1.3; }
+.lake-info-fishery-note { font-size: var(--t-md); color: var(--muted); line-height: 1.5; margin-top: 8px; display: flex; gap: 6px; align-items: flex-start; }
+
+/* Embedded official WI DNR lake viewer (depth-contour Map tab lives inside),
+   wrapped in a recessed "well" with a loading skeleton shown until the
+   cross-origin iframe fires onload (or indefinitely if it never does —
+   strictly better than the iframe's own white background flashing through). */
 .lake-map-embed { margin: 12px 0; }
-.lake-map-hd { font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted); font-weight: 700; margin-bottom: 6px; }
-.lake-map-frame { width: 100%; height: 340px; border: 1px solid var(--line);
-  border-radius: 10px; background: #fff; display: block; }
-.lake-map-hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+.lake-map-hd { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; }
+.lake-map-well {
+  position: relative; min-height: 300px; border-radius: var(--r-md); overflow: hidden;
+  background: var(--surface-0); border: 1px solid var(--surface-0-line);
+}
+.lake-map-frame { width: 100%; height: 340px; min-height: 300px; border: none;
+  border-radius: var(--r-md); background: var(--surface-0); display: block; position: relative; z-index: 1; }
+  /* Dark, not white: onload fires even for a blocked/offline navigation, so a
+     genuinely blank frame (no real DNR content painted) must fall back to the
+     app's own dark surface, not a stark white rectangle. A real, successfully-
+     loaded DNR page has its own opaque light background and paints over this
+     regardless — this only affects the failure/blank case. */
+.lake-map-skeleton {
+  position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; color: var(--muted);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255,255,255,.05) 0, rgba(255,255,255,.05) 1px, transparent 1px, transparent 34px),
+    radial-gradient(circle at 50% 45%, rgba(255,255,255,.04) 0, rgba(255,255,255,.04) 1px, transparent 1px, transparent 68px),
+    var(--surface-0);
+  background-size: 68px 68px, 136px 136px, auto;
+  background-position: center, center, center;
+  transition: opacity .3s ease;
+}
+.lake-map-skeleton .lms-label { font-size: var(--t-sm); }
+.lake-map-skeleton .lms-shimmer {
+  width: 120px; height: 4px; border-radius: 2px; overflow: hidden;
+  background: rgba(255,255,255,.08); position: relative;
+}
+.lake-map-skeleton .lms-shimmer::after {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 40%; height: 100%;
+  background: rgba(255,255,255,.35); border-radius: 2px;
+  animation: lms-shimmer-move 1.3s ease-in-out infinite;
+}
+@keyframes lms-shimmer-move {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+.lake-map-hint { font-size: var(--t-xs); color: var(--muted); margin-top: 6px; line-height: 1.4; }
 .lake-map-hint a { color: var(--minor); text-decoration: none; }
-/* Stocking-history summary */
-.lake-stocking { margin: 12px 0; padding: 10px 12px; background: var(--bg2);
-  border: 1px solid var(--line); border-radius: 8px; }
-.lake-stocking-hd { font-size: 13px; font-weight: 700; color: var(--good); }
-.lake-stocking-sp { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+/* Stocking-history summary — compressed to one inset row */
+.lake-stocking { margin: 12px 0; padding: 10px 12px; background: var(--surface-0);
+  border: 1px solid var(--surface-0-line); border-radius: var(--r-md); display: flex; align-items: flex-start; gap: 8px; }
+.lake-stocking-body { min-width: 0; }
+.lake-stocking-hd { font-size: var(--t-md); font-weight: 700; color: var(--good); }
+.lake-stocking-sp { font-size: var(--t-sm); color: var(--muted); margin-top: 3px; line-height: 1.4; }
 /* Per-species regulations */
-.lake-regs { margin: 10px 0; padding: 10px 12px; background: var(--bg2);
-  border: 1px solid var(--line); border-radius: 8px; }
-.lake-regs-hd { font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted); font-weight: 700; margin-bottom: 6px; }
-.lake-reg-item { font-size: 12px; color: var(--ink); line-height: 1.45; margin-bottom: 4px; }
+.lake-regs { margin: 10px 0; padding: 10px 12px; background: var(--surface-0);
+  border: 1px solid var(--surface-0-line); border-radius: var(--r-md); }
+.lake-regs-hd { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; }
+.lake-reg-item { font-size: var(--t-md); color: var(--ink); line-height: 1.45; margin-bottom: 4px; }
 .lake-reg-sp { font-weight: 700; color: var(--minor); }
-.lake-info-nodata { font-size: 12px; color: var(--muted); padding: 4px 0 8px; }
-.lake-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; padding: 10px 12px; background: var(--bg2); border-radius: 8px; border: 1px solid var(--line); }
-.lake-info-item { min-width: 0; }
-.lake-info-label { margin-bottom: 2px; }
-.lake-info-val { font-size: 13px; font-weight: 600; color: var(--ink); }
-.lake-info-src { font-size: 10px; color: var(--muted); margin-top: 1px; line-height: 1.3; }
-.lake-info-note { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
-.lake-info-loading { font-size: 12px; color: var(--muted); padding: 8px 0 10px; }
+.lake-info-nodata { font-size: var(--t-sm); color: var(--muted); padding: 4px 0 8px; }
+.lake-info-note { font-size: var(--t-md); color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
+.lake-info-loading { font-size: var(--t-sm); color: var(--muted); padding: 8px 0 10px; }
 .species-group { margin-top: 12px; }
-.species-group-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--good); font-weight: 700; margin-bottom: 6px; }
+.species-group-lbl { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--good); font-weight: 700; margin-bottom: 6px; }
 .species-group-lbl.low { color: var(--muted); }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { background: var(--bg2); border: 1px solid var(--line); border-radius: 20px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
-.chip.low { color: var(--muted); font-weight: 500; border-style: dashed; opacity: .85; }
-.lake-info-caveat { display: block; font-size: 10px; color: var(--muted); opacity: 0.75; line-height: 1.4; margin-top: 8px; margin-bottom: 6px; font-style: italic; }
-.lake-info-link { display: block; font-size: 12px; color: var(--minor); text-decoration: none; margin-top: 2px; }
+.chip { background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-lg); padding: 5px 12px; font-size: var(--t-sm); font-weight: 600; color: var(--ink); }
+.chip.low { color: var(--muted); font-weight: 500; border-style: dashed; opacity: .55; }
+.lake-info-caveat { display: block; font-size: var(--t-xs); color: var(--muted); line-height: 1.4; margin-top: 8px; margin-bottom: 6px; padding-left: 8px; border-left: 2px solid var(--line); }
+.lake-info-link { display: block; font-size: var(--t-sm); color: var(--minor); text-decoration: none; margin-top: 2px; }
 .lake-info-link:hover { text-decoration: underline; }
+
+/* ---- Tier B: demoted regulations/sources disclosure ---- */
+.lake-sources-details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.lake-sources-summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+  font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700;
+  padding: 4px 0; min-height: 32px;
+}
+.lake-sources-summary::-webkit-details-marker { display: none; }
+.lake-sources-summary .lsd-chevron { transition: transform .15s ease; margin-right: 0; margin-left: auto; }
+.lake-sources-details[open] .lsd-chevron { transform: rotate(180deg); }
+.lake-sources-body { padding-top: 10px; }
+
 .adv-solunar { color: var(--good); font-weight: 600; margin-bottom: 4px; }
 .adv-light { color: var(--major); font-weight: 600; margin-bottom: 4px; }
-.adv-offline { font-size: 13px; color: var(--muted); padding: 8px 0; }
+.adv-offline { font-size: var(--t-sm); color: var(--muted); padding: 8px 0; }
 .adv-map-footer {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line);
   gap: 8px; flex-wrap: wrap;
 }
-.adv-dnr-badge { font-size: 11px; color: var(--muted); }
+.adv-dnr-badge { font-size: var(--t-xs); color: var(--muted); }
 .adv-dnr-btn {
-  font-size: 11px; padding: 3px 8px; border-radius: 6px;
-  border: 1px solid var(--line); background: var(--card2);
+  font-size: var(--t-xs); padding: 3px 8px; border-radius: var(--r-sm);
+  border: 1px solid var(--surface-0-line); background: var(--surface-0);
   color: var(--muted); cursor: pointer; text-decoration: none;
 }
-.baro-expand-hint { margin-left: auto; font-size: 11px; color: var(--muted); }
+.baro-expand-hint { margin-left: auto; font-size: var(--t-xs); color: var(--muted); }
 .baro-card { transition: border-color .15s, background .15s; }
 .baro-card:hover { border-color: var(--minor); background: #183847; }
 .advisor-hd { transition: color .15s; }
@@ -1174,12 +1280,12 @@ button.toggle {
     <div class="tab-panel" data-tab="today">
       <div class="next" id="next" style="display:none"></div>
 
-      <button class="toggle" id="notify-btn">🔔 Enable next-period alerts</button>
+      <button class="toggle" id="notify-btn"><svg class="ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15.2v-4.4a6 6 0 1 0-12 0v4.4L4.6 17.8h14.8L18 15.2z"/><path d="M10.4 20.4a1.8 1.8 0 0 0 3.2 0"/></svg>Enable next-period alerts</button>
 
       <div class="baro-card" id="baro"></div>
 
       <div class="advisor-card" id="advisor">
-        <div class="advisor-hd">📍 Fishing Advisor</div>
+        <div class="advisor-hd"><svg class="ic" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.2-5.4-6.2-10a6.2 6.2 0 1 1 12.4 0c0 4.6-6.2 10-6.2 10z"/><circle cx="12" cy="10.6" r="2.2"/></svg>Fishing Advisor</div>
         <div id="advisor-map"></div>
         <div class="advisor-body" id="advisor-body">
           <div class="note">Fetching conditions…</div>
@@ -1736,6 +1842,32 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   var KIND = { overhead: 'Moon overhead', underfoot: 'Moon underfoot', moonrise: 'Moonrise', moonset: 'Moonset' };
   var PHASE_ICON = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
 
+  // ---- inline SVG icon system (replaces raw emoji in structural/nav
+  // positions so glyphs inherit color from context instead of rendering as
+  // OS-specific emoji). 24-unit viewBox; ic(name, px) returns a sized <svg>
+  // with class "ic" for consistent inline alignment (see styles.css). ----
+  var ICON_PATHS = {
+    pin:      '<path d="M12 21s-6.2-5.4-6.2-10a6.2 6.2 0 1 1 12.4 0c0 4.6-6.2 10-6.2 10z"/><circle cx="12" cy="10.6" r="2.2"/>',
+    bell:     '<path d="M18 15.2v-4.4a6 6 0 1 0-12 0v4.4L4.6 17.8h14.8L18 15.2z"/><path d="M10.4 20.4a1.8 1.8 0 0 0 3.2 0"/>',
+    layers:   '<path d="M12 3.5 21 8.5l-9 5-9-5 9-5z"/><path d="M3 13.5l9 5 9-5"/>',
+    document: '<path d="M7 3.5h6.5L18 8v12.5H7z"/><path d="M13.5 3.5V8H18"/><path d="M9.8 12.5h4.4M9.8 15.8h4.4"/>',
+    target:   '<circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="4.4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>',
+    gauge:    '<path d="M4.5 16.5a8.5 8.5 0 1 1 15 0"/><path d="M12 15.5l4-4.5"/><circle cx="12" cy="15.5" r="1.4"/>',
+    award:    '<circle cx="12" cy="9" r="5"/><path d="M8.8 13.2 7.2 21l4.8-2.4L16.8 21l-1.6-7.8"/>',
+    droplet:  '<path d="M12 3.5s5.8 6 5.8 10a5.8 5.8 0 1 1-11.6 0c0-4 5.8-10 5.8-10z"/>',
+    info:     '<circle cx="12" cy="12" r="8.4"/><path d="M12 11v5"/><path d="M12 7.8h.01"/>',
+    chevron:  '<path d="M8.5 10l3.5 3.5L15.5 10"/>',
+    calendar: '<rect x="4" y="5.5" width="16" height="15" rx="2.5"/><path d="M8 3.5v4M16 3.5v4M4 10.5h16"/>',
+    fish:     '<path d="M6.8 12c2.4-3.4 5.7-5.2 9-5.2 1.9 1.7 2.9 3.3 2.9 5.2s-1 3.5-2.9 5.2c-3.3 0-6.6-1.8-9-5.2z"/><path d="M6.8 12 3 8.8v6.4L6.8 12z"/><circle cx="14.6" cy="10.9" r=".9" fill="currentColor" stroke="none"/>'
+  };
+  function ic(name, px, extraClass) {
+    var p = ICON_PATHS[name];
+    if (!p) return '';
+    var size = px || 18;
+    return '<svg class="ic' + (extraClass ? ' ' + extraClass : '') + '" viewBox="0 0 24 24" width="' + size + '" height="' + size + '" ' +
+      'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>';
+  }
+
   // ---- bite scale + species outlook ----
   var BITE_LABELS = ['No Bite', 'Slow', 'Moderate', 'Active', 'Hot Bite'];
 
@@ -2112,7 +2244,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       return '<option value="' + s.name + '"' + (s.name === sp.name ? ' selected' : '') + '>' + s.name + '</option>';
     }).join('');
     return '<div class="conditions-head">' +
-        '<div class="bite-scale-label">Bite Conditions</div>' +
+        '<div class="bite-scale-label">' + ic('target', 13) + 'Bite Conditions</div>' +
         '<select id="conditions-species-select" class="conditions-species-select">' + opts + '</select>' +
       '</div>' +
       '<div class="bite-scale-wrap">' + biteScaleHtml(sc) + '</div>' +
@@ -3031,7 +3163,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var hdEl = document.querySelector('.advisor-hd');
     if (hdEl && !hdEl._expandWired) {
       hdEl._expandWired = true;
-      hdEl.innerHTML = '📍 Fishing Advisor <span class="tap-hint" style="float:right;letter-spacing:0">↗ expand</span>';
+      hdEl.innerHTML = ic('pin', 15) + 'Fishing Advisor <span class="tap-hint" style="float:right;letter-spacing:0">↗ expand</span>';
       hdEl.style.cursor = 'pointer';
       hdEl.onclick = openAdvisorModal;
     }
@@ -3630,7 +3762,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     }
     el.innerHTML =
       '<div class="gauge-head">' +
-        '<span class="gauge-name">💧 ' + cleanGaugeName(gauge.name) + '</span>' +
+        '<span class="gauge-name">' + ic('droplet', 14) + cleanGaugeName(gauge.name) + '</span>' +
         '<span class="gauge-dist">' + dist + ' away</span>' +
       '</div>' +
       '<div class="gauge-vals">' +
@@ -3807,27 +3939,32 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     if (state.designations && state.designations.length) {
       badges = '<div class="lake-badges">' + state.designations.map(function(d) {
         var sub = [d.subtype, d.status].filter(Boolean).join(' · ');
-        return '<span class="lake-badge">🎯 ' + d.label +
-          (sub ? '<span class="sub">' + sub + '</span>' : '') + '</span>';
+        return '<span class="lake-badge">' + ic('award', 16) +
+          '<span class="badge-text">' + esc(d.label) +
+          (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</span></span>';
       }).join('') + '</div>';
     }
     // Real per-species regulation text (probe round 4 confirmed the field
     // schema). Fall back to the generic presence note only if we know regs
-    // exist but couldn't parse specifics.
-    var regsNote = '';
+    // exist but couldn't parse specifics. Demoted into the Tier B "Sources &
+    // regulations" disclosure below (finding #3/#4 restructure) — still real
+    // content, just collapsed by default since it's reference detail rather
+    // than at-a-glance info.
+    var regsBody = '';
     if (state.lakeRegs && state.lakeRegs.length) {
-      regsNote = '<div class="lake-regs">' +
-        '<div class="lake-regs-hd">📋 Fishing regulations</div>' +
+      regsBody = '<div class="lake-regs">' +
+        '<div class="lake-regs-hd">' + ic('document', 14) + 'Fishing regulations</div>' +
         state.lakeRegs.map(function(r) {
           return '<div class="lake-reg-item"><span class="lake-reg-sp">' + r[0] + '</span> ' + esc(r[1]) + '</div>';
         }).join('') +
-        '<div class="lake-info-caveat">Regulations change — always confirm against the current WI DNR rules before keeping fish.</div>' +
-        '</div>';
+        '</div>' +
+        '<div class="lake-info-caveat">Regulations change — always confirm against the current WI DNR rules before keeping fish.</div>';
     } else if (state.hasLakeRegs) {
-      regsNote = '<div class="lake-regs-note">⚠️ Lake-specific fishing regulations are on file for this water — check current WI DNR rules before keeping fish.</div>';
+      regsBody = '<div class="lake-regs-note">⚠️ Lake-specific fishing regulations are on file for this water — check current WI DNR rules before keeping fish.</div>';
     }
     // Stocking-history summary ("Stocked N of the last 15 years: species"),
     // built from the per-lake STOCKING_RECORDS_JSON (probe round 4).
+    // Compressed into one inset summary row rather than its own card.
     var stockingHtml = '';
     if (state.stockingHistory && state.stockingHistory.length) {
       var thisYear = new Date().getFullYear();
@@ -3841,26 +3978,39 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       var yrCount = Object.keys(years).length;
       var spList = Object.keys(speciesSet);
       if (yrCount) {
-        stockingHtml = '<div class="lake-stocking">' +
-          '<span class="lake-stocking-hd">🐟 Stocked ' + yrCount + ' of the last 15 years</span>' +
-          (spList.length ? '<div class="lake-stocking-sp">' + esc(spList.join(', ')) + '</div>' : '') +
-          '</div>';
+        stockingHtml = '<div class="lake-stocking">' + ic('fish', 16) +
+          '<div class="lake-stocking-body">' +
+            '<span class="lake-stocking-hd">Stocked ' + yrCount + ' of the last 15 years</span>' +
+            (spList.length ? '<div class="lake-stocking-sp">' + esc(spList.join(', ')) + '</div>' : '') +
+          '</div></div>';
       }
     }
     // Embedded official DNR lake viewer — this is the depth-contour MAP the
     // user asked to see on the tab. Box 4 of the on-device probe proved the
     // DNR LakeDetail viewer renders inside an iframe from this origin (the
     // PDF URLs 404'd; this viewer works and has a Map tab with contours).
-    // WI only (needs a WBIC).
+    // WI only (needs a WBIC). Wrapped in a recessed "well" with a loading
+    // skeleton (concentric rings + shimmer) that fades out once the
+    // cross-origin iframe fires onload — it still fires even though we can't
+    // read the iframe's contents, so this works without touching DNR's page.
+    // If the iframe is blocked/offline, the skeleton just stays up looking
+    // intentional instead of the iframe's own white background flashing in.
     var mapCard = '';
     if (info.wbic && _inWisconsin(info.lat != null ? info.lat : state.loc.lat, info.lng != null ? info.lng : state.loc.lng)) {
+      var mapUrl = 'https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic;
       mapCard = '<div class="lake-map-embed">' +
-        '<div class="lake-map-hd">🗺 Depth map — WI DNR</div>' +
-        '<iframe class="lake-map-frame" loading="lazy" referrerpolicy="no-referrer" ' +
-          'title="WI DNR lake map for ' + esc(info.name) + '" ' +
-          'src="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '"></iframe>' +
+        '<div class="lake-map-hd">' + ic('layers', 14) + 'Depth map — WI DNR</div>' +
+        '<div class="lake-map-well">' +
+          '<iframe class="lake-map-frame" loading="lazy" referrerpolicy="no-referrer" ' +
+            'title="WI DNR lake map for ' + esc(info.name) + '" ' +
+            'src="' + mapUrl + '"></iframe>' +
+          '<div class="lake-map-skeleton">' + ic('layers', 26) +
+            '<span class="lms-label">Loading depth contours…</span>' +
+            '<span class="lms-shimmer"></span>' +
+          '</div>' +
+        '</div>' +
         '<div class="lake-map-hint">Tap <b>Map</b> in the viewer above for the depth-contour map. ' +
-          '<a target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">Open full screen ↗</a></div>' +
+          '<a target="_blank" rel="noopener" href="' + mapUrl + '">Open full screen ↗</a></div>' +
         '</div>';
     }
     // Split species by source confidence rather than presenting one flat
@@ -3871,6 +4021,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     // location are not independently confirmed. Neither source is a
     // comprehensive survey of everything living in the lake.
     var speciesLine = '';
+    var speciesCaveat = '';
     if (state.knownSpecies && state.knownSpecies.length) {
       var dnrSpecies = [], obsOnlySpecies = [];
       state.knownSpecies.forEach(function(s) {
@@ -3896,29 +4047,59 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         parts.push('<div class="species-group"><div class="species-group-lbl low">◌ Reported nearby · unverified</div>' +
           chipRow(obsOnlySpecies, true) + '</div>');
       }
-      parts.push('<div class="lake-info-caveat">Sources cover WI DNR records (stocking + designated waters) and nearby citizen observations — none is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>');
       speciesLine = parts.join('');
+      // Demoted into the Tier B disclosure along with the regs caveat —
+      // still real content, not deleted, just no longer always-on italic text.
+      speciesCaveat = '<div class="lake-info-caveat">Sources cover WI DNR records (stocking + designated waters) and nearby citizen observations — none is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>';
     }
     var reportLink = info.wbic
-      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">📄 WI DNR lake report — surveys &amp; depth contour map ↗</a>'
+      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">' + ic('document', 14) + 'WI DNR lake report — surveys &amp; depth contour map ↗</a>'
       : '';
-    var classNote = state.lakeClassNote
-      ? '<div class="lake-info-note">' + esc(state.lakeClassNote) + '</div>' : '';
+    // One-line fishery/trophic character notes (our own derived note, plus
+    // the DNR classification's own FISHERIES text when available) — closes
+    // out the "at a glance" card.
+    var fisheryNotes = '';
+    if (note) fisheryNotes += '<div class="lake-info-fishery-note">' + ic('droplet', 14) + '<span>' + note + '</span></div>';
+    if (state.lakeClassNote) fisheryNotes += '<div class="lake-info-fishery-note">' + ic('droplet', 14) + '<span>' + esc(state.lakeClassNote) + '</span></div>';
+
+    // Tier A — "at a glance": name, badges, stat grid, depth map, stocking,
+    // species, fishery notes. Tier B — demoted detail (regs table, both
+    // source caveats, DNR report link) behind one collapsed disclosure.
+    var statGrid = rows.length
+      ? '<div class="lake-stat-grid">' + rows.map(function(r) {
+          return '<div class="lake-stat-tile"><div class="lake-stat-label">' + r[0] + '</div><div class="lake-stat-val">' + esc(r[1]) + '</div>' +
+            (r[2] ? '<div class="lake-stat-src">' + esc(r[2]) + '</div>' : '') + '</div>';
+        }).join('') + '</div>'
+      : '<div class="lake-info-nodata">No additional lake data found</div>';
+
+    var detailsBody = regsBody + speciesCaveat + reportLink;
+    var sourcesDisclosure = detailsBody
+      ? '<details class="lake-sources-details"><summary class="lake-sources-summary">' +
+          '<span>' + ic('info', 14) + 'Sources &amp; regulations</span>' + ic('chevron', 14, 'lsd-chevron') +
+        '</summary><div class="lake-sources-body">' + detailsBody + '</div></details>'
+      : '';
+
     el.innerHTML =
       '<div class="lake-info-name">' + esc(info.name) + '</div>' +
       badges +
-      (rows.length ? '<div class="lake-info-grid">' +
-        rows.map(function(r) {
-          return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + esc(r[1]) + '</div>' +
-            (r[2] ? '<div class="lake-info-src">' + esc(r[2]) + '</div>' : '') + '</div>';
-        }).join('') + '</div>' : '<div class="lake-info-nodata">No additional lake data found</div>') +
+      statGrid +
       mapCard +
       stockingHtml +
       speciesLine +
-      (note ? '<div class="lake-info-note">' + note + '</div>' : '') +
-      classNote +
-      regsNote +
-      reportLink;
+      fisheryNotes +
+      sourcesDisclosure;
+
+    // Wire the depth-map skeleton to fade out once the (cross-origin) iframe
+    // fires onload — it still fires even though we can't read the content,
+    // so this works without any cooperation from the DNR page.
+    var mapIframeEl = el.querySelector('.lake-map-frame');
+    var mapSkelEl = el.querySelector('.lake-map-skeleton');
+    if (mapIframeEl && mapSkelEl) {
+      mapIframeEl.onload = function() {
+        mapSkelEl.style.opacity = '0';
+        setTimeout(function() { mapSkelEl.style.display = 'none'; }, 300);
+      };
+    }
   }
 
   // Merge species from record-based sources (stocking + iNaturalist) and
@@ -4365,7 +4546,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       if (!resEl) return;
       resEl.innerHTML = results.map(function(r, i) {
         var place = [r.name, r.admin1, r.country_code].filter(Boolean).join(', ');
-        return '<div class="city-result" data-idx="' + i + '">📍 ' + place + '</div>';
+        return '<div class="city-result" data-idx="' + i + '">' + ic('pin', 14) + place + '</div>';
       }).join('');
       resEl.querySelectorAll('.city-result').forEach(function(row) {
         row.onclick = function() {
