@@ -598,7 +598,37 @@
     ]).then(finish);
   }
 
+  // Quick-access duplicate of the Lake-tab "Nearby waters" dropdown, surfaced
+  // at the top of the page next to the city search box. Reuses the same
+  // state.nearbyWaters / selectWater infrastructure so the two dropdowns
+  // never drift out of sync.
+  function renderLakeJump() {
+    var el = document.getElementById('lake-jump');
+    if (!el) return;
+    var placeholder = state.nearbyWaters.length ?
+      '🎣 Jump to a nearby lake…' : 'Finding nearby lakes…';
+    var hasSelected = false;
+    var opts = state.nearbyWaters.map(function(w, i) {
+      var selected = w.name === state.loc.name;
+      if (selected) hasSelected = true;
+      var icon = w.type === 'river' ? '🏞' : '🫧';
+      return '<option value="' + i + '"' + (selected ? ' selected' : '') + '>' +
+        icon + ' ' + esc(w.name) + ' · ' + fmtDist(w.dist) +
+      '</option>';
+    }).join('');
+    el.innerHTML =
+      '<select id="lake-jump-select" class="lake-jump-select">' +
+      '<option value=""' + (hasSelected ? '' : ' selected') + ' disabled>' + esc(placeholder) + '</option>' +
+      opts + '</select>';
+    var sel = document.getElementById('lake-jump-select');
+    sel.onchange = function() {
+      var w = state.nearbyWaters[+sel.value];
+      if (w) selectWater(w.name, w.clat != null ? w.clat : w.lat, w.clng != null ? w.clng : w.lng, w.radiusM);
+    };
+  }
+
   function renderNearbyWaters() {
+    renderLakeJump();
     var el = document.getElementById('nearby-waters');
     if (!el || !state.nearbyWaters.length) return;
     var opts = state.nearbyWaters.map(function(w, i) {
@@ -2704,6 +2734,7 @@
     document.getElementById('notify-btn').onclick = enableNotifications;
     wireCitySearch();
     wireTabs();
+    renderLakeJump();
     recompute();
     renderClock();
     setInterval(function () { renderNext(); renderClock(); renderHero(); }, 1000);
