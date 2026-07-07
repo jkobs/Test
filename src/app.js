@@ -23,6 +23,8 @@
   var _speciesFilter = '';
   var _selectedSpeciesName = 'Walleye';
   var _searchMode = 'city'; // 'city' | 'lake' — toggled by #search-mode, drives #city-go/#city-input Enter handler
+  var _revGeoCache = {}; // lat.toFixed(3)+','+lng.toFixed(3) -> Promise<label string> (reverse-geocode results, session-cached)
+  var _lakeSearchToken = 0; // bumped on each searchLakeByName render so stale async reverse-geocode fills are dropped
 
   var SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   var TOPO_URL = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}';
@@ -2679,6 +2681,39 @@
     });
   }
 
+  // Reverse-geocode a lake centroid into "nearest city, county, state" via
+  // BigDataCloud's free client endpoint (no API key, CORS-enabled). Used to
+  // disambiguate same-named lakes in search results by location instead of
+  // raw coordinates. Parses defensively — any missing field is just omitted
+  // from the joined label — and falls back to the coordinate string if
+  // nothing resolves or the request errors, so a result row is never blank.
+  // Results are cached (by 3-decimal lat,lng) so repeated searches / duplicate
+  // centroids don't refetch.
+  function reverseGeocodeLake(lat, lng) {
+    var key = lat.toFixed(3) + ',' + lng.toFixed(3);
+    if (_revGeoCache[key]) return _revGeoCache[key];
+    var fallback = lat.toFixed(2) + ', ' + lng.toFixed(2);
+    var url = 'https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' +
+      encodeURIComponent(lat) + '&longitude=' + encodeURIComponent(lng) + '&localityLanguage=en';
+    var p = fetchJson(url).then(function(j) {
+      var place = (j && j.city) || (j && j.locality) || '';
+      var abbr = '';
+      if (j && j.principalSubdivisionCode) abbr = String(j.principalSubdivisionCode).replace(/^US-/, '');
+      else if (j && j.principalSubdivision) abbr = j.principalSubdivision;
+      var county = '';
+      if (j && j.localityInfo && Object.prototype.toString.call(j.localityInfo.administrative) === '[object Array]') {
+        var admin = j.localityInfo.administrative;
+        for (var i = 0; i < admin.length; i++) {
+          if (admin[i] && admin[i].name && /county/i.test(admin[i].name)) { county = admin[i].name; break; }
+        }
+      }
+      var pieces = [place, county, abbr].filter(function(s) { return !!s; });
+      return pieces.length ? pieces.join(', ') : fallback;
+    }, function() { return fallback; });
+    _revGeoCache[key] = p;
+    return p;
+  }
+
   // ---- statewide lake-by-name search (USGS NHD layer 12 = waterbodies) ----
   // Unlike geocodeCity (place names via Open-Meteo), this queries NHD directly
   // by GNIS_NAME with no geometry filter, so it can find ANY named lake in the
@@ -2686,7 +2721,8 @@
   // optional trailing state, but NHD layer 12 has no confirmed state field, so
   // that state is NOT used to filter — it's parsed only so "Trout Lake, WI"
   // doesn't literally search for a lake named "Trout Lake, WI". Results are
-  // disambiguated by showing coordinates instead.
+  // disambiguated by showing each lake's nearest city/county/state, reverse-
+  // geocoded from its centroid (see reverseGeocodeLake).
   function searchLakeByName(query) {
     var resEl = document.getElementById('city-results');
     if (!query || !query.trim()) return;
@@ -2745,10 +2781,17 @@
         return;
       }
       if (!resEl) return;
+      // Bump the token so any in-flight reverse-geocode fills from a PRIOR
+      // render (a previous search) know they're stale and skip writing.
+      var token = ++_lakeSearchToken;
       resEl.innerHTML = results.map(function(r, i) {
         var acresStr = r.acres != null ? r.acres + ' ac' : '? ac';
-        return '<div class="city-result" data-idx="' + i + '">🫧 ' + esc(r.name) + ' · ' + acresStr + ' · ' +
-          r.lat.toFixed(2) + ', ' + r.lng.toFixed(2) + '</div>';
+        var coordStr = r.lat.toFixed(2) + ', ' + r.lng.toFixed(2);
+        // Coordinate placeholder shown immediately; reverse-geocoded location
+        // context (nearest city/county/state) fills in below once resolved —
+        // keeps the raw coords available via title in the meantime.
+        return '<div class="city-result" data-idx="' + i + '" title="' + esc(coordStr) + '">🫧 ' + esc(r.name) + ' · ' + acresStr + ' · ' +
+          '<span class="loc-ctx" data-idx="' + i + '">…</span></div>';
       }).join('');
       resEl.querySelectorAll('.city-result').forEach(function(row) {
         row.onclick = function() {
@@ -2758,6 +2801,17 @@
           var inp = document.getElementById('city-input');
           if (inp) inp.value = '';
         };
+      });
+      // Fire reverse-geocode lookups in parallel; fill each .loc-ctx span as
+      // its lookup resolves. Guarded by `token` so a subsequent search (which
+      // bumps _lakeSearchToken and re-renders #city-results) can't have a
+      // late-arriving lookup from THIS render overwrite its rows.
+      results.forEach(function(r, i) {
+        reverseGeocodeLake(r.lat, r.lng).then(function(label) {
+          if (token !== _lakeSearchToken) return; // stale — superseded by a newer search
+          var span = resEl.querySelector('.loc-ctx[data-idx="' + i + '"]');
+          if (span) span.textContent = label;
+        });
       });
     }
 

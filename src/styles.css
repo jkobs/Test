@@ -103,6 +103,7 @@ header h1 { font-size: 20px; margin: 0; }
 }
 .city-result:hover { border-color: var(--minor); background: var(--card2); }
 .city-loading, .city-noresult { color: var(--muted); font-size: 12px; padding: 6px 0; }
+.loc-ctx { color: var(--muted); } /* de-emphasized location context on lake-search result rows */
 
 /* Next-period banner + countdown */
 .next {
