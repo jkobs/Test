@@ -2112,14 +2112,23 @@
     var info = state.lakeInfo;
     if (!info) { el.innerHTML = ''; return; }
     var rows = [];
+    // Third element (optional) = a short source attribution shown under the
+    // value. Added specifically for stats sourced from the WI DNR's lake
+    // CLASSIFICATION survey (maxDepth, lakeClass) after a real user-reported
+    // case (Cedar Lake) where that dataset's own depth figure (28 ft)
+    // genuinely disagreed with the DNR's separate public lake-report page
+    // (32 ft) — two official DNR datasets, no code-level tie-breaker. Labeling
+    // the source makes that an explainable "two datasets differ" instead of
+    // looking like an app bug when a user cross-checks against the embedded
+    // report below.
     if (info.type) rows.push(['Type', info.type.charAt(0).toUpperCase() + info.type.slice(1)]);
     if (info.area) rows.push(['Surface area', info.area]);
-    if (info.maxDepth) rows.push(['Max depth', info.maxDepth]);
+    if (info.maxDepth) rows.push(['Max depth', info.maxDepth, 'DNR lake classification survey']);
     if (info.avgDepth) rows.push(['Avg depth', info.avgDepth]);
     if (info.elevation) rows.push(['Elevation', info.elevation]);
     if (info.trophic) rows.push(['Trophic status', info.trophic]);
     if (info.clarity) rows.push(['Water clarity', info.clarity]);
-    if (info.lakeClass) rows.push(['Lake class', info.lakeClass]);
+    if (info.lakeClass) rows.push(['Lake class', info.lakeClass, 'DNR lake classification survey']);
     var note = _trophicFishingNote(info);
     // Official DNR fisheries designations (e.g. "Walleye Water · Natural
     // Reproduction Only · Confirmed") — the strongest per-lake fish signal
@@ -2230,7 +2239,8 @@
       badges +
       (rows.length ? '<div class="lake-info-grid">' +
         rows.map(function(r) {
-          return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + esc(r[1]) + '</div></div>';
+          return '<div class="lake-info-item"><div class="lake-info-label">' + r[0] + '</div><div class="lake-info-val">' + esc(r[1]) + '</div>' +
+            (r[2] ? '<div class="lake-info-src">' + esc(r[2]) + '</div>' : '') + '</div>';
         }).join('') + '</div>' : '<div class="lake-info-nodata">No additional lake data found</div>') +
       mapCard +
       stockingHtml +

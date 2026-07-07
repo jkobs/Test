@@ -156,6 +156,21 @@ check('lake classification + fishery note render',
 // The DNR figure must win regardless of which async fetch resolves first.
 check('WI DNR surveyed max depth (32 ft) wins over conflicting Wikidata value (28 ft)',
   lakeInfoText.includes('32 ft') && !lakeInfoText.includes('28 ft'));
+// Real-world follow-up: the WI DNR's OWN classification dataset can disagree
+// with its separate public lake-report page (confirmed on-device: 28 ft vs
+// 32 ft for an actual lake, both "official" WI DNR data with no code-level
+// tie-breaker). Max depth and lake class are now source-attributed so that
+// disagreement reads as "two datasets differ," not an app bug.
+check('max depth stat is attributed to the DNR classification survey',
+  await page.$$eval('.lake-info-item', els => {
+    const item = els.find(e => e.textContent.includes('Max depth'));
+    return !!item && item.textContent.includes('DNR lake classification survey');
+  }).catch(() => false));
+check('lake class stat is attributed to the DNR classification survey',
+  await page.$$eval('.lake-info-item', els => {
+    const item = els.find(e => e.textContent.includes('Lake class'));
+    return !!item && item.textContent.includes('DNR lake classification survey');
+  }).catch(() => false));
 check('stocking-history summary renders (N of last 15 years + species)',
   /Stocked \d+ of the last 15 years/.test(lakeInfoText) && lakeInfoText.includes('Muskellunge'));
 
