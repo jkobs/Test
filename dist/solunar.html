@@ -3998,30 +3998,34 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       }
     }
     // Embedded official DNR lake viewer — this is the depth-contour MAP the
-    // user asked to see on the tab. Box 4 of the on-device probe proved the
-    // DNR LakeDetail viewer renders inside an iframe from this origin (the
-    // PDF URLs 404'd; this viewer works and has a Map tab with contours).
-    // WI only (needs a WBIC). Wrapped in a recessed "well" with a loading
-    // skeleton (concentric rings + shimmer) that fades out once the
-    // cross-origin iframe fires onload — it still fires even though we can't
-    // read the iframe's contents, so this works without touching DNR's page.
-    // If the iframe is blocked/offline, the skeleton just stays up looking
-    // intentional instead of the iframe's own white background flashing in.
+    // user asked to see on the tab. On-device probing (2026-07) found the
+    // DNR's actual survey PDF, keyed by WBIC, at a direct URL pattern
+    // (apps.dnr.wi.gov/doclink/lakes_maps/<wbic>a.pdf) — confirmed working
+    // for 3 independent lakes across different counties (a 4th WBIC without
+    // the "a" suffix correctly 404'd, confirming the pattern is exact, not
+    // coincidental). Embedded directly so real contour lines show immediately
+    // instead of requiring an extra tap into a nested DNR app UI. WI only
+    // (needs a WBIC). Wrapped in a recessed "well" with a loading skeleton
+    // (concentric rings + shimmer) that fades out once the cross-origin
+    // iframe fires onload — it still fires even though we can't read the
+    // iframe's contents, so this works without touching DNR's page. If the
+    // iframe is blocked/offline/the lake has no survey on file, the skeleton
+    // just stays up looking intentional instead of a blank page flashing in.
     var mapCard = '';
     if (info.wbic && _inWisconsin(info.lat != null ? info.lat : state.loc.lat, info.lng != null ? info.lng : state.loc.lng)) {
-      var mapUrl = 'https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic;
+      var mapUrl = 'https://apps.dnr.wi.gov/doclink/lakes_maps/' + info.wbic + 'a.pdf';
       mapCard = '<div class="lake-map-embed">' +
         '<div class="lake-map-hd">' + ic('layers', 14) + 'Depth map — WI DNR</div>' +
         '<div class="lake-map-well">' +
           '<iframe class="lake-map-frame" loading="lazy" referrerpolicy="no-referrer" ' +
-            'title="WI DNR lake map for ' + esc(info.name) + '" ' +
+            'title="WI DNR depth-contour survey for ' + esc(info.name) + '" ' +
             'src="' + mapUrl + '"></iframe>' +
           '<div class="lake-map-skeleton">' + ic('layers', 26) +
             '<span class="lms-label">Loading depth contours…</span>' +
             '<span class="lms-shimmer"></span>' +
           '</div>' +
         '</div>' +
-        '<div class="lake-map-hint">Tap <b>Map</b> in the viewer above for the depth-contour map. ' +
+        '<div class="lake-map-hint">Official WI DNR depth-contour survey. ' +
           '<a target="_blank" rel="noopener" href="' + mapUrl + '">Open full screen ↗</a></div>' +
         '</div>';
     }
@@ -4065,7 +4069,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       speciesCaveat = '<div class="lake-info-caveat">Sources cover WI DNR records (stocking + designated waters) and nearby citizen observations — none is a full survey, so absence from this list doesn\'t mean a species isn\'t present.</div>';
     }
     var reportLink = info.wbic
-      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">' + ic('document', 14) + 'WI DNR lake report — surveys &amp; depth contour map ↗</a>'
+      ? '<a class="lake-info-link" target="_blank" rel="noopener" href="https://apps.dnr.wi.gov/lakes/lakepages/LakeDetail.aspx?wbic=' + info.wbic + '">' + ic('document', 14) + 'WI DNR lake report — surveys, regs &amp; access ↗</a>'
       : '';
     // One-line fishery/trophic character notes (our own derived note, plus
     // the DNR classification's own FISHERIES text when available) — closes

@@ -177,10 +177,11 @@ check('lake class stat is attributed to the DNR classification survey',
 check('stocking-history summary renders (N of last 15 years + species)',
   /Stocked \d+ of the last 15 years/.test(lakeInfoText) && lakeInfoText.includes('Muskellunge'));
 
-// The embedded DNR depth-map viewer must be present, pointed at the WBIC.
-check('embedded WI DNR lake-map iframe present, keyed by WBIC',
+// The embedded DNR depth-contour PDF must be present, keyed by WBIC. Pattern
+// confirmed on-device (round 7) across 3 independent lakes/counties.
+check('embedded WI DNR depth-contour PDF present, keyed by WBIC',
   await page.$eval('.lake-map-frame', el => el.getAttribute('src'))
-    .then(src => src.includes('LakeDetail.aspx') && src.includes('wbic=2615100')).catch(() => false));
+    .then(src => src.includes('doclink/lakes_maps/2615100a.pdf')).catch(() => false));
 
 // Species outlook must now include Walleye (it was invisible pre-fix).
 const outlookText = await page.$eval('#species-rows', el => el.textContent).catch(() => '');
