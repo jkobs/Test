@@ -6,11 +6,20 @@ workflow triggers on `master`, not `main`).
 
 ## Working model preference (set by the user)
 
-Use an **Opus model as the ADVISOR** and a **Sonnet model as the EXECUTOR**.
+Use an **Opus model as the ADVISOR**; the **EXECUTOR is Sonnet or Haiku**,
+chosen per task to maximize token efficiency (fewest total tokens to a
+*correct* result — not lowest price per token; a weak executor that loops on
+failing tests costs more than one clean pass).
 - Opus (advisor): understands the request, inspects the codebase, designs the
   approach, writes a precise self-contained spec, and reviews the result.
-- Sonnet (executor): implements the code changes, builds, and runs tests.
-  Dispatch it via the Agent tool with `model: "sonnet"`.
+- Executor (Agent tool with `model: "haiku"` or `"sonnet"`): implements code,
+  builds, runs tests. Pick the tier:
+  - **Haiku** for tightly-specced, mechanical work — reusing existing
+    functions, contained edits, clear acceptance criteria.
+  - **Sonnet** for iterative test-debugging-to-green, novel integration (new
+    data source / new UI mode), or anything not fully pinnable up front.
+  - **Haiku-first with escalation** when borderline: start Haiku; if it stalls
+    (tests won't go green, loops), escalate that task to Sonnet.
 - The advisor handles final review, commit/push to `master`, and deploy
   verification.
 
