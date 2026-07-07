@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fishing Advisor — Data Source Probe (round 5: depth mismatch)</title>
+<title>Fishing Advisor — Data Source Probe (round 6: fish survey data)</title>
 <style>
   :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553;
           --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; }
@@ -24,15 +24,15 @@
 </style>
 </head>
 <body>
-<h1>🎣 Data Source Probe — round 5: Cedar Lake depth mismatch</h1>
+<h1>🎣 Data Source Probe — round 6: fish survey data (length/abundance)</h1>
 <div class="intro">
-  The app's card shows 28 ft; the DNR's own embedded lake page says 32 ft. This
-  round asks the WI DNR classification service for Cedar Lake's RAW record
-  three different ways — the exact query the app uses (a 150m point search),
-  a wider net (5000m), and a direct WBIC lookup (unambiguous, no distance
-  involved) — to see exactly what number it actually has on file, and whether
-  the app's query is even finding the right record. Wait ~15s, tap
-  <b>Copy report</b>, paste it back.
+  Goal: find WI DNR's actual fish-SURVEY database (individual species length ranges +
+  relative abundance vs. state average — what onX Fish shows as "Top Species"). This is
+  DIFFERENT from the stocking database we already use. Rounds 1-4 tried several plausible
+  service names under FM_SURVEYS/FM_DFM and all 404'd — this round tries more names plus
+  the DNR's public open-data search with better terms. Wait ~20s, tap <b>Copy report</b>,
+  paste it back. Honest expectation: this may come back empty again — if so, this data
+  likely isn't exposed as a public API and we'll consider the search closed.
 </div>
 <button id="copy">📋 Copy report</button>
 <div id="out"></div>
@@ -41,7 +41,7 @@
 <script>
 (function () {
   'use strict';
-  var R = { generated: new Date().toISOString(), round: 5, results: [] };
+  var R = { generated: new Date().toISOString(), round: 6, results: [] };
   var out = document.getElementById('out');
 
   function sec(title) {
@@ -62,7 +62,7 @@
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
 
   function j(url, ms) {
-    ms = ms || 15000;
+    ms = ms || 12000;
     var ctrl = new AbortController();
     var t = setTimeout(function () { ctrl.abort(); }, ms);
     return fetch(url, { signal: ctrl.signal }).then(function (r) {
@@ -72,77 +72,72 @@
     }, function (e) { clearTimeout(t); throw e; });
   }
 
-  var LAT = 45.21614, LNG = -92.57153; // Cedar Lake centroid (confirmed via WBIC lookup, prior probe rounds)
-  var WBIC = 2615100;
-  var CLASS_SVC = 'https://dnrmaps.wi.gov/arcgis2/rest/services/FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT/MapServer/0';
+  var A2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
+  var A1 = 'https://dnrmaps.wi.gov/arcgis/rest/services';
 
-  function pointQuery(distM) {
-    return CLASS_SVC + '/query?f=json' +
-      '&geometry=' + LNG + ',' + LAT + '&geometryType=esriGeometryPoint&inSR=4326' +
-      '&spatialRel=esriSpatialRelIntersects&distance=' + distM + '&units=esriSRUnit_Meter' +
-      '&outFields=*&returnGeometry=false&resultRecordCount=5';
-  }
-  function wbicQuery() {
-    return CLASS_SVC + '/query?f=json&where=' + encodeURIComponent('WBIC=' + WBIC) +
-      '&outFields=*&returnGeometry=false&resultRecordCount=5';
-  }
+  // ---- 1. More service-name guesses under folders already known to exist ----
+  var log1 = sec('1 · More service-name guesses (FM_SURVEYS / FM_DFM / FM_WFF / TS_AGOL_STAGING_SERVICES)');
+  var GUESSES = [
+    [A2, 'FM_SURVEYS/FM_FISH_SURVEYS'], [A2, 'FM_SURVEYS/Fish_Survey_Data'],
+    [A2, 'FM_SURVEYS/FMDB'], [A2, 'FM_SURVEYS/FM_SURVEY_DATA_PUBLIC'],
+    [A2, 'FM_SURVEYS/FM_FISH_SURVEY_PUBLIC'], [A2, 'FM_SURVEYS/FM_SURVEYS'],
+    [A2, 'FM_DFM/FM_FISH_SURVEYS_PUBLIC'], [A2, 'FM_DFM/FMDB_PUBLIC'],
+    [A2, 'FM_DFM/FM_FISH_SURVEYS'], [A2, 'FM_DFM/FM_SURVEY_DATA'],
+    [A2, 'FM_WFF/FM_FISH_SURVEYS'], [A2, 'FM_WFF/FM_SURVEY_DATA'],
+    [A2, 'FM_WFF/FH_FISH_SURVEYS'], [A2, 'FM_WFF/FH_SURVEY_DATA'],
+    [A1, 'FM_Fisheries/FM_Fish_Survey_Public'], [A1, 'FM_Fisheries/FM_FISH_SURVEYS_PUBLIC']
+  ];
+  GUESSES.forEach(function (p) {
+    j(p[0] + '/' + p[1] + '/MapServer?f=json', 8000).then(function (js) {
+      if (js.error) { log1('warn', p[1] + ' — ' + esc(JSON.stringify(js.error).slice(0, 100))); return; }
+      log1('ok', '<b>' + esc(p[1]) + ' EXISTS!</b> layers: ' +
+        esc((js.layers || []).map(function (l) { return l.id + ':' + l.name; }).join(' | ') || '(none)'));
+    }).catch(function (e) { log1('warn', p[1] + ' — ' + esc(e.message)); });
+  });
 
-  function reportFeatures(logFn, label, js) {
-    var feats = (js && js.features) || [];
-    if (!feats.length) { logFn('warn', label + ' — 0 records'); return; }
-    feats.forEach(function (f) {
-      var a = JSON.stringify(f.attributes);
-      var hasDepth = f.attributes && f.attributes.MAXDEP_FT != null;
-      logFn(hasDepth ? 'ok' : 'warn', '<b>' + label + '</b> → ' +
-        (hasDepth ? '<span class="hit">MAXDEP_FT=' + f.attributes.MAXDEP_FT + '</span> — ' : '(no MAXDEP_FT field) — ') +
-        esc(a));
+  // ---- 2. Full listing of TS_AGOL_STAGING_SERVICES (only partially seen before) ----
+  var log2 = sec('2 · TS_AGOL_STAGING_SERVICES — full folder listing');
+  j(A2 + '/TS_AGOL_STAGING_SERVICES?f=json').then(function (js) {
+    var svcs = (js.services || []).map(function (s) {
+      var nm = s.name + ' (' + s.type + ')';
+      return /fish|survey|FM_/i.test(s.name) ? '<span class="hit">' + esc(nm) + '</span>' : esc(nm);
     });
-  }
+    log2('ok', svcs.join(' | ') || '(empty)');
+  }).catch(function (e) { log2('bad', esc(e.message)); });
 
-  // ---- 1. EXACT query the app uses in production (150m point search) ----
-  var log1 = sec('1 · App\'s exact query — 150m point-intersect (what the app actually gets)');
-  j(pointQuery(150)).then(function (js) {
-    reportFeatures(log1, '150m point search', js);
-  }).catch(function (e) { log1('bad', '150m point search failed: ' + esc(e.message)); });
-
-  // ---- 2. Wider net — is 150m just too tight? ----
-  var log2 = sec('2 · Wider net — 5000m point-intersect (is the real polygon centroid farther away?)');
-  j(pointQuery(5000)).then(function (js) {
-    reportFeatures(log2, '5000m point search', js);
-  }).catch(function (e) { log2('bad', '5000m point search failed: ' + esc(e.message)); });
-
-  // ---- 3. Direct WBIC lookup — unambiguous, no distance/geometry involved ----
-  var log3 = sec('3 · Direct WBIC=2615100 lookup (no distance — the definitive record)');
-  j(wbicQuery()).then(function (js) {
-    reportFeatures(log3, 'WBIC lookup', js);
-  }).catch(function (e) { log3('bad', 'WBIC lookup failed: ' + esc(e.message)); });
-
-  // ---- 4. For reference: confirm Wikidata's conflicting number is really 28 ----
-  var log4 = sec('4 · Wikidata\'s depth claim (for reference — already suspected to be 28 ft)');
-  var q = '[out:json][timeout:10];(' +
-    'way["natural"="water"]["name"~"Cedar Lake",i](around:3000,' + LAT + ',' + LNG + ');' +
-  ');out tags;';
-  fetch('https://overpass.private.coffee/api/interpreter', {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'data=' + encodeURIComponent(q)
-  }).then(function (r) { return r.json(); }).then(function (ov) {
-    var el = (ov.elements || []).find(function (e) { return e.tags && e.tags.wikidata; });
-    if (!el) { log4('warn', 'No OSM element with a wikidata tag found nearby'); return; }
-    var qid = el.tags.wikidata;
-    log4('ok', 'Found wikidata QID: ' + qid);
-    return j('https://www.wikidata.org/wiki/Special:EntityData/' + qid + '.json').then(function (wd) {
-      var claims = (wd.entities && wd.entities[qid] && wd.entities[qid].claims) || {};
-      var depths = (claims.P4511 || []).map(function (c) {
-        var dv = c.mainsnak && c.mainsnak.datavalue;
-        return dv ? dv.value.amount + ' ' + (dv.value.unit || '') : '?';
+  // ---- 3. DNR open-data hub search with better terms ----
+  var log3 = sec('3 · DNR open-data catalog search (fish survey terms)');
+  ['fish survey', 'fisheries survey', 'fish community', 'electrofishing',
+   'walleye population', 'fish length', 'FMDB'].forEach(function (q) {
+    j('https://data-wi-dnr.opendata.arcgis.com/api/search/v1/collections/all/items?q=' +
+      encodeURIComponent(q) + '&limit=6', 10000).then(function (js) {
+      var feats = js.features || [];
+      if (!feats.length) { log3('warn', '"' + esc(q) + '" — 0 results'); return; }
+      feats.forEach(function (f) {
+        var p = f.properties || {};
+        log3('ok', '"' + esc(q) + '" → <b>' + esc(p.title || f.id) + '</b> [' + esc(p.type || '?') + ']' +
+          (p.url ? '<br>' + esc(p.url) : ''));
       });
-      log4(depths.length ? 'ok' : 'warn', 'P4511 depth claims: ' + esc(depths.join(' | ') || '(none)'));
-    });
-  }).catch(function (e) { log4('warn', 'Wikidata chain failed: ' + esc(e.message)); });
+    }).catch(function (e) { log3('bad', '"' + esc(q) + '": ' + esc(e.message)); });
+  });
+
+  // ---- 4. ArcGIS Online broader search ----
+  var log4 = sec('4 · ArcGIS Online search (fish survey / owner variants)');
+  ['wisconsin fish survey data', 'WDNR fisheries survey', 'fish community data wisconsin',
+   'owner:wi_dnr', 'owner:widnr'].forEach(function (q) {
+    j('https://www.arcgis.com/sharing/rest/search?f=json&num=8&q=' + encodeURIComponent(q), 10000)
+      .then(function (js) {
+        var hits = (js.results || []).filter(function (r) { return /Service/.test(r.type); });
+        if (!hits.length) { log4('warn', '"' + esc(q) + '" — no service results'); return; }
+        hits.forEach(function (r) {
+          log4('ok', '"' + esc(q) + '" → <b>' + esc(r.title) + '</b> [owner ' + esc(r.owner) + ']<br>' + esc(r.url || ''));
+        });
+      }).catch(function (e) { log4('bad', '"' + esc(q) + '": ' + esc(e.message)); });
+  });
 
   // ---- copy report ----
   document.getElementById('copy').onclick = function () {
-    var txt = 'PROBE REPORT r5 ' + R.generated + '\n\n' + R.results.join('\n');
+    var txt = 'PROBE REPORT r6 ' + R.generated + '\n\n' + R.results.join('\n');
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(txt).then(function () { alert('Copied — paste it into the chat.'); },
         function () { showFallback(txt); });
