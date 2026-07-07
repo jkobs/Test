@@ -1999,9 +1999,25 @@
   // ---- lake info fetch: USGS NHD (type + area, reliable) merged with Overpass
   // OSM tags + Wikidata (depth/trophic/elevation when available) ----
   function _normName(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
-  function _nameMatch(a, b) {
-    var x = _normName(a), y = _normName(b);
-    return !!x && !!y && (x.indexOf(y) !== -1 || y.indexOf(x) !== -1);
+  // Pick the feature whose name matches `expectedName`, EXACTLY (after
+  // normalization) — no substring/fuzzy fallback. A same-family compound name
+  // like "Little Yellow Lake" genuinely, linguistically CONTAINS "Yellow
+  // Lake" as a clean phrase — that's the whole point of the "Little/Big/
+  // Upper/Lower X" naming convention — so no substring heuristic, however
+  // boundary-aware, can safely tell them apart. A real user-reported bug
+  // (wrong lake's depth/class/regulations shown while standing on Yellow
+  // Lake, WI) traced to exactly this: an old unanchored substring test
+  // treated "Little Yellow Lake" as a match for "Yellow Lake". `strict`
+  // (default false) controls what happens if nothing matches exactly: false
+  // falls back to feats[0] (some data is better than none for informational
+  // stats); true returns null (used for regulations/designations, where
+  // showing a WRONG lake's data is actively misleading, not just imprecise).
+  function _pickByName(feats, getName, expectedName, strict) {
+    for (var i = 0; i < feats.length; i++) {
+      var candidate = getName(feats[i]);
+      if (candidate && _normName(candidate) === _normName(expectedName)) return feats[i];
+    }
+    return strict ? null : (feats[0] || null);
   }
   function _nhdTypeLabel(ft) {
     var m = { 390: 'Lake/Pond', 436: 'Reservoir', 361: 'Playa', 466: 'Swamp/Marsh',
@@ -2084,11 +2100,7 @@
     // Source A (reliable): USGS NHD point-intersect — type + surface area, no QID needed.
     var usgsDone = nhdQuery(12, lat, lng, nhdR).then(function (fc) {
       var feats = (fc && fc.features) || [];
-      var f = null;
-      for (var i = 0; i < feats.length; i++) {
-        if (feats[i].properties && _nameMatch(feats[i].properties.GNIS_NAME, name)) { f = feats[i]; break; }
-      }
-      if (!f) f = feats[0];
+      var f = _pickByName(feats, function (x) { return x.properties && x.properties.GNIS_NAME; }, name);
       if (f && f.properties) {
         var p = f.properties;
         if (p.GNIS_NAME) info.name = p.GNIS_NAME;
@@ -2489,12 +2501,7 @@
     //    depth-contour-map deep link even when stocking records are empty.
     fetchJson(_wiQueryUrl(WI_SWDV + '/WY_INLAND_WATER_RESOURCES', 3, lat, lng, 150), 9000).then(function(j) {
       var feats = (j && j.features) || [];
-      var f = null;
-      for (var i = 0; i < feats.length; i++) {
-        var a0 = feats[i].attributes || {};
-        if (_nameMatch(a0.WATERBODY_ROW_NAME, name)) { f = feats[i]; break; }
-      }
-      if (!f) f = feats[0];
+      var f = _pickByName(feats, function (x) { return x.attributes && x.attributes.WATERBODY_ROW_NAME; }, name);
       var wbic = f && f.attributes && f.attributes.WATERBODY_WBIC;
       if (wbic) {
         if (state.lakeInfo && !state.lakeInfo.wbic) {
@@ -2515,7 +2522,12 @@
       fetchJson(_wiQueryUrl(WI_SWDV + '/WY_FISHERIES_WATERS', dl[0], lat, lng, 150), 9000).then(function(j) {
         var feats = (j && j.features) || [];
         if (!feats.length) return;
-        var a = feats[0].attributes || {};
+        // strict: a designation for the WRONG lake (e.g. a same-family
+        // neighbor like "Little Yellow Lake" within the search radius of
+        // "Yellow Lake") is actively misleading, so skip rather than guess.
+        var f = _pickByName(feats, function (x) { return x.attributes && x.attributes.ROI_SHORT_NAME; }, name, true);
+        if (!f) return;
+        var a = f.attributes || {};
         var d = { species: dl[1], label: a.ROI_CODE_DESC || (dl[1] + ' Water'),
                   subtype: a.ROI_SUBTYPE_DESC || '', status: a.ROI_STATUS_DESC || '' };
         state.designations = (state.designations || []).concat([d]);
@@ -2550,7 +2562,11 @@
     //    probe round 4: one text field per species group (PANFISH,
     //    WALLEYE_SAUGER_AND_HYBRIDS, ...) — render the actual rules.
     fetchJson(_wiQueryUrl(WI_ARCGIS2 + '/FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT', 2, lat, lng, 150), 9000).then(function(j) {
-      var f = j && j.features && j.features[0];
+      var feats = (j && j.features) || [];
+      // strict: regulations text for the WRONG lake is worse than none —
+      // an angler could rely on the wrong bag/size limit. Skip if the only
+      // candidates within the search radius don't actually name-match.
+      var f = _pickByName(feats, function (x) { return x.attributes && x.attributes.WATERBODY_NAME; }, name, true);
       if (!f || !f.attributes) return;
       state.hasLakeRegs = true; // at minimum, a regs record exists for this water
       var a = f.attributes;
@@ -2575,7 +2591,12 @@
     // 5. Lake classification (fish-community type + fishery description +
     //    surveyed max depth). Schema confirmed by probe round 4.
     fetchJson(_wiQueryUrl(WI_ARCGIS2 + '/FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT', 0, lat, lng, 150), 9000).then(function(j) {
-      var f = j && j.features && j.features[0];
+      var feats = (j && j.features) || [];
+      // Exact-name match preferred; fuzzy fallback only if nothing exact (not
+      // strict — depth/class for a same-family neighbor lake is imprecise but
+      // not actively dangerous the way wrong regulations would be, so still
+      // fall back to the nearest candidate rather than showing nothing).
+      var f = _pickByName(feats, function (x) { return x.attributes && x.attributes.LAKE_NAME; }, name);
       if (!f || !f.attributes || !state.lakeInfo) return;
       var a = f.attributes;
       if (a.LAKE_CLASS) state.lakeInfo.lakeClass = a.LAKE_CLASS;
