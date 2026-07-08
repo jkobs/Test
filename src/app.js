@@ -1116,7 +1116,7 @@
           '<div class="lbl">' + (active ? KIND[p.kind] + ' now' : 'to ' + KIND[p.kind]) + '</div>' +
         '</div>';
     }
-    var why = adv.solunarNote || adv.lightNote || adv.windNote || adv.tempNote || '';
+    var why = adv.solunarNote || adv.rainNote || adv.lightNote || adv.windNote || adv.tempNote || '';
     el.innerHTML =
       '<div class="hero-label">Right now</div>' +
       '<div class="hero-main">' +
@@ -1258,7 +1258,7 @@
   var DIRS8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function bearing8(deg) { return DIRS8[Math.round(deg / 45) % 8]; }
 
-  function computeAdvice(delta, windSpeed, windDir, airTemp) {
+  function computeAdvice(delta, windSpeed, windDir, airTemp, cloudCover, precip) {
     var depth, structure, presentation, pressureStr, pScore;
     if (delta > 3) {
       depth = '18–28 ft'; pressureStr = 'rising fast'; pScore = 1;
@@ -1342,6 +1342,22 @@
         lightNote = '🌙 Night — low-light predators shift shallow; catfish, walleye, and bass most active on points and edges.';
       } else if (sr && nowMs < sr.getTime() - goldenMs) {
         lightNote = '🌙 Pre-dawn — nocturnal feeders winding down; walleye and perch beginning to activate.';
+      } else if (cloudCover != null && cloudCover >= 70) {
+        lightNote = '☁️ Overcast skies — extends low-light feeding conditions; fish stay shallow and active through midday.';
+        solunarBoost = Math.min(2, solunarBoost + 1);
+      } else if (cloudCover != null && cloudCover <= 25) {
+        lightNote = '☀️ Clear, bright skies — midday sun pushes fish deeper or tight to shade and cover.';
+        pScore = Math.max(1, pScore - 1);
+      }
+    }
+
+    var rainNote = '';
+    if (precip != null && precip > 0) {
+      if (precip <= 2.5) {
+        rainNote = '🌧️ Light rain — often triggers an active feeding response; work shallow structure.';
+        solunarBoost = Math.min(2, solunarBoost + 1);
+      } else {
+        rainNote = '🌧️ Steady rain — expect stained, rougher water; upsize profile and fish inflows or wind-blown banks.';
       }
     }
 
@@ -1354,8 +1370,8 @@
       score: score, label: labels[score - 1], dots: dots, dotColor: dotColor,
       pressureStr: pressureStr, depth: depth, structure: structure, presentation: presentation,
       windSpeed: windSpeed, fromDir: fromDir, towardDir: towardDir, towardDeg: towardDeg,
-      windNote: windNote, tempNote: tempNote, solunarNote: solunarNote, lightNote: lightNote,
-      delta: delta, airTemp: airTemp, solunarBoost: solunarBoost
+      windNote: windNote, tempNote: tempNote, solunarNote: solunarNote, lightNote: lightNote, rainNote: rainNote,
+      delta: delta, airTemp: airTemp, cloudCover: cloudCover, precip: precip, solunarBoost: solunarBoost
     };
   }
 
@@ -1368,6 +1384,7 @@
     el.innerHTML =
       '<div id="species-conditions">' + _speciesBiteHtml(adv) + '</div>' +
       (adv.solunarNote ? '<div class="adv-note adv-solunar">' + adv.solunarNote + '</div>' : '') +
+      (adv.rainNote ? '<div class="adv-note adv-rain">' + adv.rainNote + '</div>' : '') +
       (adv.lightNote  ? '<div class="adv-note adv-light">'   + adv.lightNote  + '</div>' : '') +
       '<div class="adv-note">' + adv.windNote + '</div>' +
       '<div class="adv-note">' + adv.tempNote + '</div>' +
@@ -1471,7 +1488,7 @@
     var reqId = ++_pressureReqId;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
-      '&current=temperature_2m,wind_speed_10m,wind_direction_10m' +
+      '&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation' +
       '&hourly=surface_pressure&timezone=auto&past_hours=4&forecast_hours=4&timeformat=unixtime' +
       '&temperature_unit=fahrenheit&wind_speed_unit=mph';
     fetch(url).then(function (r) { return r.json(); }).then(function (j) {
@@ -1481,6 +1498,8 @@
       var windSpeed = cur2.wind_speed_10m || 0;
       var windDir = cur2.wind_direction_10m || 0;
       var airTemp = cur2.temperature_2m || 65;
+      var cloudCover = cur2.cloud_cover != null ? cur2.cloud_cover : null;
+      var precip = cur2.precipitation != null ? cur2.precipitation : null;
       var times = j.hourly.time;
       var vals  = j.hourly.surface_pressure;
       var nowS  = Math.floor(Date.now() / 1000);
@@ -1494,7 +1513,7 @@
       var delta = cur - past;
       state.pressureDelta = delta;
       var info = pressureTip(delta);
-      var adv = computeAdvice(delta, windSpeed, windDir, airTemp);
+      var adv = computeAdvice(delta, windSpeed, windDir, airTemp, cloudCover, precip);
       renderAdvisor(adv, loc.lat, loc.lng);
 
       state.baroData = { vals: vals, nowIdx: nowIdx, cur: cur, info: info, delta: delta };

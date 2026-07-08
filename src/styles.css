@@ -551,6 +551,7 @@ button.toggle {
 
 .adv-solunar { color: var(--good); font-weight: 600; margin-bottom: 4px; }
 .adv-light { color: var(--major); font-weight: 600; margin-bottom: 4px; }
+.adv-rain { color: var(--minor); font-weight: 600; margin-bottom: 4px; }
 .adv-offline { font-size: var(--t-sm); color: var(--muted); padding: 8px 0; }
 .adv-map-footer {
   display: flex; align-items: center; justify-content: space-between;
