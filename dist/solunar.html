@@ -2134,6 +2134,46 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       }},
   ];
 
+  // Species that primarily feed by SCENT/bait movement rather than sight —
+  // lure color doesn't meaningfully apply to these, so they're excluded from
+  // lureColorHint() below rather than given a fabricated color claim.
+  var COLOR_SCENT_FEEDERS = { 'Lake Sturgeon': 1, 'Channel Catfish': 1, 'Flathead Catfish': 1 };
+
+  // Per-species light-based color guidance for sight-feeding species. Each
+  // entry is [bright/clear-sky guidance, overcast/low-light guidance] — these
+  // are well-established, mainstream angling heuristics (natural/reflective
+  // colors in bright clear conditions vs. dark silhouettes or high-visibility
+  // colors in low light), not precise science; actual results vary by water
+  // clarity and region.
+  var LURE_COLOR = {
+    'Walleye':             ['natural/silver or perch patterns in the clear water', 'firetiger, chartreuse, or gold for better visibility'],
+    'Largemouth Bass':     ['green pumpkin, watermelon, or natural shad patterns', 'black, black/blue, or junebug for a bold silhouette'],
+    'Northern Pike':       ['natural perch or silver/white patterns', 'firetiger or orange/red for reaction flash'],
+    'Crappie':             ['natural/translucent patterns (electric chicken, clear/glitter)', 'chartreuse or black/chartreuse — easier for fish to spot'],
+    'Yellow Perch':        ['natural or subtle metallic finishes', 'brighter chartreuse or orange accents'],
+    'Smallmouth Bass':     ['green pumpkin or natural craw/goby patterns', 'black or darker profiles for a visible silhouette'],
+    'Muskellunge':         ['bright flash patterns (firetiger, perch, white) for reaction strikes', 'black, black/purple, or dark bucktail for maximum silhouette against the sky'],
+    'Lake Trout':          ['natural silver/blue spoon patterns', 'glow, chartreuse, or UV-reactive finishes'],
+    'Rainbow/Brown Trout': ['natural olive, brown, or silver patterns', 'brighter attractor colors — chartreuse, orange, or pink']
+  };
+
+  // Appends a short, light-condition-based color clause to a species'
+  // presentation text. cloudCover is 0-100 (0 = clear, 100 = fully overcast),
+  // or null/undefined if unavailable — in which case no clause is added.
+  // Scent/bottom feeders (see COLOR_SCENT_FEEDERS) never get a color clause.
+  function lureColorHint(speciesName, cloudCover) {
+    if (COLOR_SCENT_FEEDERS[speciesName]) return '';
+    if (cloudCover == null) return '';
+    var pair = LURE_COLOR[speciesName];
+    if (!pair) return '';
+    // Leading ". " (not just a space) because none of the 12 species' gear()
+    // strings end with punctuation — this always reads as a new sentence
+    // rather than a run-on ("...vary color until they react In today's...").
+    if (cloudCover <= 25) return '. In today\'s bright, clear skies: ' + pair[0] + '.';
+    if (cloudCover >= 70) return '. In today\'s overcast light: ' + pair[1] + '.';
+    return '';
+  }
+
   function _speciesScore(sp, delta, airTemp, solBoost) {
     var t = (airTemp >= sp.tempLo && airTemp <= sp.tempHi) ? 2
           : (airTemp < sp.tempLo - 10 || airTemp > sp.tempHi + 10) ? 0 : 1;
@@ -2190,6 +2230,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       var depth     = sp.depth(delta, airTemp);
       var structure = sp.structure(delta, airTemp, solBoost);
       var gear      = sp.gear(delta, airTemp, solBoost);
+      gear = gear + lureColorHint(sp.name, state.lastAdv && state.lastAdv.cloudCover);
       return '<div class="species-row">' +
         '<div class="species-row-head">' +
           '<div class="species-name">' + sp.name + '</div>' +
@@ -2242,6 +2283,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var depth     = sp.depth(adv.delta, adv.airTemp);
     var structure = sp.structure(adv.delta, adv.airTemp, adv.solunarBoost);
     var gear      = sp.gear(adv.delta, adv.airTemp, adv.solunarBoost);
+    gear = gear + lureColorHint(sp.name, adv.cloudCover);
     var visibleSpecies = _visibleSpecies();
     if (!_speciesInWater(sp) && !_speciesFallbackActive()) { sp = visibleSpecies[0] || SPECIES[0]; _selectedSpeciesName = sp.name; }
     var opts = visibleSpecies.map(function(s) {
