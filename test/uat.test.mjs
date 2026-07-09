@@ -78,10 +78,12 @@ check('AC4 minor = moonrise/moonset', /Moonrise/.test(today) && /Moonset/.test(t
 const majorTags = (cards[0] ? cards[0].querySelectorAll('.period.major').length : 0);
 check('AC4 today has 2 major periods', majorTags === 2, `got ${majorTags}`);
 
-// AC5 — countdown
-const next = doc.getElementById('next');
-check('AC5 next-period block visible', next && next.style.display !== 'none');
-check('AC5 countdown is a timer', next && /\d?\d:\d\d/.test(next.querySelector('.countdown')?.textContent || ''));
+// AC5 — countdown (lives in the hero's countbar; the old separate #next
+// card was removed as a duplicate of this same timer)
+const countbar = doc.querySelector('#hero .hero-countbar');
+check('AC5 next-period block visible', !!countbar && /Moon overhead|Moon underfoot|Moonrise|Moonset/.test(countbar.textContent));
+const heroCountdown = doc.getElementById('hero-countdown');
+check('AC5 countdown is a timer', heroCountdown && /^\d+:\d{2}:\d{2}$|^\d{2}:\d{2}$/.test(heroCountdown.textContent.trim()));
 
 // AC6 — rating
 check('AC6 fish rating rendered', /🐟/.test(today));

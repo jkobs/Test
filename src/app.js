@@ -1095,7 +1095,6 @@
       card.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') openModal(+card.dataset.idx); };
     });
 
-    renderNext();
     renderHero();
   }
 
@@ -1108,64 +1107,60 @@
     }).format(new Date());
   }
 
-  function renderNext() {
-    var el = document.getElementById('next');
-    var p = nextPeriod();
-    if (!p) { el.style.display = 'none'; return; }
-    el.style.display = 'flex';
-    var now = Date.now();
-    var active = now >= p.start.getTime() && now <= p.end.getTime();
-    el.className = 'next ' + p.type + (active ? ' active' : '');
-    var target = active ? p.end.getTime() : p.start.getTime();
-    var secs = Math.max(0, Math.round((target - now) / 1000));
-    var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
-    var cd = (h > 0 ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    el.innerHTML =
-      '<div><div class="label">' + (active ? 'Active now — ' + p.type : 'Next ' + p.type + ' period') + '</div>' +
-      '<div class="when">' + KIND[p.kind] + ' · ' + fmtTime(p.center, state.loc.tz) + '</div>' +
-      '<div class="next-hint">tap for all periods</div></div>' +
-      '<div class="countdown">' + cd + '</div>';
-    el.style.cursor = 'pointer';
-    el.onclick = openNextModal;
-
-    maybeNotify(p, active, secs);
-  }
-
-  // ---- hero: the single glanceable "is it good to fish right now" summary.
-  // Reuses computeAdvice()'s existing generic score/label/notes (previously
-  // computed but never actually rendered anywhere) and the same countdown
-  // math as renderNext(), so there's no duplicated scoring logic.
+  // ---- hero: the single glanceable "is it good to fish right now" summary,
+  // with THE ONE countdown to the next solunar window built into its own
+  // ledger row (the countbar). Reuses computeAdvice()'s existing generic
+  // score/label/notes and the same countdown math the old separate #next
+  // card used to compute — there's no duplicated scoring/timer logic, and
+  // no duplicated timer on screen (this replaces both the old hero countdown
+  // AND the old #next card, which showed the same countdown twice).
   function renderHero() {
     var el = document.getElementById('hero');
     if (!el) return;
     var adv = state.lastAdv;
-    if (!adv) {
-      el.innerHTML = '<div class="hero-label">Right now</div><div class="hero-loading">Loading conditions…</div>';
-      return;
-    }
+
+    // The countbar depends only on solunar geometry (nextPeriod()), not on
+    // the weather fetch that populates adv — so it must render (and keep
+    // ticking) even before/without weather data, same as the old #next
+    // card did. Only the kicker/headline above it need adv.
     var p = nextPeriod();
-    var countdownHtml = '';
+    var countbarHtml = '';
+    var active = false, secs = 0;
     if (p) {
       var now = Date.now();
-      var active = now >= p.start.getTime() && now <= p.end.getTime();
+      active = now >= p.start.getTime() && now <= p.end.getTime();
       var target = active ? p.end.getTime() : p.start.getTime();
-      var secs = Math.max(0, Math.round((target - now) / 1000));
+      secs = Math.max(0, Math.round((target - now) / 1000));
       var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
       var cd = (h > 0 ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-      countdownHtml =
-        '<div class="hero-count">' +
-          '<div class="num">' + cd + '</div>' +
-          '<div class="lbl">' + (active ? KIND[p.kind] + ' now' : 'to ' + KIND[p.kind]) + '</div>' +
+      var leftLabel = active
+        ? '<b>' + KIND[p.kind] + ' — ACTIVE NOW</b>'
+        : '<b>' + KIND[p.kind] + ' · ' + fmtTime(p.center, state.loc.tz) + '</b>';
+      countbarHtml =
+        '<div class="hero-countbar" id="hero-countbar">' +
+          '<span class="l">' + (active ? 'IN THE WINDOW' : 'NEXT WINDOW') + '<br>' + leftLabel +
+            (p.sunOverlap ? ' <span class="dusk-note">☀ near sun</span>' : '') + '</span>' +
+          '<span class="n" id="hero-countdown">' + cd + '</span>' +
         '</div>';
     }
-    var why = adv.solunarNote || adv.rainNote || adv.lightNote || adv.windNote || adv.tempNote || '';
-    el.innerHTML =
-      '<div class="hero-label">Right now</div>' +
-      '<div class="hero-main">' +
-        '<div class="hero-rating">' + adv.label + '<span class="fish">' + stars(adv.score) + '</span></div>' +
-        countdownHtml +
-      '</div>' +
-      (why ? '<div class="hero-why"><span class="ic">⚡</span><span>' + why + '</span></div>' : '');
+
+    var heroInHtml;
+    if (!adv) {
+      heroInHtml = '<div class="hero-in"><div class="hero-kicker">Loading conditions…</div></div>';
+    } else {
+      var why = adv.solunarNote || adv.rainNote || adv.lightNote || adv.windNote || adv.tempNote || '';
+      heroInHtml =
+        '<div class="hero-in">' +
+          '<div class="hero-kicker">RIGHT NOW · <b>' + adv.label + '</b> <span class="fish">' + stars(adv.score) + '</span></div>' +
+          '<div class="hero-headline">' + why + '</div>' +
+        '</div>';
+    }
+
+    el.innerHTML = heroInHtml + countbarHtml;
+    var bar = document.getElementById('hero-countbar');
+    if (bar) bar.onclick = openNextModal;
+
+    if (p) maybeNotify(p, active, secs);
   }
 
   // ---- opportunistic notification ----
@@ -3172,7 +3167,7 @@
     renderLakeJump();
     recompute();
     renderClock();
-    setInterval(function () { renderNext(); renderClock(); renderHero(); }, 1000);
+    setInterval(function () { renderClock(); renderHero(); }, 1000);
     startGpsWatch();
   }
 
