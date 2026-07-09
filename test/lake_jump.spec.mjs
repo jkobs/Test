@@ -104,11 +104,15 @@ check('placeholder before waters load', /finding nearby lakes/i.test(initialText
 // City search + waters load. Note: #lake-jump lives outside any tab-panel,
 // so it's visible/queryable without clicking the "lake" tab (unlike
 // #nearby-select on the Lake tab, which needs the tab click per CLAUDE.md).
+// The search stack now lives in a sheet toggled by #loc-pill (Stage 2 header
+// collapse) — open it before the first search interaction.
+await page.click('#loc-pill');
 await page.fill('#city-input', 'Ashland, Wisconsin');
 await page.click('#city-go');
 await page.waitForSelector('.city-result', { timeout: 15000 });
-await page.click('.city-result');
+await page.click('.city-result'); // selection closes the sheet — reopen it
 
+await page.click('#loc-pill');
 await page.waitForSelector('#lake-jump-select', { timeout: 20000 });
 await page.waitForTimeout(3200);
 

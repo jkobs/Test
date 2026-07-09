@@ -23,12 +23,44 @@
   var _openModalIdx = null; // index of the day-detail modal currently open, or null
   var _speciesFilter = '';
   var _selectedSpeciesName = 'Walleye';
+  try {
+    var _savedSpecies = localStorage.getItem('targetSpecies');
+    if (_savedSpecies) _selectedSpeciesName = _savedSpecies;
+  } catch (e) {}
   var _searchMode = 'city'; // 'city' | 'lake' — toggled by #search-mode, drives #city-go/#city-input Enter handler
   var _revGeoCache = {}; // lat.toFixed(3)+','+lng.toFixed(3) -> Promise<label string> (reverse-geocode results, session-cached)
   var _lakeSearchToken = 0; // bumped on each searchLakeByName render so stale async reverse-geocode fills are dropped
 
   var SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   var TOPO_URL = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}';
+
+  // ---- lake pill (#loc) ----
+  // Single write-path for the #loc pill content. Every caller that used to
+  // write document.getElementById('loc').innerHTML directly now goes through
+  // this, so the pill's markup stays consistent (plain text/short status,
+  // ellipsis-clipped by CSS — no embedded coordinates or buttons, which no
+  // longer fit a pill; the "Use my location" action lives as a static button
+  // in the search sheet instead, wired once in init()).
+  function setLocLine(html) {
+    var el = document.getElementById('loc');
+    if (el) el.innerHTML = html;
+  }
+
+  // ---- search sheet (toggled by the #loc-pill) ----
+  function _closeSearchSheet() {
+    var sheet = document.getElementById('search-sheet');
+    var pill = document.getElementById('loc-pill');
+    if (sheet) sheet.hidden = true;
+    if (pill) { pill.classList.remove('open'); pill.setAttribute('aria-expanded', 'false'); }
+  }
+  function _toggleSearchSheet() {
+    var sheet = document.getElementById('search-sheet');
+    var pill = document.getElementById('loc-pill');
+    if (!sheet) return;
+    var opening = !!sheet.hidden;
+    sheet.hidden = !opening;
+    if (pill) { pill.classList.toggle('open', opening); pill.setAttribute('aria-expanded', opening ? 'true' : 'false'); }
+  }
 
   // ---- formatting ----
   function fmtTime(date, tz) {
@@ -522,17 +554,44 @@
       '</div>';
   }
 
+  // Shared species-selection handler for the two selects that must stay in
+  // sync: the Bite Conditions dropdown (#conditions-species-select) and the
+  // header species pill (#species-pill-select). Persists the pick so it
+  // survives a reload, refreshes the bite block, and re-renders both selects.
+  function _onSpeciesChange(name) {
+    _selectedSpeciesName = name;
+    try { localStorage.setItem('targetSpecies', name); } catch (e) {}
+    var wrap = document.getElementById('species-conditions');
+    if (wrap && state.lastAdv) {
+      wrap.innerHTML = _speciesBiteHtml(state.lastAdv);
+      rewireSpeciesDropdown();
+    }
+    renderSpeciesPill();
+  }
+
   function rewireSpeciesDropdown() {
     var el = document.getElementById('conditions-species-select');
     if (!el) return;
-    el.onchange = function() {
-      _selectedSpeciesName = el.value;
-      var wrap = document.getElementById('species-conditions');
-      if (wrap && state.lastAdv) {
-        wrap.innerHTML = _speciesBiteHtml(state.lastAdv);
-        rewireSpeciesDropdown();
-      }
-    };
+    el.onchange = function() { _onSpeciesChange(el.value); };
+  }
+
+  // Header species pill (#species-pill-select) — a real native <select>
+  // styled transparent-over-pill so the OS picker does the work. Mirrors the
+  // same _visibleSpecies() options + selection as the Bite Conditions
+  // dropdown above; onchange goes through the same _onSpeciesChange path.
+  function renderSpeciesPill() {
+    var el = document.getElementById('species-pill-select');
+    if (!el) return;
+    var visibleSpecies = _visibleSpecies();
+    var sel = null, i;
+    for (i = 0; i < visibleSpecies.length; i++) {
+      if (visibleSpecies[i].name === _selectedSpeciesName) { sel = visibleSpecies[i]; break; }
+    }
+    if (!sel) sel = visibleSpecies[0] || SPECIES[0];
+    el.innerHTML = visibleSpecies.map(function(s) {
+      return '<option value="' + esc(s.name) + '"' + (s.name === sel.name ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    }).join('');
+    el.onchange = function() { _onSpeciesChange(el.value); };
   }
 
   // Clear the advisor body immediately on selection so it never shows the
@@ -568,12 +627,7 @@
     _resetLakeData();
     _manualLoc = true;
     _showAdvisorLoading(wName);
-    var locEl = document.getElementById('loc');
-    if (locEl) {
-      locEl.innerHTML = wName + ' · ' + wLat.toFixed(2) + ', ' + wLng.toFixed(2) +
-        '<button id="useloc">Use my location</button>';
-      document.getElementById('useloc').onclick = useMyLocation;
-    }
+    setLocLine(esc(wName));
     renderNearbyWaters();
     recompute();
     fetchLakeInfo(wName, wLat, wLng, wRadiusM);
@@ -605,8 +659,7 @@
   // Esri first (CORS, govt/Esri infra), Overpass only as a last resort. Tap is
   // forgiving: searches a ~1.5 km buffer and picks the nearest water by edge.
   function selectMapPoint(clat, clng) {
-    var locEl = document.getElementById('loc');
-    if (locEl) locEl.innerHTML = 'Finding water…';
+    setLocLine('Finding water…');
 
     var picked = null, pickedDist = Infinity;
     function consider(els) {
@@ -644,7 +697,7 @@
       // not a background fetch) so a bad mirror can't stall the tap response.
       overpassFetch(q, 0, 5000).then(function (j) {
         var named = (j.elements || []).filter(function (e2) { return e2.tags && e2.tags.name; });
-        if (!named.length) { if (locEl) restoreLoc(); return; }
+        if (!named.length) { restoreLoc(); return; }
         named.sort(function (a, b2) {
           var ca = a.center || a, cb = b2.center || b2;
           return ((ca.lat - clat) * (ca.lat - clat) + (ca.lon - clng) * (ca.lon - clng)) -
@@ -656,12 +709,7 @@
     }
 
     function restoreLoc() {
-      var e = document.getElementById('loc');
-      if (e) {
-        e.innerHTML = state.loc.name + ' · ' + state.loc.lat.toFixed(2) + ', ' + state.loc.lng.toFixed(2) +
-          ' · no named water here <button id="useloc">Use my location</button>';
-        var b = document.getElementById('useloc'); if (b) b.onclick = useMyLocation;
-      }
+      setLocLine(esc(state.loc.name) + ' · no named water here');
     }
 
     Promise.all([
@@ -695,7 +743,10 @@
     var sel = document.getElementById('lake-jump-select');
     sel.onchange = function() {
       var w = state.nearbyWaters[+sel.value];
-      if (w) selectWater(w.name, w.clat != null ? w.clat : w.lat, w.clng != null ? w.clng : w.lng, w.radiusM);
+      if (w) {
+        selectWater(w.name, w.clat != null ? w.clat : w.lat, w.clng != null ? w.clng : w.lng, w.radiusM);
+        _closeSearchSheet();
+      }
     };
   }
 
@@ -1070,10 +1121,7 @@
 
   function render() {
     var loc = state.loc;
-    document.getElementById('loc').innerHTML =
-      loc.name + ' · ' + loc.lat.toFixed(2) + ', ' + loc.lng.toFixed(2) +
-      '<button id="useloc">Use my location</button>';
-    document.getElementById('useloc').onclick = useMyLocation;
+    setLocLine(esc(loc.name));
 
     var rangeHtml = RANGE_OPTIONS.map(function (n) {
       return '<button class="range-btn' + (n === state.range ? ' active' : '') +
@@ -1096,15 +1144,54 @@
     });
 
     renderHero();
+    renderDaySchedule();
   }
 
-  function renderClock() {
-    var el = document.getElementById('clock');
-    if (!el) return;
-    el.textContent = new Intl.DateTimeFormat('en-US', {
-      timeZone: state.loc.tz, weekday: 'short', month: 'short', day: 'numeric',
-      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true
-    }).format(new Date());
+  // ---- "The day's schedule" tile: today's remaining solunar periods (each
+  // tagged MAJOR/MINOR, with a ☀ near-sun note where they overlap sunrise/
+  // sunset), today's sunset (if still ahead), and tomorrow's first major
+  // period — one almanac-style dotted-rule table. Past periods are omitted.
+  function _schedBadge(label, cls) {
+    return '<span class="badge ' + cls + '">' + label + '</span>';
+  }
+  function _schedRow(timeStr, evHtml, badgeHtml) {
+    return '<tr><td class="tt">' + timeStr + '</td><td class="ev">' + evHtml + '</td><td class="q">' + badgeHtml + '</td></tr>';
+  }
+  function renderDaySchedule() {
+    var el = document.getElementById('day-schedule');
+    if (!el || !state.days.length) return;
+    var today = state.days[0], tz = today.tz;
+    var now = Date.now();
+
+    var rows = [];
+    today.periods.forEach(function (p) {
+      if (p.end.getTime() < now) return;
+      var evHtml = '<b>' + KIND[p.kind] + '</b>' + (p.sunOverlap ? ' <span class="dusk-note">☀ near sun</span>' : '');
+      rows.push({ t: p.center.getTime(),
+        html: _schedRow(fmtTime(p.center, tz), evHtml, _schedBadge(p.type.toUpperCase(), p.type === 'major' ? 'maj' : 'min')) });
+    });
+    if (today.sunset && today.sunset.getTime() >= now) {
+      rows.push({ t: today.sunset.getTime(),
+        html: _schedRow(fmtTime(today.sunset, tz), 'Sunset · golden hour', _schedBadge('SUN', 'sun')) });
+    }
+    rows.sort(function (a, b) { return a.t - b.t; });
+
+    var tomorrow = state.days[1];
+    if (tomorrow && tomorrow.periods.length) {
+      var maj = null, i;
+      for (i = 0; i < tomorrow.periods.length; i++) {
+        if (tomorrow.periods[i].type === 'major') { maj = tomorrow.periods[i]; break; }
+      }
+      if (!maj) maj = tomorrow.periods[0];
+      rows.push({ t: Infinity,
+        html: _schedRow(fmtTime(maj.center, tomorrow.tz), '<i>Tomorrow</i> · ' + KIND[maj.kind],
+          _schedBadge(maj.type.toUpperCase(), maj.type === 'major' ? 'maj' : 'min')) });
+    }
+
+    var bodyHtml = rows.map(function (r) { return r.html; }).join('');
+    el.innerHTML = '<div class="t-hd">The day\'s schedule</div>' +
+      (bodyHtml ? '<table class="sched">' + bodyHtml + '</table>' : '<div class="note">No more periods today.</div>');
+    el.querySelectorAll('tr').forEach(function (tr) { tr.onclick = openNextModal; });
   }
 
   // ---- hero: the single glanceable "is it good to fish right now" summary,
@@ -1144,14 +1231,20 @@
         '</div>';
     }
 
+    // The clock (formerly a standalone #clock line, removed in the Stage 2
+    // header collapse) now lives in the hero kicker — renderHero already
+    // re-runs every second, so it keeps ticking in its new home.
+    var weekday = new Intl.DateTimeFormat('en-US', { timeZone: state.loc.tz, weekday: 'short' }).format(new Date());
+    var clockStr = weekday + ' ' + fmtTime(new Date(), state.loc.tz);
+
     var heroInHtml;
     if (!adv) {
-      heroInHtml = '<div class="hero-in"><div class="hero-kicker">Loading conditions…</div></div>';
+      heroInHtml = '<div class="hero-in"><div class="hero-kicker">RIGHT NOW · ' + clockStr + ' · Loading conditions…</div></div>';
     } else {
       var why = adv.solunarNote || adv.rainNote || adv.lightNote || adv.windNote || adv.tempNote || '';
       heroInHtml =
         '<div class="hero-in">' +
-          '<div class="hero-kicker">RIGHT NOW · <b>' + adv.label + '</b> <span class="fish">' + stars(adv.score) + '</span></div>' +
+          '<div class="hero-kicker">RIGHT NOW · ' + clockStr + ' · <b>' + adv.label + '</b> <span class="fish">' + stars(adv.score) + '</span></div>' +
           '<div class="hero-headline">' + why + '</div>' +
         '</div>';
     }
@@ -1412,10 +1505,26 @@
     };
   }
 
+  // "Sky · Wind" tile (Today tab, 2-col row next to the barometer): current
+  // cloud cover as the headline stat, light-quality + wind sub-lines reusing
+  // the same cloud-cover thresholds computeAdvice() already scores light by.
+  function _skyTileHtml(adv) {
+    var cloud = adv.cloudCover;
+    var big = cloud != null ? cloud + '<span class="u">% cloud</span>' : '—';
+    var light = cloud == null ? '' : (cloud <= 25 ? 'harsh light' : cloud >= 70 ? 'soft light' : 'mixed sky');
+    var windLine = Math.round(adv.windSpeed) + ' mph ' + adv.fromDir;
+    var windwardLine = adv.towardDir + ' bank windward';
+    return '<div class="t-hd">Sky · Wind</div>' +
+      '<div class="t-v">' + big + '</div>' +
+      '<div class="t-s">' + (light ? light + ' · ' : '') + windLine + '<br>' + windwardLine + '</div>';
+  }
+
   function renderAdvisor(adv, lat, lng) {
     state.lastAdv = adv;
     initMap(lat, lng, adv.towardDeg, adv.windSpeed);
     renderHero();
+    var skyEl = document.getElementById('sky-tile');
+    if (skyEl) skyEl.innerHTML = _skyTileHtml(adv);
     var el = document.getElementById('advisor-body');
     if (!el) return;
     el.innerHTML =
@@ -1436,6 +1545,7 @@
     if (toggleBtn) toggleBtn.onclick = toggleDNRLayer;
     rewireSpeciesFilter();
     rewireSpeciesDropdown();
+    renderSpeciesPill();
 
     // Wire the advisor header to expand modal (one-time)
     var hdEl = document.querySelector('.advisor-hd');
@@ -1762,13 +1872,7 @@
     var focusLng = best.clng != null ? best.clng : best.lng;
     state.loc.lat = focusLat;
     state.loc.lng = focusLng;
-    var locEl = document.getElementById('loc');
-    if (locEl) {
-      locEl.innerHTML = best.name + ' · ' +
-        focusLat.toFixed(2) + ', ' + focusLng.toFixed(2) +
-        '<button id="useloc">Use my location</button>';
-      document.getElementById('useloc').onclick = useMyLocation;
-    }
+    setLocLine(esc(best.name));
     renderNearbyWaters();
     initMap(focusLat, focusLng, null, 0);
     // Lake-info/species lookups use the CENTER point too, not the nearest-edge
@@ -2432,6 +2536,7 @@
       condEl.innerHTML = _speciesBiteHtml(state.lastAdv);
       rewireSpeciesDropdown();
     }
+    renderSpeciesPill();
     var rowsEl = document.getElementById('species-rows');
     if (rowsEl && state.lastAdv) {
       var adv = state.lastAdv;
@@ -2870,6 +2975,7 @@
           resEl.innerHTML = '';
           var inp = document.getElementById('city-input');
           if (inp) inp.value = '';
+          _closeSearchSheet();
         };
       });
     }).catch(function() {
@@ -3044,6 +3150,7 @@
           resEl.innerHTML = '';
           var inp = document.getElementById('city-input');
           if (inp) inp.value = '';
+          _closeSearchSheet();
         };
       });
       // Fire reverse-geocode lookups in parallel; fill each .loc-ctx span as
@@ -3161,20 +3268,36 @@
 
   function init() {
     document.getElementById('notify-btn').onclick = enableNotifications;
+    // #loc-pill toggles the search sheet; #useloc is now a static button
+    // inside that sheet (previously re-wired after every #loc innerHTML
+    // write — it's no longer recreated, so it's wired here once).
+    var locPill = document.getElementById('loc-pill');
+    if (locPill) locPill.onclick = _toggleSearchSheet;
+    var uselocBtn = document.getElementById('useloc');
+    if (uselocBtn) uselocBtn.onclick = useMyLocation;
     wireCitySearch();
     wireSearchMode();
     wireTabs();
     renderLakeJump();
+    renderSpeciesPill();
     recompute();
-    renderClock();
-    setInterval(function () { renderClock(); renderHero(); }, 1000);
+    setInterval(renderHero, 1000);
     startGpsWatch();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  // Test-only hook: lets automated tests drive map-tap selection without
-  // fragile Leaflet pixel->latlng math. Does not affect app behavior.
-  if (typeof window !== 'undefined') window.__testHooks = { selectMapPoint: selectMapPoint };
+  // Test-only hooks: let automated tests drive map-tap selection without
+  // fragile Leaflet pixel->latlng math, and read the resolved location's
+  // coordinates now that the #loc pill only shows the lake NAME (coordinates
+  // were dropped from its display in the Stage 2 header collapse — tests
+  // that need to verify exact map centering read them from here instead).
+  // Neither affects app behavior.
+  if (typeof window !== 'undefined') {
+    window.__testHooks = {
+      selectMapPoint: selectMapPoint,
+      getLoc: function () { return { name: state.loc.name, lat: state.loc.lat, lng: state.loc.lng }; }
+    };
+  }
 })();

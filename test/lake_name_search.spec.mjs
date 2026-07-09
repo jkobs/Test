@@ -111,13 +111,15 @@ await page.route('**/*', async (route) => {
 
 await page.goto(APP, { waitUntil: 'domcontentloaded' });
 
-// The search box + mode toggle live in the header, outside any tab-panel —
-// visible without clicking a tab (per CLAUDE.md's tabbed-UI gotcha).
+// The search box + mode toggle live in a sheet toggled by #loc-pill (Stage 2
+// header collapse) — $eval works on it hidden, but .click()/.fill() need it
+// open first (per CLAUDE.md's tabbed-UI-style visibility gotcha).
 
 // (a) Toggle switches mode: placeholder changes from city to lake wording.
 const placeholderBefore = await page.$eval('#city-input', el => el.placeholder);
 check('(a) default placeholder is city-mode', /city, state/i.test(placeholderBefore));
 
+await page.click('#loc-pill');
 await page.click('.sm-btn[data-mode="lake"]');
 const placeholderAfter = await page.$eval('#city-input', el => el.placeholder);
 check('(a) clicking Lake toggle switches placeholder to lake-mode', /lake name/i.test(placeholderAfter));
@@ -203,15 +205,23 @@ console.log('Screenshot saved to ' + SCREENSHOT);
 // (c) Clicking a result updates #loc to that lake name and triggers an
 // advisor/lake load. Selection still uses the result's stored lat/lng
 // (unaffected by the reverse-geocode label), so pull expected coordinates
-// from the row's title rather than its (now place-name) text.
+// from the row's title rather than its (now place-name) text. The pill
+// (#loc) itself no longer displays coordinates (Stage 2 header collapse —
+// they don't fit a pill), so read the resolved lat/lng from the
+// window.__testHooks.getLoc() test hook instead, to keep verifying the
+// SPECIFIC clicked "Trout Lake" (of three same-named fixtures) was selected,
+// not just any lake with that name.
 const firstRowCoords = (titles[0] || '').match(/(-?\d+\.\d{2}),\s*(-?\d+\.\d{2})/);
 await page.click('.city-result');
 await page.waitForTimeout(300);
 
-const locText = await page.$eval('#loc', el => el.textContent);
-console.log('#loc after selecting result: ' + locText);
-check('(c) #loc updates to the selected lake name', locText.indexOf('Trout Lake') !== -1);
-check('(c) #loc reflects the selected coordinates', firstRowCoords && locText.indexOf(firstRowCoords[1]) !== -1 && locText.indexOf(firstRowCoords[2]) !== -1);
+const loc = await page.evaluate(() => window.__testHooks.getLoc());
+console.log('loc after selecting result: ' + JSON.stringify(loc));
+check('(c) #loc updates to the selected lake name', loc.name.indexOf('Trout Lake') !== -1);
+check('(c) selection resolved to the clicked row\'s coordinates',
+  !!firstRowCoords &&
+  Math.abs(loc.lat - parseFloat(firstRowCoords[1])) < 0.01 &&
+  Math.abs(loc.lng - parseFloat(firstRowCoords[2])) < 0.01);
 
 const advisorText = await page.$eval('#advisor-body', el => el.textContent);
 console.log('#advisor-body after select: ' + advisorText);

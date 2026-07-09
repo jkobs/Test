@@ -133,6 +133,9 @@ async function run(label, down) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
   await page.goto(APP, { waitUntil: 'domcontentloaded' });
+  // The search stack lives in a sheet toggled by #loc-pill (Stage 2 header
+  // collapse) — open it before the first search interaction.
+  await page.click('#loc-pill');
   await page.fill('#city-input', 'Ashland, Wisconsin');
   await page.click('#city-go');
   await page.waitForSelector('.city-result', { timeout: 15000 });

@@ -74,6 +74,9 @@ await page.route('**/*', async (route) => {
 });
 
 await page.goto(APP, { waitUntil: 'domcontentloaded' });
+// The search stack lives in a sheet toggled by #loc-pill (Stage 2 header
+// collapse) — open it before the first search interaction.
+await page.click('#loc-pill');
 await page.fill('#city-input', 'Test City, Wisconsin');
 await page.click('#city-go');
 await page.waitForSelector('.city-result', { timeout: 15000 });
@@ -82,21 +85,22 @@ await page.click('.tab[data-tab="lake"]');
 await page.waitForSelector('#nearby-select', { timeout: 20000 });
 await page.waitForTimeout(2000);
 
-const locText = await page.$eval('#loc', el => el.textContent);
-console.log('Location line: ' + locText.trim());
+// The #loc pill only shows the lake NAME now (coordinates were dropped —
+// they don't fit a pill), so read the resolved lat/lng straight from the
+// window.__testHooks.getLoc() test hook instead of parsing pill text.
+const loc = await page.evaluate(() => window.__testHooks.getLoc());
+console.log('Location: ' + JSON.stringify(loc));
 
-const m = locText.match(/([\d.\-]+),\s*([\d.\-]+)/);
-const shownLat = m ? parseFloat(m[1]) : null;
-const shownLng = m ? parseFloat(m[2]) : null;
+const shownLat = loc.lat, shownLng = loc.lng;
 console.log('Shown coords:  ' + shownLat + ', ' + shownLng);
 console.log('Lake center:   ' + EXPECTED_CENTER.lat + ', ' + EXPECTED_CENTER.lng);
 console.log('Nearest edge:  ' + LAKE_BOUNDS.minlat + ', ' + USER.lng + ' (what it used to incorrectly show)');
 
-check('lake selected (Stretch Lake)', locText.includes('Stretch Lake'));
+check('lake selected (Stretch Lake)', loc.name.includes('Stretch Lake'));
 check('map focuses on the lake CENTER (within 0.01deg)',
-  shownLat !== null && Math.abs(shownLat - EXPECTED_CENTER.lat) < 0.01 && Math.abs(shownLng - EXPECTED_CENTER.lng) < 0.01);
+  Math.abs(shownLat - EXPECTED_CENTER.lat) < 0.01 && Math.abs(shownLng - EXPECTED_CENTER.lng) < 0.01);
 check('map does NOT focus on the nearest-edge point (the old bug)',
-  shownLat !== null && Math.abs(shownLat - LAKE_BOUNDS.minlat) > 0.02);
+  Math.abs(shownLat - LAKE_BOUNDS.minlat) > 0.02);
 
 await browser.close();
 console.log('\n' + (failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'));

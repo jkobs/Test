@@ -73,6 +73,9 @@ await page.route('**/*', async (route) => {
 });
 
 await page.goto(APP, { waitUntil: 'domcontentloaded' });
+// The search stack lives in a sheet toggled by #loc-pill (Stage 2 header
+// collapse) — open it before the first search interaction.
+await page.click('#loc-pill');
 await page.fill('#city-input', 'Test City, Wisconsin');
 await page.click('#city-go');
 await page.waitForSelector('.city-result', { timeout: 15000 });

@@ -71,12 +71,47 @@ body::before {
     repeating-radial-gradient(ellipse 520px 400px at 8% 92%, transparent 0 42px, #cbbf9f 42px 43px);
 }
 
-.wrap { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; position: relative; z-index: 1; }
+.wrap { max-width: 640px; margin: 0 auto; padding: 16px 16px calc(100px + env(safe-area-inset-bottom)); position: relative; z-index: 1; }
 
-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-header h1 { font-size: var(--t-lg); margin: 0; }
-.loc { color: var(--muted); font-size: var(--t-sm); }
-.clock { color: var(--ink); font-size: var(--t-lg); font-weight: 600; letter-spacing: 0.01em; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+header { margin-bottom: 4px; }
+
+/* ---- Collapsed header: lake pill + species pill + bell, with a toggleable
+   search sheet sliding under them (replaces the old title/loc/search stack). ---- */
+.top { display: flex; align-items: center; gap: 8px; }
+.loc-pill {
+  display: flex; align-items: center; gap: 7px; border: 1px solid var(--line);
+  background: rgba(255,255,255,.03); border-radius: 22px; padding: 9px 13px;
+  font-size: var(--t-sm); font-weight: 600; white-space: nowrap; min-width: 0;
+  max-width: 46%; overflow: hidden; cursor: pointer; color: var(--ink);
+}
+.loc-pill #loc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loc-pill .chev { color: var(--muted); font-size: 10px; flex-shrink: 0; transition: transform .15s ease; }
+.loc-pill.open .chev { transform: rotate(180deg); }
+.sp-pill { border-color: rgba(245,166,35,.4); background: rgba(245,166,35,.06); cursor: default; }
+.species-pill-select {
+  background: transparent; border: none; color: var(--ink); font-size: var(--t-sm);
+  font-weight: 600; font-family: inherit; outline: none; -webkit-appearance: none; appearance: none;
+  max-width: 110px; padding: 0; cursor: pointer;
+}
+.species-pill-select option { background: var(--bg2); color: var(--ink); }
+.bell {
+  width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line);
+  background: rgba(255,255,255,.03); display: flex; align-items: center; justify-content: center;
+  color: var(--muted); flex-shrink: 0; margin-left: auto; cursor: pointer; padding: 0;
+}
+.bell:hover { color: var(--ink); border-color: var(--minor); }
+
+.search-sheet {
+  background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-lg);
+  padding: 14px 14px 12px; margin: 8px 0 var(--stack-gap);
+}
+.search-sheet[hidden] { display: none; }
+.sheet-masthead { font-size: 11px; letter-spacing: .15em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 10px; }
+.useloc-row {
+  width: 100%; margin-top: 8px; padding: 10px; min-height: 44px; border-radius: var(--r-md); cursor: pointer;
+  background: var(--surface-0); color: var(--ink); border: 1px solid var(--surface-0-line); font-size: var(--t-md);
+  text-align: left;
+}
 
 /* Inline SVG icons used in place of raw emoji in structural/navigational
    positions — inherit color from context, consistent stroke weight. */
@@ -106,25 +141,66 @@ svg.ic.ic-tight { margin-right: 2px; }
 .hero-countbar .n { font-size: 27px; font-weight: 800; color: var(--major); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .dusk-note { color: var(--sun); white-space: nowrap; }
 
-/* ---- Segmented tabs (Today / Forecast / Lake) ---- */
-.tabs { display: flex; gap: 4px; background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-md); padding: 4px; margin: var(--stack-gap) 0; }
+/* ---- Bento tiles: almanac-dressed stat cards (barometer, Sky·Wind) plus
+   the wide "day's schedule" tile. ---- */
+.tile {
+  background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-lg);
+  padding: 13px 14px; margin: var(--stack-gap) 0;
+}
+.tile:empty { display: none; }
+.bento { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: var(--stack-gap) 0; }
+.bento > .tile, .bento > .baro-card { margin: 0; }
+.t-hd {
+  display: flex; align-items: center; gap: 10px; font-size: var(--t-xs); letter-spacing: .18em;
+  text-transform: uppercase; color: var(--muted); font-weight: 700;
+}
+.t-hd::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.t-v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 9px; }
+.t-v .u { font-size: 12px; color: var(--muted); font-weight: 600; }
+.t-s { font-family: var(--serif); font-style: italic; font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.t-s .warn { color: var(--major); font-style: normal; font-weight: 600; font-family: -apple-system,sans-serif; font-size: 12px; }
+
+/* ---- Day's-schedule dotted-rule table (inside the wide day-schedule tile) ---- */
+table.sched { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.sched td { padding: 9px 0; border-bottom: 1px dotted var(--line); vertical-align: baseline; font-size: 14.5px; }
+.sched tr { cursor: pointer; }
+.sched tr:last-child td { border-bottom: none; }
+.sched .tt { font-weight: 700; font-variant-numeric: tabular-nums; width: 80px; font-size: 14px; }
+.sched .ev { font-family: var(--serif); }
+.sched .ev i { color: var(--muted); }
+.sched .q { text-align: right; width: 70px; }
+.badge { font-size: 9.5px; font-weight: 800; letter-spacing: .07em; padding: 2.5px 8px; border-radius: 9px; font-family: -apple-system,sans-serif; white-space: nowrap; }
+.badge.maj { color: var(--major); border: 1px solid rgba(245,166,35,.5); }
+.badge.min { color: var(--minor); border: 1px solid rgba(143,179,201,.45); }
+.badge.sun { color: var(--sun); border: 1px solid rgba(224,120,74,.5); }
+
+/* ---- Bottom nav (Today / Forecast / Lake) — fixed, always visible so
+   automated .tab[data-tab=…] clicks keep working regardless of scroll
+   position; underline bar marks the active tab (see CLAUDE.md tab-visibility
+   gotcha — content lives in a hidden .tab-panel, the nav itself never hides). ---- */
+.tabs {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
+  display: flex; justify-content: space-around; gap: 0; margin: 0; border-radius: 0;
+  background: rgba(13,15,14,.95); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border: none; border-top: 1px solid var(--line);
+  padding: 8px max(12px, env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom));
+}
 .tab {
-  flex: 1; display: flex; align-items: center; justify-content: center; min-height: 48px;
-  text-align: center; padding: 0 4px; border-radius: var(--r-sm); font-size: var(--t-sm); font-weight: 600;
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  min-height: 48px; padding: 5px 4px 3px; border-radius: 0;
+  text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
   color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit;
 }
-.tab.active { background: var(--raised); color: var(--ink); }
+.tab .bar { display: block; width: 26px; height: 2px; border-radius: 1px; background: transparent; }
+.tab.active { background: none; color: var(--ink); }
+.tab.active .bar { background: var(--major); }
 .tab-panel[hidden] { display: none; }
 
 /* ---- Generic card panel (used for the Lake tab's lake-info card) ---- */
 .card-panel { background: var(--surface-1); border: 1px solid var(--surface-1-line); border-radius: var(--r-lg); padding: 16px; margin: var(--stack-gap) 0; }
 .card-panel:empty { display: none; }
-.loc button {
-  background: none; border: 1px solid var(--line); color: var(--muted);
-  border-radius: var(--r-sm); padding: 3px 8px; font-size: var(--t-xs); margin-left: 6px; cursor: pointer;
-}
-/* ---- Search mode toggle (City / Lake), sits directly above the search box ---- */
-.search-mode { display: flex; gap: 3px; background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-md); padding: 3px; margin: 8px 0 0; }
+/* ---- Search mode toggle (City / Lake), sits at the top of the search sheet ---- */
+.search-mode { display: flex; gap: 3px; background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-md); padding: 3px; margin: 0; }
 .sm-btn {
   flex: 1; text-align: center; padding: 5px 0; min-height: 32px; border-radius: var(--r-sm); font-size: var(--t-xs); font-weight: 600;
   color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit;
