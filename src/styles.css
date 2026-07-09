@@ -132,6 +132,8 @@ svg.ic.ic-tight { margin-right: 2px; }
 .hero-kicker b { color: var(--accent); }
 .hero-kicker .fish { color: var(--muted); margin-left: 4px; }
 .hero-headline { font-family: var(--serif); font-size: 22px; line-height: 1.3; margin-top: 9px; color: var(--ink); }
+.hero-headline em { font-style: italic; color: var(--accent); }
+.hero-deck { font-family: var(--serif); font-size: 14px; line-height: 1.55; color: var(--muted); margin-top: 9px; }
 .hero-countbar {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   border-top: 1px solid var(--line); background: rgba(0,0,0,.3); padding: 13px 18px; cursor: pointer;
@@ -173,6 +175,18 @@ table.sched { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .badge.maj { color: var(--major); border: 1px solid rgba(245,166,35,.5); }
 .badge.min { color: var(--minor); border: 1px solid rgba(143,179,201,.45); }
 .badge.sun { color: var(--sun); border: 1px solid rgba(224,120,74,.5); }
+
+/* ---- Field notes tile: serif drop-cap prose + top-species chip row ---- */
+.fn-note { font-family: var(--serif); font-size: 14.5px; line-height: 1.6; margin-top: 8px; color: var(--ink); }
+.fn-note .dropcap { float: left; font-size: 40px; line-height: .82; padding: 4px 8px 0 0; color: var(--major); font-weight: 700; }
+.sp-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 11px; clear: both; }
+.chip.fn-chip {
+  display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--surface-0-line); min-height: 30px;
+}
+.chip.fn-chip:hover, .chip.fn-chip:focus { border-color: var(--minor); outline: none; }
+.fn-chip .g { color: var(--muted); margin-left: 2px; font-weight: 800; font-size: 11px; letter-spacing: .02em; }
+.fn-chip .g.up { color: var(--major); }
 
 /* ---- Bottom nav (Today / Forecast / Lake) — fixed, always visible so
    automated .tab[data-tab=…] clicks keep working regardless of scroll
@@ -255,25 +269,28 @@ table.sched { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .card.today { border-color: var(--major); }
 .card.today:hover, .card.today:focus { border-color: #ffc94d; }
 .day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.day-head .date { font-weight: 600; }
+.day-head .date { font-family: var(--serif); font-weight: 700; font-size: 17px; color: var(--ink); }
 .day-head .stars { color: var(--major); letter-spacing: 2px; }
 .tap-hint { font-size: var(--t-xs); color: var(--muted); font-weight: 400; letter-spacing: 0; vertical-align: middle; }
-.day-sub { color: var(--muted); font-size: var(--t-sm); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 10px; }
+.day-sub { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: var(--t-sm); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 10px; }
 .sun-times { display: flex; justify-content: space-between; font-size: var(--t-sm); color: var(--muted); margin: 6px 0 3px; }
 .sun-times strong { color: var(--ink); }
 
-.periods { margin-top: 10px; display: grid; gap: 8px; }
+/* Ledger-style dotted-rule rows, matching the day-schedule (.sched) tile's
+   almanac voice, instead of the old boxed-tile look. */
+.periods { margin-top: 10px; display: block; }
 .period {
   display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 10px;
-  padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-0); border: 1px solid var(--surface-0-line);
+  padding: 9px 2px; border-bottom: 1px dotted var(--line); background: none; border-radius: 0;
 }
+.periods .period:last-child { border-bottom: none; }
 .period .tag {
-  font-size: var(--t-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
-  padding: 3px 6px; border-radius: var(--r-sm); text-align: center;
+  font-size: var(--t-xs); font-weight: 800; text-transform: uppercase; letter-spacing: .07em;
+  padding: 2.5px 7px; border-radius: 9px; text-align: center; background: none; font-family: -apple-system, sans-serif;
 }
-.period.major .tag { background: rgba(255,176,32,.18); color: var(--major); }
-.period.minor .tag { background: rgba(86,179,240,.18); color: var(--minor); }
-.period .kind { font-size: var(--t-sm); color: var(--muted); }
+.period.major .tag { color: var(--major); border: 1px solid rgba(245,166,35,.5); }
+.period.minor .tag { color: var(--minor); border: 1px solid rgba(143,179,201,.45); }
+.period .kind { font-family: var(--serif); font-style: italic; font-size: var(--t-sm); color: var(--muted); }
 .period .time { font-weight: 600; font-variant-numeric: tabular-nums; }
 .period .range { color: var(--muted); font-size: var(--t-xs); }
 .period.sun::after { content: "☀ near sun"; color: var(--sun); font-size: var(--t-xs); }
@@ -530,7 +547,9 @@ button.toggle {
    rows and the tab track. */
 .lake-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
 .lake-stat-tile { background: var(--surface-0); border: 1px solid var(--surface-0-line); border-radius: var(--r-md); padding: 8px 10px; min-width: 0; }
-.lake-stat-label { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 2px; }
+/* Dotted-ledger accent under the label, echoing the .sched/period rules
+   used elsewhere in the almanac redesign. */
+.lake-stat-label { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px dotted var(--line); }
 .lake-stat-val { font-size: var(--t-md); font-weight: 700; color: var(--ink); }
 .lake-stat-src { font-size: var(--t-xs); color: var(--muted); margin-top: 3px; line-height: 1.3; }
 .lake-info-fishery-note { font-size: var(--t-md); color: var(--muted); line-height: 1.5; margin-top: 8px; display: flex; gap: 6px; align-items: flex-start; }
@@ -542,6 +561,9 @@ button.toggle {
 .lake-map-embed { margin: 12px 0; }
 .lake-map-hd { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em;
   color: var(--muted); font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; }
+.lake-map-hd::after, .lake-regs-hd::after {
+  content: ""; flex: 1; border-top: 1px solid var(--line); margin-left: 8px;
+}
 .lake-map-well {
   position: relative; min-height: 380px; border-radius: var(--r-md); overflow: hidden;
   background: var(--surface-0); border: 1px solid var(--surface-0-line);
@@ -597,8 +619,9 @@ button.toggle {
 .lake-reg-item { font-size: var(--t-md); color: var(--ink); line-height: 1.45; margin-bottom: 4px; }
 .lake-reg-sp { font-weight: 700; color: var(--minor); }
 .lake-info-nodata { font-size: var(--t-sm); color: var(--muted); padding: 4px 0 8px; }
-.lake-info-note { font-size: var(--t-md); color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
+.lake-info-note { font-family: var(--serif); font-style: italic; font-size: var(--t-md); color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
 .lake-info-loading { font-size: var(--t-sm); color: var(--muted); padding: 8px 0 10px; }
+.lake-info-fishery-note span { font-family: var(--serif); font-style: italic; }
 .species-group { margin-top: 12px; }
 .species-group-lbl { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--good); font-weight: 700; margin-bottom: 6px; }
 .species-group-lbl.low { color: var(--muted); }

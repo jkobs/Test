@@ -384,6 +384,28 @@
         if (d > 1)  return 'PowerBait or nightcrawler under float near pool bottom — finesse only, post-front lockup';
         return s >= 2 ? 'Inline spinner or streamer in solunar window — trout timing correlates well with moon periods' : 'Inline spinner, leech or worm under bobber, or soft-hackle wet fly; dawn/dusk/overcast best';
       }},
+    // Great Lakes salmon — added after a real gap report: Lake Superior's
+    // stocking records are full of chinook/coho, but the curated guidance
+    // list had no salmon entry, so the target dropdown couldn't offer them.
+    { name: 'Chinook/Coho Salmon', tempLo: 42, tempHi: 58, pref: 0,
+      depth: function(d, t) {
+        if (t < 45) return '10–30 ft (spring/fall — high in the column, near shore and river mouths)';
+        if (t > 65) return '40–90 ft (troll the 44–54°F thermal band; downriggers/dipsys)';
+        if (d < -1) return '20–50 ft (pre-front — bait pushes up, salmon follow)';
+        if (d > 1)  return '50–90 ft (post-front — deeper, tight to the cold band)';
+        return '30–70 ft (above the thermocline; follow the bait, not the bottom)';
+      },
+      structure: function(d, t) {
+        if (t < 45) return 'River mouths, warm-water discharges, nearshore gravel — spring staging and fall-run water';
+        if (t > 65) return 'Offshore temperature breaks and bait schools — the "structure" is the thermal band, not the bottom';
+        return 'Temperature breaks, current seams off points, bait balls over deep water; first light is prime';
+      },
+      gear: function(d, t, s) {
+        if (t < 45) return 'Cast or troll spoons/body baits high in the column near river mouths and discharges';
+        if (d < -1) return 'Troll flasher-fly or spoons 2.2–3.0 mph above the cold band — pre-front bait push';
+        if (d > 1)  return 'Slow the troll and downsize spoons, tight to the temp band — post-front fish hug the cold water';
+        return s >= 2 ? 'Solunar window at first light — run high lines and planer boards before the sun climbs' : 'Troll spoons or flasher-fly over the thermal band at 2.2–3.0 mph; stack downriggers to find the depth';
+      }},
   ];
 
   // Species that primarily feed by SCENT/bait movement rather than sight —
@@ -406,7 +428,8 @@
     'Smallmouth Bass':     ['green pumpkin or natural craw/goby patterns', 'black or darker profiles for a visible silhouette'],
     'Muskellunge':         ['bright flash patterns (firetiger, perch, white) for reaction strikes', 'black, black/purple, or dark bucktail for maximum silhouette against the sky'],
     'Lake Trout':          ['natural silver/blue spoon patterns', 'glow, chartreuse, or UV-reactive finishes'],
-    'Rainbow/Brown Trout': ['natural olive, brown, or silver patterns', 'brighter attractor colors — chartreuse, orange, or pink']
+    'Rainbow/Brown Trout': ['natural olive, brown, or silver patterns', 'brighter attractor colors — chartreuse, orange, or pink'],
+    'Chinook/Coho Salmon': ['silver, blue/silver, or green spoon patterns', 'glow, black/purple, or high-UV patterns — first light and dark skies']
   };
 
   // Appends a short, light-condition-based color clause to a species'
@@ -469,6 +492,23 @@
   }
   function _speciesFallbackActive() {
     return !!(state.knownSpecies && state.knownSpecies.length) && SPECIES.filter(_speciesInWater).length === 0;
+  }
+
+  // Resolve the species object driving the current selection, applying the
+  // same "not in this water & no fallback" reconciliation _speciesBiteHtml
+  // uses — shared by the hero headline and field-notes tile so the pill,
+  // headline, and field notes never show three different species.
+  function _resolveSelectedSpecies() {
+    var sp = null, i;
+    for (i = 0; i < SPECIES.length; i++) {
+      if (SPECIES[i].name === _selectedSpeciesName) { sp = SPECIES[i]; break; }
+    }
+    if (!sp) sp = SPECIES[0];
+    var visibleSpecies = _visibleSpecies();
+    if (!_speciesInWater(sp) && !_speciesFallbackActive()) {
+      sp = visibleSpecies[0] || SPECIES[0];
+    }
+    return sp;
   }
 
   function _speciesRowsHtml(delta, airTemp, solBoost) {
@@ -567,6 +607,8 @@
       rewireSpeciesDropdown();
     }
     renderSpeciesPill();
+    if (state.lastAdv) renderFieldNotes(state.lastAdv);
+    renderHero();
   }
 
   function rewireSpeciesDropdown() {
@@ -1194,6 +1236,130 @@
     el.querySelectorAll('tr').forEach(function (tr) { tr.onclick = openNextModal; });
   }
 
+  // Short, spoken prose form of each species name for headline/deck copy —
+  // "Rainbow/Brown Trout" reads as "trout are moving now", not the full
+  // slash-separated label. Species not listed fall back to name.toLowerCase().
+  var PROSE_NAME = {
+    'Rainbow/Brown Trout': 'trout', 'Largemouth Bass': 'largemouth', 'Smallmouth Bass': 'smallmouth',
+    'Northern Pike': 'pike', 'Lake Sturgeon': 'sturgeon', 'Channel Catfish': 'channel cats',
+    'Flathead Catfish': 'flatheads', 'Yellow Perch': 'perch', 'Muskellunge': 'muskies',
+    'Lake Trout': 'lakers', 'Walleye': 'walleye', 'Crappie': 'crappie',
+    'Chinook/Coho Salmon': 'salmon'
+  };
+
+  // Reliable local-hour extraction in an arbitrary IANA timezone (mirrors the
+  // formatToParts pattern timelineBar() already uses for pct()) — avoids the
+  // hour12:false "24 at midnight" ICU quirk via the trailing %24.
+  function _hourInTz(tz) {
+    var parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).formatToParts(new Date());
+    var h = 0;
+    parts.forEach(function (x) { if (x.type === 'hour') h = +x.value; });
+    return h % 24;
+  }
+
+  function _dayPart(tz) {
+    var h = _hourInTz(tz);
+    if (h >= 5 && h < 11) return 'morning';
+    if (h >= 11 && h < 17) return 'afternoon';
+    if (h >= 17 && h < 21) return 'evening';
+    return 'tonight';
+  }
+
+  // Ensure a fixed-copy fragment reads as a finished sentence (species
+  // depth/structure/gear strings in SPECIES never carry trailing punctuation).
+  function _endSentence(s) {
+    s = String(s || '').trim();
+    if (!s) return s;
+    return /[.!?]$/.test(s) ? s : s + '.';
+  }
+  function _cap1(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+  // ---- species-aware headline engine: deterministic, fixed-copy templates
+  // (see CLAUDE-approved Stage 3 spec) composed from already-available
+  // inputs — no new fishing claims, no randomness. Same inputs -> same
+  // output. Used by renderHero() whenever adv exists.
+  function composeHeadline(adv) {
+    var sp = _resolveSelectedSpecies();
+    var sc = _speciesScore(sp, adv.delta, adv.airTemp, adv.solunarBoost);
+    var p = nextPeriod();
+    var now = Date.now();
+    var active = !!(p && now >= p.start.getTime() && now <= p.end.getTime());
+    var daypart = _dayPart(state.loc.tz);
+    var spName = PROSE_NAME[sp.name] || sp.name.toLowerCase();
+    var spNameCap = _cap1(spName);
+    var windowTime = p ? fmtTime(p.center, state.loc.tz) : '';
+    var nearSun = !!(p && p.sunOverlap);
+
+    var weekday = new Intl.DateTimeFormat('en-US', { timeZone: state.loc.tz, weekday: 'short' }).format(new Date());
+    var timeStr = fmtTime(new Date(), state.loc.tz);
+    var kicker = sp.name.toUpperCase() + ' · ' + weekday + ' ' + timeStr + ' · ' + adv.label.toUpperCase();
+
+    var headline;
+    if (active && sc >= 3) {
+      headline = 'The window is open — <em>' + spName + ' are moving now.</em>';
+    } else if (active && sc <= 2) {
+      headline = 'The window is open, <em>but ' + spName + ' are sluggish.</em>';
+    } else if (!p) {
+      headline = 'A quiet stretch for ' + spName + ' — <em>no solunar window ahead.</em>';
+    } else if (sc <= 2 && nearSun) {
+      headline = 'A slow ' + daypart + ' for ' + spName + ', <em>until the moon turns it.</em>';
+    } else if (sc <= 2) {
+      headline = 'A slow ' + daypart + ' for ' + spName + ' — <em>next chance at ' + windowTime + '.</em>';
+    } else if (sc === 3) {
+      headline = 'A fair ' + daypart + ' for ' + spName + '; <em>the ' + windowTime + ' window can tip it.</em>';
+    } else {
+      headline = spNameCap + ' want to eat this ' + daypart + ' — <em>be out for the ' + windowTime + ' window.</em>';
+    }
+
+    var clauses = [];
+    // 1. sky/pressure clause
+    if (adv.precip > 0) {
+      clauses.push('Rain is stirring the water — an active trigger.');
+    } else if (adv.cloudCover != null && adv.cloudCover <= 25) {
+      clauses.push('Bright, cloudless skies have fish pinned deep or tight to cover.');
+    } else if (adv.cloudCover != null && adv.cloudCover >= 70) {
+      clauses.push('Overcast light keeps fish shallower and feeding longer.');
+    } else if (adv.delta < -1) {
+      clauses.push('The glass is falling — fish feed ahead of a front.');
+    } else if (adv.delta > 1) {
+      clauses.push('Rising pressure after the front — expect a tighter, deeper bite.');
+    } else {
+      clauses.push('Steady glass — no weather push either way.');
+    }
+
+    // 2. window clause
+    if (p && active) {
+      clauses.push('Window runs until ' + fmtTime(p.end, state.loc.tz) + ' — fish it, don\'t plan it.');
+    } else if (p && !active) {
+      if (nearSun) {
+        var sunLabel = 'sunrise';
+        var day0 = state.days[0];
+        if (day0 && day0.sunrise && day0.sunset) {
+          var dSr = Math.abs(p.center.getTime() - day0.sunrise.getTime());
+          var dSs = Math.abs(p.center.getTime() - day0.sunset.getTime());
+          sunLabel = dSs < dSr ? 'sunset' : 'sunrise';
+        }
+        clauses.push('The ' + windowTime + ' ' + p.type + ' overlaps ' + sunLabel + ' — the best light of the day.');
+      } else {
+        clauses.push('Next ' + p.type + ' window at ' + windowTime + '.');
+      }
+    }
+
+    // 3. species action clause
+    var depthRaw = sp.depth(adv.delta, adv.airTemp);
+    var parenIdx = depthRaw.indexOf('(');
+    var depthShort = (parenIdx !== -1 ? depthRaw.slice(0, parenIdx) : depthRaw).trim();
+    var structureRaw = sp.structure(adv.delta, adv.airTemp, adv.solunarBoost);
+    var cutIdx = structureRaw.length;
+    var semiIdx = structureRaw.indexOf(';'), dashIdx = structureRaw.indexOf('—');
+    if (semiIdx !== -1) cutIdx = Math.min(cutIdx, semiIdx);
+    if (dashIdx !== -1) cutIdx = Math.min(cutIdx, dashIdx);
+    var structShort = structureRaw.slice(0, Math.min(cutIdx, 60)).trim().replace(/[,;:.\-–—]+$/, '');
+    clauses.push(spNameCap + ': ' + depthShort + ' — ' + structShort + '.');
+
+    return { kicker: kicker, headline: headline, deck: clauses.join(' ') };
+  }
+
   // ---- hero: the single glanceable "is it good to fish right now" summary,
   // with THE ONE countdown to the next solunar window built into its own
   // ledger row (the countbar). Reuses computeAdvice()'s existing generic
@@ -1241,11 +1407,12 @@
     if (!adv) {
       heroInHtml = '<div class="hero-in"><div class="hero-kicker">RIGHT NOW · ' + clockStr + ' · Loading conditions…</div></div>';
     } else {
-      var why = adv.solunarNote || adv.rainNote || adv.lightNote || adv.windNote || adv.tempNote || '';
+      var composed = composeHeadline(adv);
       heroInHtml =
         '<div class="hero-in">' +
-          '<div class="hero-kicker">RIGHT NOW · ' + clockStr + ' · <b>' + adv.label + '</b> <span class="fish">' + stars(adv.score) + '</span></div>' +
-          '<div class="hero-headline">' + why + '</div>' +
+          '<div class="hero-kicker">' + composed.kicker + ' <span class="fish">' + stars(adv.score) + '</span></div>' +
+          '<div class="hero-headline">' + composed.headline + '</div>' +
+          '<div class="hero-deck">' + composed.deck + '</div>' +
         '</div>';
     }
 
@@ -1519,10 +1686,45 @@
       '<div class="t-s">' + (light ? light + ' · ' : '') + windLine + '<br>' + windwardLine + '</div>';
   }
 
+  // ---- "Field notes" tile (Today tab, between the bento row and the
+  // advisor card): serif prose drop-cap paragraph (species structure + gear
+  // guidance, verbatim from SPECIES) plus a chip row of the top 4 visible
+  // species by score. Chips are a second entry point into the same
+  // _onSpeciesChange() path the pill/dropdown use, so pill + hero + notes
+  // always agree on the selected species.
+  function _fieldNotesChipHtml(sp, sc) {
+    var word = BITE_LABELS[sc - 1].toLowerCase();
+    return '<button type="button" class="chip fn-chip" data-species="' + esc(sp.name) + '">' +
+      esc(sp.name) + '<span class="g' + (sc >= 4 ? ' up' : '') + '">' + esc(word) + '</span></button>';
+  }
+
+  function renderFieldNotes(adv) {
+    var el = document.getElementById('field-notes');
+    if (!el || !adv) return;
+    var sp = _resolveSelectedSpecies();
+    var structure = sp.structure(adv.delta, adv.airTemp, adv.solunarBoost);
+    var gear = sp.gear(adv.delta, adv.airTemp, adv.solunarBoost) + lureColorHint(sp.name, adv.cloudCover);
+    var s1 = _endSentence(structure);
+    var s2 = _endSentence(gear);
+    var proseHtml = '<p class="note fn-note"><span class="dropcap">' + s1.charAt(0) + '</span>' +
+      s1.slice(1) + ' ' + s2 + '</p>';
+
+    var ranked = _visibleSpecies().map(function (s) {
+      return { sp: s, sc: _speciesScore(s, adv.delta, adv.airTemp, adv.solunarBoost) };
+    }).sort(function (a, b) { return b.sc - a.sc; }).slice(0, 4);
+    var chipsHtml = '<div class="sp-chips">' + ranked.map(function (r) { return _fieldNotesChipHtml(r.sp, r.sc); }).join('') + '</div>';
+
+    el.innerHTML = '<div class="t-hd">FIELD NOTES — ' + esc(sp.name.toUpperCase()) + '</div>' + proseHtml + chipsHtml;
+    el.querySelectorAll('.fn-chip').forEach(function (btn) {
+      btn.onclick = function () { _onSpeciesChange(btn.getAttribute('data-species')); };
+    });
+  }
+
   function renderAdvisor(adv, lat, lng) {
     state.lastAdv = adv;
     initMap(lat, lng, adv.towardDeg, adv.windSpeed);
     renderHero();
+    renderFieldNotes(adv);
     var skyEl = document.getElementById('sky-tile');
     if (skyEl) skyEl.innerHTML = _skyTileHtml(adv);
     var el = document.getElementById('advisor-body');
