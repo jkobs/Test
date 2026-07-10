@@ -2301,6 +2301,15 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       }},
   ];
 
+  // WI-waters Great Lakes fisheries — used to seed species presence on water
+  // too big for point-radius record lookups (see fetchSpeciesForWater).
+  // Names must match SPECIES[].name exactly.
+  var GREAT_LAKES_SPECIES = {
+    'lake superior': ['Chinook/Coho Salmon', 'Rainbow/Brown Trout', 'Lake Trout', 'Walleye', 'Smallmouth Bass', 'Northern Pike', 'Yellow Perch', 'Lake Sturgeon'],
+    'lake michigan': ['Chinook/Coho Salmon', 'Rainbow/Brown Trout', 'Lake Trout', 'Smallmouth Bass', 'Yellow Perch', 'Northern Pike'],
+    'green bay':     ['Walleye', 'Smallmouth Bass', 'Northern Pike', 'Muskellunge', 'Yellow Perch', 'Channel Catfish', 'Chinook/Coho Salmon', 'Rainbow/Brown Trout', 'Lake Sturgeon']
+  };
+
   // Species that primarily feed by SCENT/bait movement rather than sight —
   // lure color doesn't meaningfully apply to these, so they're excluded from
   // lureColorHint() below rather than given a fabricated color claim.
@@ -2550,11 +2559,13 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // (Cedar Lake) where legitimate DNR/iNaturalist data points can genuinely
   // sit more than a mile from the geometric center. Floor 1600m (~1 mi,
   // keeps small-lake accuracy — this is what prevented cross-contamination
-  // from a neighboring lake earlier), cap 5000m (~3.1 mi, avoids over-reach
-  // for huge lakes like Superior where "nearby" stops being meaningful).
+  // from a neighboring lake earlier). The radius is now uncapped at source;
+  // each consumer clamps to its own safe maximum (lake-info ~5 km, DNR
+  // stocking 30 km, iNaturalist 12 km) because a flat 5 km cap made species
+  // lookups return nothing on Great Lakes-scale water.
   function _searchRadiusM(latSpanMi, lngSpanMi) {
     var longest = Math.max(latSpanMi || 0, lngSpanMi || 0);
-    return Math.min(5000, Math.max(1600, longest * 0.6 * 1609));
+    return Math.max(1600, longest * 0.6 * 1609);
   }
 
   function selectWater(wName, wLat, wLng, wRadiusM) {
@@ -4345,8 +4356,8 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     _lakeInfoKey = key;
     var liEl = document.getElementById('lake-info');
     if (liEl) liEl.innerHTML = '<div class="lake-info-loading">Fetching lake data…</div>';
-    var nhdR = Math.max(1200, radiusM || 0);
-    var ovR  = Math.max(3000, radiusM || 0);
+    var nhdR = Math.max(1200, Math.min(5000, radiusM || 0));
+    var ovR  = Math.max(3000, Math.min(5000, radiusM || 0));
 
     var info = { name: name };
     state.lakeInfo = info;
@@ -4664,12 +4675,14 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     state.knownSpecies = null;
     state._speciesRecords = null;
     state._recordSources = null;
-    // Scale search distance to the lake's own size (floor ~1 mi / 1600m,
-    // cap ~3.1 mi / 5000m) — a flat 1 mi radius returned zero species for a
-    // 1120-acre lake where real DNR/iNaturalist data points can legitimately
-    // sit further than that from the geometric center.
-    var searchM = Math.max(1600, radiusM || 0);
-    var searchKm = (searchM / 1000).toFixed(1);
+    // Scale search distance to the lake's own size (floor ~1 mi / 1600m).
+    // DNR stocking query is ANDed with a lake-name match, so a wide radius
+    // (up to 30 km) is safe and needed on Great Lakes-scale water. iNaturalist
+    // has no name filter, so it stays tighter (12 km cap) to limit
+    // misattributing neighboring inland waters' fish.
+    var stockM = Math.min(30000, Math.max(1600, radiusM || 0));
+    var inatM  = Math.min(12000, Math.max(1600, radiusM || 0));
+    var searchKm = (inatM / 1000).toFixed(1);
 
     var collected = [];
     var sources = {}; // lowercased species name -> array of source labels
@@ -4680,6 +4693,15 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       if (sources[k].indexOf(sourceLabel) === -1) sources[k].push(sourceLabel);
     }
     var pending = 2;
+
+    // Great Lakes are too big for point-radius lookups to ever be complete —
+    // even 30 km around the selected point misses most of the fishery. Seed
+    // the well-documented WI Great Lakes gamefish baseline (exact curated
+    // SPECIES names, so matching is guaranteed); live stocking/iNaturalist
+    // records still merge on top of it.
+    var glKey = name.replace(/,.*/, '').trim().toLowerCase();
+    var glBaseline = GREAT_LAKES_SPECIES[glKey];
+    if (glBaseline) glBaseline.forEach(function(s) { record(s, 'established Great Lakes fishery'); });
 
     function finish() {
       pending--;
@@ -4708,7 +4730,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var dnrUrl = 'https://dnrmaps.wi.gov/arcgis/rest/services/FM_Fisheries/FM_Fish_Stocking_Public/MapServer/0/query' +
       '?where=' + encodeURIComponent(safeQ) +
       '&geometry=' + lng + ',' + lat + '&geometryType=esriGeometryPoint&inSR=4326' +
-      '&spatialRel=esriSpatialRelIntersects&distance=' + Math.round(searchM) + '&units=esriSRUnit_Meter' +
+      '&spatialRel=esriSpatialRelIntersects&distance=' + Math.round(stockM) + '&units=esriSRUnit_Meter' +
       '&outFields=SPECIES_NAME,WBIC&returnDistinctValues=true&resultRecordCount=200&f=json';
     fetch(dnrUrl).then(function(r) { return r.json(); }).then(function(j) {
       if (j.features) {

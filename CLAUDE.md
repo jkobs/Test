@@ -87,5 +87,11 @@ QA step — don't mark this kind of change "done" on green tests alone.
   CENTER (`clat`/`clng`) for map framing, not the edge point.
 - **WI DNR data** (`fetchWiDnrLakeData`): designated waters, WBIC, clarity,
   regs, classification — all endpoints confirmed on-device, not guessed.
+- **Species search radius**: `_searchRadiusM` is uncapped at source; each
+  consumer clamps to its own safe max (lake-info ~5 km; DNR stocking 30 km —
+  safe because the query is ANDed with a lake-name match; iNaturalist 12 km,
+  no name filter so kept tighter). Great Lakes (`GREAT_LAKES_SPECIES` table)
+  additionally get a curated species baseline seeded in `fetchSpeciesForWater`
+  since no point-radius lookup can cover water that size.
 - Test-only hook `window.__testHooks.selectMapPoint(lat,lng)` drives map-tap
   selection without pixel math.
