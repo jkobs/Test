@@ -384,6 +384,28 @@
         if (d > 1)  return 'PowerBait or nightcrawler under float near pool bottom — finesse only, post-front lockup';
         return s >= 2 ? 'Inline spinner or streamer in solunar window — trout timing correlates well with moon periods' : 'Inline spinner, leech or worm under bobber, or soft-hackle wet fly; dawn/dusk/overcast best';
       }},
+    { name: 'Brook Trout', tempLo: 44, tempHi: 64, pref: -1,
+      depth: function(d, t) {
+        if (t > 68) return '15–30 ft (retreats to the coldest spring-fed water or deep holes)';
+        if (t < 42) return '2–10 ft near bottom (sluggish; slow, subtle presentations)';
+        if (d < -1) return 'Surface to 6 ft (active pre-front; rising in riffles and heads of pools)';
+        if (d > 1)  return '6–15 ft (post-front; holding deep near cold seeps)';
+        return '2–10 ft';
+      },
+      structure: function(d, t) {
+        if (t > 68) return 'Cold spring seeps, undercut banks, deep shaded plunge pools, beaver-dam headwaters';
+        if (t < 42) return 'Deep slow pools and spring holes — low light only; barely feeding in the cold';
+        if (d < -1) return 'Riffle heads and current seams — pre-front is peak brook-trout aggression';
+        if (d > 1)  return 'Undercut banks and log jams near cold inflows — post-front, tight to cover';
+        return 'Small-stream pool-riffle transitions, undercut banks, spring seeps; overcast and canopy shade prime';
+      },
+      gear: function(d, t, s) {
+        if (t > 68) return 'Small spinner or bait dead-drifted through the coldest seep or plunge pool — brookies stack on cold water in heat';
+        if (t < 42) return 'Tiny nymph or worm drifted slow along bottom in a deep hole — minimal action';
+        if (d < -1) return 'Small inline spinner (Panther Martin/Mepps #0–2), dry fly, or worm — pre-front window, aggressive';
+        if (d > 1)  return 'Worm or small nymph under a float, dead-slow near cover — finesse post-front';
+        return s >= 2 ? 'Small spinner or attractor dry in the solunar window — brookies key on low-light periods' : 'Small inline spinner, worm under a bobber, or a bushy dry fly; dawn/dusk and overcast best';
+      }},
     // Great Lakes salmon — added after a real gap report: Lake Superior's
     // stocking records are full of chinook/coho, but the curated guidance
     // list had no salmon entry, so the target dropdown couldn't offer them.
@@ -438,6 +460,7 @@
     'Muskellunge':         ['bright flash patterns (firetiger, perch, white) for reaction strikes', 'black, black/purple, or dark bucktail for maximum silhouette against the sky'],
     'Lake Trout':          ['natural silver/blue spoon patterns', 'glow, chartreuse, or UV-reactive finishes'],
     'Rainbow/Brown Trout': ['natural olive, brown, or silver patterns', 'brighter attractor colors — chartreuse, orange, or pink'],
+    'Brook Trout':         ['natural olive, brown, or copper patterns', 'brighter attractor colors — orange, pink, or chartreuse in stained or low light'],
     'Chinook/Coho Salmon': ['silver, blue/silver, or green spoon patterns', 'glow, black/purple, or high-UV patterns — first light and dark skies']
   };
 
@@ -476,25 +499,46 @@
     '</div>';
   }
 
+  // Two curated entries each cover a pair of species; map them to the FULL
+  // proper phrases they should match. A bare first word ("rainbow") used to
+  // substring-match real non-gamefish like "Rainbow Smelt"/"Rainbow Darter"
+  // and wrongly collapse the whole lake to "Rainbow/Brown Trout" — so match
+  // on the complete phrase instead. The verbatim curated name is always
+  // included too, so the Great Lakes baseline (which records the exact
+  // curated name) still matches.
+  var SPECIES_ALIASES = {
+    'Rainbow/Brown Trout': ['rainbow trout', 'brown trout'],
+    'Chinook/Coho Salmon': ['chinook salmon', 'coho salmon']
+  };
+  function _matchPhrases(sp) {
+    var base = [sp.name.toLowerCase()];
+    var extra = SPECIES_ALIASES[sp.name];
+    return extra ? base.concat(extra) : base;
+  }
+  // Whole-word-sequence containment: "crappie" IS in "white crappie", but
+  // "rainbow trout" is NOT in "rainbow smelt". Space-padding both sides makes
+  // indexOf land only on word boundaries, not mid-word.
+  function _phraseIn(haystack, needle) {
+    return (' ' + haystack + ' ').indexOf(' ' + needle + ' ') !== -1;
+  }
   function _speciesInWater(sp) {
     if (!state.knownSpecies) return true;
-    // Split "Rainbow/Brown Trout" → ["rainbow", "brown trout"] so either half matches
-    var names = sp.name.toLowerCase().split('/').map(function(s) { return s.trim(); });
+    var phrases = _matchPhrases(sp);
     return state.knownSpecies.some(function(k) {
       var kl = k.toLowerCase();
-      return names.some(function(n) {
-        return n.indexOf(kl) !== -1 || kl.indexOf(n) !== -1;
+      return phrases.some(function(p) {
+        return _phraseIn(kl, p) || _phraseIn(p, kl);
       });
     });
   }
 
-  // Our detailed depth/structure/gear guidance only covers 12 curated
-  // gamefish species. When real recorded species (state.knownSpecies) exist
-  // but NONE of them overlap that curated list (e.g. the lake's only
-  // confirmed record is a non-gamefish species like Mooneye), filtering
-  // down to zero matches would show an empty, broken-looking section —
-  // worse than not filtering at all. Fall back to showing all 12 species
-  // rather than an empty list in that case.
+  // Our detailed depth/structure/gear guidance only covers the curated
+  // gamefish species list (SPECIES). When real recorded species
+  // (state.knownSpecies) exist but NONE of them overlap that curated list
+  // (e.g. the lake's only confirmed record is a non-gamefish species like
+  // Mooneye), filtering down to zero matches would show an empty,
+  // broken-looking section — worse than not filtering at all. Fall back to
+  // showing all curated species rather than an empty list in that case.
   function _visibleSpecies() {
     var filtered = SPECIES.filter(_speciesInWater);
     return filtered.length ? filtered : SPECIES;
@@ -651,12 +695,13 @@
   // the main source of the "laggy" feeling when switching lakes.
   function _showAdvisorLoading(name) {
     var el = document.getElementById('advisor-body');
-    if (el) el.innerHTML = '<div class="note">Loading fishing conditions for ' + name + '…</div>';
+    if (el) el.innerHTML = '<div class="note">Loading fishing conditions for ' + esc(name) + '…</div>';
     // Also clear the hero's bite rating/countdown — it's driven by
     // state.lastAdv, which otherwise keeps showing the PREVIOUS lake's data
     // until the new pressure fetch resolves (the same staleness bug fixed
     // above for advisor-body, extended to the hero once it existed).
     state.lastAdv = null;
+    state.weatherUnavailable = false; // new selection: back to "loading", not "unavailable"
     try { renderHero(); } catch (e) {}
   }
 
@@ -1255,7 +1300,7 @@
     'Northern Pike': 'pike', 'Lake Sturgeon': 'sturgeon', 'Channel Catfish': 'channel cats',
     'Flathead Catfish': 'flatheads', 'Yellow Perch': 'perch', 'Muskellunge': 'muskies',
     'Lake Trout': 'lakers', 'Walleye': 'walleye', 'Crappie': 'crappie',
-    'Chinook/Coho Salmon': 'salmon'
+    'Chinook/Coho Salmon': 'salmon', 'Brook Trout': 'brookies'
   };
 
   // Reliable local-hour extraction in an arbitrary IANA timezone (mirrors the
@@ -1416,7 +1461,8 @@
 
     var heroInHtml;
     if (!adv) {
-      heroInHtml = '<div class="hero-in"><div class="hero-kicker">RIGHT NOW · ' + clockStr + ' · Loading conditions…</div></div>';
+      var heroStatus = state.weatherUnavailable ? 'Conditions unavailable — solunar times below' : 'Loading conditions…';
+      heroInHtml = '<div class="hero-in"><div class="hero-kicker">RIGHT NOW · ' + clockStr + ' · ' + heroStatus + '</div></div>';
     } else {
       var composed = composeHeadline(adv);
       heroInHtml =
@@ -1749,7 +1795,7 @@
       '<div class="adv-note">' + adv.tempNote + '</div>' +
       speciesOutlookHtml(adv.delta, adv.airTemp, adv.solunarBoost) +
       '<div class="adv-map-footer">' +
-        '<span class="adv-dnr-badge">🛰 Satellite · ' + state.loc.name + '</span>' +
+        '<span class="adv-dnr-badge">🛰 Satellite · ' + esc(state.loc.name) + '</span>' +
         '<button class="adv-dnr-btn" id="dnr-toggle">' + (_drnEnabled ? 'Hide contours' : 'Show contours') + '</button>' +
       '</div>';
     renderLakeInfo();
@@ -1846,6 +1892,7 @@
     if (typeof fetch === 'undefined') return;
     var loc = state.loc;
     var reqId = ++_pressureReqId;
+    state.weatherUnavailable = false;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat +
       '&longitude=' + loc.lng +
       '&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation' +
@@ -1911,6 +1958,10 @@
       initMap(loc.lat, loc.lng, null, 0);
       var advEl = document.getElementById('advisor-body');
       if (advEl) advEl.innerHTML = '<div class="adv-offline">Conditions unavailable offline — check solunar periods below for timing.</div>';
+      // Move the hero out of its perpetual "Loading conditions…" state into a
+      // terminal "unavailable" one — otherwise it looks stuck forever offline.
+      state.weatherUnavailable = true;
+      try { renderHero(); } catch (e) {}
     });
   }
 
@@ -2468,7 +2519,9 @@
 
     var info = { name: name };
     state.lakeInfo = info;
-    function render() { state.lakeInfo = info; try { renderLakeInfo(); } catch (e) {} }
+    // Guard late writes: if a newer lake was selected while these fetches were
+    // in flight (_lakeInfoKey changed), don't clobber its info with this one's.
+    function render() { if (_lakeInfoKey !== key) return; state.lakeInfo = info; try { renderLakeInfo(); } catch (e) {} }
 
     // Source A (reliable): USGS NHD point-intersect — type + surface area, no QID needed.
     var usgsDone = nhdQuery(12, lat, lng, nhdR).then(function (fc) {
@@ -2609,8 +2662,12 @@
     // iframe is blocked/offline/the lake has no survey on file, the skeleton
     // just stays up looking intentional instead of a blank page flashing in.
     var mapCard = '';
-    if (info.wbic && _inWisconsin(info.lat != null ? info.lat : state.loc.lat, info.lng != null ? info.lng : state.loc.lng)) {
-      var mapUrl = 'https://apps.dnr.wi.gov/doclink/lakes_maps/' + info.wbic + 'a.pdf';
+    // WBIC must be a bare integer before it goes into the iframe src/href —
+    // both prevents a malformed/hostile value from breaking out of the
+    // attribute (a `">` payload) and avoids requesting a garbage PDF URL.
+    var _wbicStr = info.wbic == null ? '' : String(info.wbic);
+    if (/^\d+$/.test(_wbicStr) && _inWisconsin(info.lat != null ? info.lat : state.loc.lat, info.lng != null ? info.lng : state.loc.lng)) {
+      var mapUrl = 'https://apps.dnr.wi.gov/doclink/lakes_maps/' + _wbicStr + 'a.pdf';
       // These DNR survey sheets are large-format scans; embedded in a small
       // iframe with no view hint, browsers' native PDF renderers tend to open
       // at 100% actual-size zoom — cropped into the title block corner rather
@@ -2750,6 +2807,11 @@
       rewireSpeciesDropdown();
     }
     renderSpeciesPill();
+    // Field Notes chips are also derived from the filtered species list, but
+    // renderAdvisor renders them once at pressure-fetch time — which usually
+    // resolves BEFORE the DNR/iNaturalist species fetches. Refresh them here
+    // too, or the chip row keeps showing species that aren't in this water.
+    if (state.lastAdv) renderFieldNotes(state.lastAdv);
     var rowsEl = document.getElementById('species-rows');
     if (rowsEl && state.lastAdv) {
       var adv = state.lastAdv;
@@ -2806,13 +2868,21 @@
     // the well-documented WI Great Lakes gamefish baseline (exact curated
     // SPECIES names, so matching is guaranteed); live stocking/iNaturalist
     // records still merge on top of it.
-    var glKey = name.replace(/,.*/, '').trim().toLowerCase();
-    var glBaseline = GREAT_LAKES_SPECIES[glKey];
+    // Match on a whitespace-normalized name AND require genuinely huge water
+    // (the size-scaled radius far exceeds any inland lake's) — so a small
+    // inland pond that merely happens to be named "Lake Superior" can't
+    // inherit the big-water fishery baseline.
+    var glKey = name.replace(/,.*/, '').trim().toLowerCase().replace(/\s+/g, ' ');
+    var glBaseline = (radiusM && radiusM > 8000) ? GREAT_LAKES_SPECIES[glKey] : null;
     if (glBaseline) glBaseline.forEach(function(s) { record(s, 'established Great Lakes fishery'); });
 
     function finish() {
       pending--;
       if (pending > 0) return;
+      // A newer lake selection may have started while these fetches were in
+      // flight; the dedupe guard only blocks duplicate STARTS, so re-check the
+      // key here to avoid this lake's late records overwriting the new one's.
+      if (_speciesReqKey !== key) return;
       var seen = {};
       var unique = collected.filter(function(s) {
         var k = s.toLowerCase();
@@ -2898,6 +2968,7 @@
     //    hydrography polygon under the point. Powers the lake-report /
     //    depth-contour-map deep link even when stocking records are empty.
     fetchJson(_wiQueryUrl(WI_SWDV + '/WY_INLAND_WATER_RESOURCES', 3, lat, lng, 150), 9000).then(function(j) {
+      if (_wiDnrKey !== key) return; // superseded by a newer lake selection
       var feats = (j && j.features) || [];
       var f = _pickByName(feats, function (x) { return x.attributes && x.attributes.WATERBODY_ROW_NAME; }, name);
       var wbic = f && f.attributes && f.attributes.WATERBODY_WBIC;
@@ -2918,6 +2989,7 @@
     var DESIG_LAYERS = [[0, 'Muskellunge'], [3, 'Lake Sturgeon'], [7, 'Walleye'], [8, 'Trout']];
     DESIG_LAYERS.forEach(function(dl) {
       fetchJson(_wiQueryUrl(WI_SWDV + '/WY_FISHERIES_WATERS', dl[0], lat, lng, 150), 9000).then(function(j) {
+        if (_wiDnrKey !== key) return; // superseded by a newer lake selection
         var feats = (j && j.features) || [];
         if (!feats.length) return;
         // strict: a designation for the WRONG lake (e.g. a same-family
@@ -2943,6 +3015,7 @@
     // 3. Satellite water clarity (statewide Landsat lake averages) —
     //    pick the most recent year on file for this lake.
     fetchJson(_wiQueryUrl('https://dnrmaps.wi.gov/arcgis/rest/services/WY_Lakes_AIS/WY_LAKE_SATELLITE_WATER_CLARITY_RESULTS', 9, lat, lng, 150), 9000).then(function(j) {
+      if (_wiDnrKey !== key) return; // superseded by a newer lake selection
       var feats = (j && j.features) || [];
       var best = null;
       feats.forEach(function(f) {
@@ -2960,6 +3033,7 @@
     //    probe round 4: one text field per species group (PANFISH,
     //    WALLEYE_SAUGER_AND_HYBRIDS, ...) — render the actual rules.
     fetchJson(_wiQueryUrl(WI_ARCGIS2 + '/FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT', 2, lat, lng, 150), 9000).then(function(j) {
+      if (_wiDnrKey !== key) return; // superseded by a newer lake selection
       var feats = (j && j.features) || [];
       // strict: regulations text for the WRONG lake is worse than none —
       // an angler could rely on the wrong bag/size limit. Skip if the only
@@ -2989,6 +3063,7 @@
     // 5. Lake classification (fish-community type + fishery description +
     //    surveyed max depth). Schema confirmed by probe round 4.
     fetchJson(_wiQueryUrl(WI_ARCGIS2 + '/FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT', 0, lat, lng, 150), 9000).then(function(j) {
+      if (_wiDnrKey !== key) return; // superseded by a newer lake selection
       var feats = (j && j.features) || [];
       // Exact-name match preferred; fuzzy fallback only if nothing exact (not
       // strict — depth/class for a same-family neighbor lake is imprecise but
@@ -3189,7 +3264,7 @@
       if (!resEl) return;
       resEl.innerHTML = results.map(function(r, i) {
         var place = [r.name, r.admin1, r.country_code].filter(Boolean).join(', ');
-        return '<div class="city-result" data-idx="' + i + '">' + ic('pin', 14) + place + '</div>';
+        return '<div class="city-result" data-idx="' + i + '">' + ic('pin', 14) + esc(place) + '</div>';
       }).join('');
       resEl.querySelectorAll('.city-result').forEach(function(row) {
         row.onclick = function() {

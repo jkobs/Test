@@ -73,7 +73,7 @@ check('lake-info shows the real species (Mooneye)', lakeInfoText.includes('Moone
 const dropdownOptions = await page.$$eval('#conditions-species-select option', els => els.map(e => e.textContent));
 console.log('Bite Conditions dropdown options: ' + JSON.stringify(dropdownOptions));
 check('Bite Conditions dropdown is NOT empty (was broken before fix)', dropdownOptions.length > 0);
-check('Bite Conditions dropdown falls back to the full curated species list (13 incl. salmon)', dropdownOptions.length === 13);
+check('Bite Conditions dropdown falls back to the full curated species list (14 incl. salmon + brook trout)', dropdownOptions.length === 14);
 
 const outlookText = await page.$eval('#species-rows', el => el.textContent).catch(() => '');
 console.log('Species Outlook rows text (first 150 chars): ' + outlookText.slice(0, 150));

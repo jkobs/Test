@@ -19,6 +19,24 @@ async function testScenario(scenarioName, cloudCover, precip, expectedText) {
   const browser = await chromium.launch({ executablePath: CHROME });
   const page = await (await browser.newContext()).newPage();
 
+  // Pin the clock to local midday (17:00 UTC ≈ 12:00 CDT at the default
+  // Wisconsin location). The light-condition note in app.js keys off the
+  // solunar engine's real astronomical sunrise/sunset for "now", NOT the
+  // mocked daily.sunrise/sunset fields — so without pinning the clock, a run
+  // after dark takes the "🌙 Night" branch and the overcast/clear-sky notes
+  // this test asserts never render, making the test pass/fail by time of day.
+  await page.addInitScript(() => {
+    const FIXED = new Date('2026-07-08T17:00:00Z').getTime();
+    const _Date = Date;
+    function FakeDate(...args) { return args.length ? new _Date(...args) : new _Date(FIXED); }
+    FakeDate.prototype = _Date.prototype;
+    FakeDate.now = () => FIXED;
+    FakeDate.parse = _Date.parse;
+    FakeDate.UTC = _Date.UTC;
+    // eslint-disable-next-line no-global-assign
+    Date = FakeDate;
+  });
+
   // Mock Open-Meteo API responses
   await page.route('**/*', async (route) => {
     const url = route.request().url();
