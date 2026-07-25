@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fishing Advisor — Data Source Probe (round 9: waterbody species + trout waters)</title>
+<title>Fishing Advisor — Data Source Probe (round 10: natural communities + FM_SURVEYS)</title>
 <style>
   :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553;
           --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; --hit:#ffd166; }
@@ -26,14 +26,15 @@
 </style>
 </head>
 <body>
-<h1>🎣 Probe round 9 — the two datasets round 8 uncovered</h1>
+<h1>🎣 Probe round 10 — the last two leads</h1>
 <div class="intro">
-  Round 8 found two services that may finally give true per-waterbody species presence:
-  <code>WY_WBHB_AND_WATERBODY_SPECIES</code> (in WY_Lakes_AIS) and the <b>FM_Trout</b> folder —
-  the lake-regs table literally says "TROUT_AND_SALMON = <i>See Trout regulations layer</i>",
-  so FM_Trout is the authoritative answer to "does this water actually have trout?".
-  This round dumps their layer lists, field schemas, and real records at known lakes.
-  Tap <b>Copy report</b> when the spinners stop (~30–60s) and paste the whole thing back.
+  Round 9 settled trout presence (FM_TROUT_REGS — now shipping) and ruled out
+  WY_WBHB_AND_WATERBODY_SPECIES (it is aquatic INVASIVE species, not gamefish).
+  Two leads are left: <code>WY_NATURAL_COMMUNITY_MODELING</code> layer 0 "Lake Natural
+  Communities" — schema known, real values never captured, and it carries
+  <b>MAX_DEPTH plus MAX_DEPTH_SOURCE</b> which may settle the Cedar Lake depth
+  disagreement — and the <b>FM_SURVEYS</b> folder on arcgis2, whose name is suggestive.
+  Tap <b>Copy report</b> when the spinners stop (~30-60s) and paste it back.
 </div>
 <button id="copy">📋 Copy report</button>
 <div id="out"></div>
@@ -42,7 +43,7 @@
 <script>
 (function () {
   'use strict';
-  var R = { generated: new Date().toISOString(), round: 9, lines: [] };
+  var R = { generated: new Date().toISOString(), round: 10, lines: [] };
   var out = document.getElementById('out');
   var pending = 0;
 
@@ -78,91 +79,106 @@
 
   var ARC  = 'https://dnrmaps.wi.gov/arcgis/rest/services';
   var ARC2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
+  var NCM  = ARC + '/WT_SWDV/WY_NATURAL_COMMUNITY_MODELING/MapServer';
+  var FISHY = /fish|species|survey|community|creel|biota|aquatic|trout|lake/i;
 
-  // Round 8 confirmed: lake CLASSIFICATION gives a usable fish-community class
-  // (now shipping), and the lake REGULATIONS table is NOT a presence signal —
-  // every lake returns the same ~34 species columns, including sturgeon and
-  // paddlefish on a 13-acre no-fishery pond. These two services are the
-  // remaining candidates for TRUE per-waterbody species presence.
-  var SERVICES = [
-    ['WY_WBHB_AND_WATERBODY_SPECIES', ARC + '/WY_Lakes_AIS/WY_WBHB_AND_WATERBODY_SPECIES/MapServer'],
-    ['WY_INVASIVE_FISH_LOCATIONS',    ARC + '/WY_Lakes_AIS/WY_INVASIVE_FISH_LOCATIONS/MapServer'],
-    ['FM_TROUT_REGS',                 ARC + '/FM_Trout/FM_TROUT_REGS_WTM_Ext/MapServer'],
-    ['FM_TROUT_HAB_SITES',            ARC + '/FM_Trout/FM_TROUT_HAB_SITES_WTM_Ext/MapServer'],
-    ['WY_NATURAL_COMMUNITY_MODELING', ARC + '/WT_SWDV/WY_NATURAL_COMMUNITY_MODELING/MapServer'],
-    ['arcgis2 root (never reported in r8)', ARC2]
-  ];
-
-  /* ---------- 1. Layer inventories ---------- */
-  var log1 = sec('1 . Layer inventory for each candidate service');
-  var LAYERS = {}; // service label -> [{id,name}]
-  SERVICES.forEach(function (s) {
-    getJson(s[1] + '?f=json').then(function (j) {
-      if (j && j.folders) { // the arcgis2 root case
-        log1('ok', s[0] + ' folders: <code>' + esc((j.folders || []).join(', ')) + '</code>');
-        return;
-      }
-      var L = (j && j.layers) || [];
-      LAYERS[s[0]] = L;
-      if (!L.length) { log1('bad', s[0] + ' -> NO layers (service missing or renamed?) ' + esc(JSON.stringify(j && j.error || {}).slice(0, 160))); return; }
-      log1('hit', s[0] + ' -> ' + L.length + ' layer(s): <code>' +
-        esc(L.map(function (x) { return x.id + ':' + x.name; }).join(' | ')) + '</code>');
-      // Pull the field schema for the first few layers.
-      L.slice(0, 4).forEach(function (Lyr) {
-        getJson(s[1] + '/' + Lyr.id + '?f=json').then(function (lj) {
-          var f = (lj && lj.fields) || [];
-          log1('ok', '   ' + s[0] + '[' + Lyr.id + '] "' + esc(Lyr.name) + '" -> ' + f.length + ' fields');
-          log1('none', '      <code>' + esc(f.map(function (x) { return x.name; }).join(', ')) + '</code>');
-        }).catch(function () { log1('bad', '   ' + s[0] + '[' + Lyr.id + '] schema FAILED'); });
-      });
-    }).catch(function (e) { log1('bad', s[0] + ' inventory FAILED: ' + e); });
-  });
-
-  /* ---------- 2. Real records at known lakes ---------- */
-  var log2 = sec('2 . Real records — do these actually carry species per water?');
-  // Yellow Lake (app default) + a confirmed two-story/coldwater lake + a known
-  // trout region. WBICs are from round 8 where we have them.
+  /* ---------- 1. Lake Natural Communities: REAL values ---------- */
+  var log1 = sec('1 . Lake Natural Communities - real records');
+  // Same contrasting lakes as rounds 8-9 so values line up with what we know:
+  // Green Lake is two story w/ trout, Yellow Lake is not a trout water,
+  // Brushy Mound is "no fishery", Cedar Lake is the depth-disagreement case.
   var LAKES = [
-    ['Yellow Lake area (45.94, -92.38)', 45.94, -92.38],
-    ['Green Lake  (WBIC 146100, two story)', 43.800, -88.960],
-    ['Geneva Lake (WBIC 758300, two story)', 42.585, -88.500],
-    ['Brushy Mound Lk (WBIC 2455400, no fishery)', 45.07152, -92.51623]
+    ['Yellow Lake (not a trout water)', 45.94, -92.38],
+    ['Green Lake (two story, trout)', 43.800, -88.960],
+    ['Geneva Lake (two story, trout)', 42.585, -88.500],
+    ['Lake Mendota (two story, NOT trout)', 43.107, -89.416],
+    ['Brushy Mound Lk (no fishery)', 45.07152, -92.51623],
+    ['Cedar Lake, St Croix Co (depth dispute: 28 vs 32 ft)', 45.1075, -92.5000]
   ];
-  // Query layer 0 of each candidate by point+radius, dumping all attributes.
-  function probeLayer(label, base, layerId, L, dist) {
-    var url = base + '/' + layerId + '/query?f=json&geometry=' + L[2] + ',' + L[1] +
+  LAKES.forEach(function (L) {
+    var url = NCM + '/0/query?f=json&geometry=' + L[2] + ',' + L[1] +
       '&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects' +
-      '&distance=' + dist + '&units=esriSRUnit_Meter&outFields=*&returnGeometry=false&resultRecordCount=3';
-    return getJson(url).then(function (j) {
+      '&distance=1200&units=esriSRUnit_Meter&outFields=*&returnGeometry=false&resultRecordCount=3';
+    getJson(url).then(function (j) {
+      if (j && j.error) { log1('bad', L[0] + ': error ' + esc(JSON.stringify(j.error).slice(0, 140))); return; }
       var feats = (j && j.features) || [];
-      if (j && j.error) { log2('bad', '   ' + label + '[' + layerId + ']: error ' + esc(JSON.stringify(j.error).slice(0, 140))); return; }
-      if (!feats.length) { log2('warn', '   ' + label + '[' + layerId + ']: no features within ' + dist + ' m'); return; }
+      if (!feats.length) { log1('warn', L[0] + ': no features within 1200 m'); return; }
       feats.slice(0, 2).forEach(function (f, i) {
         var a = f.attributes || {};
-        log2('hit', '   ' + label + '[' + layerId + '] record ' + i);
+        log1('hit', '<b>' + esc(L[0]) + '</b> record ' + i + ' -> ' + esc(a.OFFICIAL_NAME || '(unnamed)'));
         Object.keys(a).forEach(function (k) {
           var v = a[k];
           if (v == null || v === '' || k.indexOf('SHAPE') === 0) return;
-          log2('none', '      <code>' + esc(k) + '</code> = ' + esc(trunc(v, 200)));
+          log1('none', '   <code>' + esc(k) + '</code> = ' + esc(trunc(v, 200)));
         });
       });
-    }).catch(function (e) { log2('bad', '   ' + label + '[' + layerId + '] FAILED: ' + e); });
-  }
-  LAKES.forEach(function (L) {
-    log2('none', '<b>- ' + esc(L[0]) + '</b>');
-    // Species/HB service: try the first 3 layer ids blind (inventory above
-    // reports the real ids; 0-2 covers the common case without guessing names).
-    [0, 1, 2].forEach(function (id) {
-      probeLayer('WBHB_SPECIES', ARC + '/WY_Lakes_AIS/WY_WBHB_AND_WATERBODY_SPECIES/MapServer', id, L, 1500);
-    });
-    [0, 1].forEach(function (id) {
-      probeLayer('FM_TROUT_REGS', ARC + '/FM_Trout/FM_TROUT_REGS_WTM_Ext/MapServer', id, L, 2000);
-    });
+    }).catch(function (e) { log1('bad', L[0] + ' FAILED: ' + e); });
   });
+
+  /* ---------- 2. FM_SURVEYS + other unexplored arcgis2 folders ---------- */
+  var log2 = sec('2 . FM_SURVEYS and friends - is survey data public after all?');
+  ['FM_SURVEYS', 'FM_DFM', 'WM_SPECIES_MGMT_ZONES'].forEach(function (folder) {
+    getJson(ARC2 + '/' + folder + '?f=json').then(function (j) {
+      var svcs = ((j && j.services) || []).map(function (s) { return s.name.split('/').pop(); });
+      if (!svcs.length) { log2('warn', folder + ': no services listed ' + esc(JSON.stringify(j && j.error || {}).slice(0, 120))); return; }
+      log2('hit', folder + ' -> ' + svcs.length + ' service(s): <code>' + esc(svcs.join(', ')) + '</code>');
+      // Inventory the layers of anything fisheries-sounding.
+      svcs.filter(function (n) { return FISHY.test(n); }).slice(0, 4).forEach(function (n) {
+        getJson(ARC2 + '/' + folder + '/' + n + '/MapServer?f=json').then(function (mj) {
+          var L = (mj && mj.layers) || [];
+          log2(L.length ? 'hit' : 'warn', '   ' + folder + '/' + n + ' -> ' +
+            (L.length ? L.map(function (x) { return x.id + ':' + x.name; }).join(' | ') : 'no layers'));
+          // Schema of the first layer, so we can judge without guessing.
+          if (L.length) {
+            getJson(ARC2 + '/' + folder + '/' + n + '/MapServer/' + L[0].id + '?f=json').then(function (lj) {
+              var fl = (lj && lj.fields) || [];
+              log2('none', '      fields[' + L[0].id + ']: <code>' + esc(fl.map(function (x) { return x.name; }).join(', ')) + '</code>');
+            }).catch(function () {});
+          }
+        }).catch(function () { log2('bad', '   ' + folder + '/' + n + ' inventory FAILED'); });
+      });
+    }).catch(function (e) { log2('bad', folder + ' FAILED: ' + e); });
+  });
+
+  /* ---------- 3. Trout STREAM regs + habitat target species ---------- */
+  var log3 = sec('3 . Trout streams - the app supports rivers too');
+  // FM_TROUT_REGS layer 0 is stream LINES, so a lake-center point misses it.
+  // Probe from your GPS with a wide radius, plus the habitat-project layer whose
+  // TARGETSPECIES field names the trout species a project is for.
+  if (navigator.geolocation) {
+    log3('none', 'requesting GPS...');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      var la = +pos.coords.latitude.toFixed(5), ln = +pos.coords.longitude.toFixed(5);
+      log3('ok', 'GPS: ' + la + ', ' + ln);
+      [['TROUT_STREAM_REGS', ARC + '/FM_Trout/FM_TROUT_REGS_WTM_Ext/MapServer/0'],
+       ['TROUT_COUNTY_REGS', ARC + '/FM_Trout/FM_TROUT_REGS_WTM_Ext/MapServer/2'],
+       ['TROUT_HAB_SITES',   ARC + '/FM_Trout/FM_TROUT_HAB_SITES_WTM_Ext/MapServer/1']
+      ].forEach(function (t) {
+        var u = t[1] + '/query?f=json&geometry=' + ln + ',' + la +
+          '&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects' +
+          '&distance=8000&units=esriSRUnit_Meter&outFields=*&returnGeometry=false&resultRecordCount=3';
+        getJson(u).then(function (j) {
+          if (j && j.error) { log3('bad', t[0] + ': error ' + esc(JSON.stringify(j.error).slice(0, 140))); return; }
+          var feats = (j && j.features) || [];
+          if (!feats.length) { log3('warn', t[0] + ': nothing within 8 km of you'); return; }
+          feats.slice(0, 2).forEach(function (f, i) {
+            var a = f.attributes || {};
+            log3('hit', t[0] + ' record ' + i);
+            Object.keys(a).forEach(function (k) {
+              var v = a[k];
+              if (v == null || v === '' || k.indexOf('SHAPE') === 0) return;
+              log3('none', '   <code>' + esc(k) + '</code> = ' + esc(trunc(v, 200)));
+            });
+          });
+        }).catch(function (e) { log3('bad', t[0] + ' FAILED: ' + e); });
+      });
+    }, function (err) { log3('warn', 'GPS denied: ' + err.message + ' (sections 1-2 are the important ones)'); },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 });
+  } else log3('warn', 'no geolocation support');
 
   /* ---------- copy ---------- */
   document.getElementById('copy').onclick = function () {
-    var txt = 'PROBE REPORT r9 ' + R.generated +
+    var txt = 'PROBE REPORT r10 ' + R.generated +
       (pending ? '\n\n*** WARNING: ' + pending + ' request(s) still in flight — wait and re-copy ***' : '') +
       '\n\n' + R.lines.join('\n');
     if (navigator.clipboard && navigator.clipboard.writeText) {
