@@ -3956,7 +3956,35 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     return found ? { minlat: mnla, minlon: mnlo, maxlat: mxla, maxlon: mxlo } : null;
   }
 
-  var MIN_LAKE_MI = 0.2; // exclude lakes/ponds whose longest dimension is under ~0.2 mi
+  // Minimum fishable size for the nearby-waters list, in TRUE surface acres.
+  // Deliberately low: Wisconsin spring ponds run 1–5 acres and are legitimately
+  // designated brook-trout water, so a higher floor would delete real fisheries.
+  var MIN_LAKE_ACRES = 5;
+  var SQKM_TO_ACRES = 247.105;
+  // Replaces an older longest-bounding-box-dimension test (MIN_LAKE_MI = 0.2),
+  // which measured the wrong thing in both directions: it demanded ~20 acres of
+  // a COMPACT pond (0.2 mi diameter) while passing a 2-acre marsh finger that
+  // merely sprawled 0.3 mi end to end.
+  //
+  // NHD water types that aren't fishing destinations. They were already labeled
+  // by _nhdTypeLabel and then listed as destinations anyway.
+  var NONFISH_FTYPE = { 466: 1 /* Swamp/Marsh */, 361: 1 /* Playa */, 378: 1 /* Ice Mass */ };
+
+  // Returns true if this water is too small / wrong type to list. Never drops a
+  // water for MISSING data — an unknown size is ranked lower, not excluded,
+  // because the Esri source returns no area at all and dropping on absent data
+  // silently loses real lakes.
+  function _tooSmallToFish(e, latSpanMi, lngSpanMi, hasBounds) {
+    if (e.ftype != null && NONFISH_FTYPE[+e.ftype]) return true;
+    if (e.areaSqKm != null && isFinite(+e.areaSqKm)) {
+      return (+e.areaSqKm * SQKM_TO_ACRES) < MIN_LAKE_ACRES;
+    }
+    // No reported area: fall back to the bounding box, which OVERSTATES a real
+    // lake's area (water never fills its own box), so this only rejects water
+    // that is definitely tiny. 1 sq mi = 640 acres.
+    if (hasBounds) return (latSpanMi * lngSpanMi * 640) < MIN_LAKE_ACRES;
+    return false; // no area, no bounds — keep it and let distance/size ranking sort it
+  }
 
   // Add an Overpass element (with bounds from "out bb") into the waters list.
   function _addWater(waters, e, lat, lng) {
@@ -3990,10 +4018,9 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     }
     var isRiver = !!e.tags.waterway;
     var isBay   = e.tags.natural === 'bay';
-    if (!isRiver && !isBay) {
-      var maxDim = Math.max(latSpanMi, lngSpanMi);
-      if (b && maxDim < MIN_LAKE_MI) return;
-    }
+    // Rivers and bays are exempt: a river's bounding box says nothing useful
+    // about how fishable it is, and a bay is part of much larger water.
+    if (!isRiver && !isBay && _tooSmallToFish(e, latSpanMi, lngSpanMi, !!b)) return;
     var type = isRiver ? 'river' : 'lake';
     var size = latSpanMi * lngSpanMi;
     var radiusM = _searchRadiusM(latSpanMi, lngSpanMi);
