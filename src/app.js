@@ -2503,7 +2503,14 @@
     if (elev && !info.elevation && elev.unit.indexOf('Q11573') !== -1) info.elevation = Math.round(elev.amount * 3.281) + ' ft';
     var trophicId = getItem('P6526');
     var tm = { 'Q1250464': 'Oligotrophic', 'Q1250467': 'Mesotrophic', 'Q1250479': 'Eutrophic', 'Q20892765': 'Hypereutrophic' };
-    if (trophicId && tm[trophicId]) info.trophic = tm[trophicId];
+    // An explicitly-stated classification beats the clarity-derived estimate
+    // (see _trophicFromSecchiFt), and marking the source stops a later-arriving
+    // clarity response from overwriting it — either fetch can resolve first.
+    if (trophicId && tm[trophicId]) {
+      info.trophic = tm[trophicId];
+      info.trophicSource = 'wikidata';
+      info.trophicTsi = null;
+    }
   }
 
   var _lakeInfoKey = null;
@@ -2558,6 +2565,22 @@
     Promise.all([usgsDone, ovDone]).then(render);
   }
 
+  // Carlson's Trophic State Index from Secchi depth: TSI = 60 - 14.41·ln(SD_m).
+  // This is the standard limnological classification (Carlson 1977) that WI DNR
+  // itself uses, and it lets us report trophic status for ANY lake that has
+  // satellite clarity data. Wikidata's explicit P6526 classification (see
+  // _applyWikidata) covers only a handful of Wisconsin lakes, so without this
+  // the "Trophic status" row almost never appeared. Band boundaries land on the
+  // conventional Secchi cutoffs — 4 m / 2 m / 0.5 m = TSI 40 / 50 / 70.
+  function _trophicFromSecchiFt(ft) {
+    var m = +ft / 3.281;
+    if (!isFinite(m) || m <= 0) return null;
+    var tsi = 60 - 14.41 * Math.log(m);
+    var label = tsi < 40 ? 'Oligotrophic' : tsi < 50 ? 'Mesotrophic'
+              : tsi < 70 ? 'Eutrophic' : 'Hypereutrophic';
+    return { label: label, tsi: Math.round(tsi) };
+  }
+
   function _trophicFishingNote(info) {
     if (info.trophic === 'Oligotrophic')   return 'Clear, cold, low-nutrient — prime habitat for trout, walleye, and lake sturgeon; target deep structure in summer.';
     if (info.trophic === 'Mesotrophic')    return 'Moderate clarity and nutrients — good mixed fishery; walleye on break lines, bass and pike in weeds.';
@@ -2588,10 +2611,15 @@
     if (info.type) rows.push(['Type', info.type.charAt(0).toUpperCase() + info.type.slice(1)]);
     if (info.area) rows.push(['Surface area', info.area]);
     if (info.maxDepth) rows.push(['Max depth', info.maxDepth, 'DNR lake classification survey']);
-    if (info.avgDepth) rows.push(['Avg depth', info.avgDepth]);
+    if (info.avgDepth) rows.push(['Avg depth', info.avgDepth,
+      info.avgDepthSource === 'wi-dnr' ? 'DNR lake classification survey' : null]);
     if (info.elevation) rows.push(['Elevation', info.elevation]);
-    if (info.trophic) rows.push(['Trophic status', info.trophic]);
-    if (info.clarity) rows.push(['Water clarity', info.clarity]);
+    if (info.trophic) rows.push(['Trophic status', info.trophic,
+      info.trophicSource === 'derived'
+        ? 'Carlson TSI ' + info.trophicTsi + ', from DNR satellite clarity'
+        : null]);
+    if (info.clarity) rows.push(['Water clarity', info.clarity,
+      'DNR satellite survey' + (info.clarityYear ? ', ' + info.clarityYear : '')]);
     if (info.lakeClass) rows.push(['Lake class', info.lakeClass, 'DNR lake classification survey']);
     var note = _trophicFishingNote(info);
     // Official DNR fisheries designations (e.g. "Walleye Water · Natural
@@ -3023,8 +3051,20 @@
         if (a.SATELLITE_CLARITY_FEET != null && (!best || (a.YEAR || 0) > (best.YEAR || 0))) best = a;
       });
       if (best && state.lakeInfo) {
-        state.lakeInfo.clarity = (+best.SATELLITE_CLARITY_FEET).toFixed(1) + ' ft' +
-          (best.YEAR ? ' (satellite, ' + best.YEAR + ')' : '');
+        var clarityFt = +best.SATELLITE_CLARITY_FEET;
+        state.lakeInfo.clarityFt = clarityFt;
+        // Keep the value itself short so it doesn't wrap in the stat tile —
+        // the survey year rides along in the source attribution line instead.
+        state.lakeInfo.clarity = clarityFt.toFixed(1) + ' ft';
+        state.lakeInfo.clarityYear = best.YEAR || null;
+        // Derive trophic status from clarity unless Wikidata already supplied an
+        // explicitly-stated classification, which outranks our estimate.
+        var tro = _trophicFromSecchiFt(clarityFt);
+        if (tro && state.lakeInfo.trophicSource !== 'wikidata') {
+          state.lakeInfo.trophic = tro.label;
+          state.lakeInfo.trophicTsi = tro.tsi;
+          state.lakeInfo.trophicSource = 'derived';
+        }
         try { renderLakeInfo(); } catch (e) {}
       }
     }).catch(function() {});
@@ -3083,6 +3123,19 @@
         state.lakeInfo.maxDepth = Math.round(a.MAXDEP_FT) + ' ft';
         state.lakeInfo.maxDepthM = a.MAXDEP_FT / 3.281;
         state.lakeInfo.maxDepthSource = 'wi-dnr';
+      }
+      // Mean depth, if this dataset carries it. The exact column name is NOT
+      // yet confirmed (probe round 8 dumps the full field schema), so read the
+      // plausible spellings tolerantly: if none exist this is a no-op and the
+      // Wikidata-derived avgDepth stands, and we can never invent a value —
+      // we only ever read a field literally named for mean/average depth.
+      var meanFt = a.MEANDEP_FT != null ? a.MEANDEP_FT
+                 : a.MEAN_DEPTH_FT != null ? a.MEAN_DEPTH_FT
+                 : a.AVGDEP_FT != null ? a.AVGDEP_FT
+                 : a.AVG_DEPTH_FT;
+      if (meanFt != null && isFinite(+meanFt) && +meanFt > 0) {
+        state.lakeInfo.avgDepth = Math.round(+meanFt) + ' ft';
+        state.lakeInfo.avgDepthSource = 'wi-dnr';
       }
       if (a.FISHERIES) state.lakeClassNote = String(a.FISHERIES).trim();
       try { renderLakeInfo(); } catch (e) {}
