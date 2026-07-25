@@ -549,22 +549,38 @@
   // DNR classification argues against. Nothing is hidden — the caller groups
   // and labels, so an angler can still pick anything (see the tiered-confidence
   // decision) but is never told trout live in a shallow warm lake.
+  function _isGreatLakesWater() {
+    var n = state.loc && state.loc.name;
+    if (!n) return false;
+    var k = n.replace(/,.*/, '').trim().toLowerCase().replace(/\s+/g, ' ');
+    return !!GREAT_LAKES_SPECIES[k];
+  }
   function _partitionByHabitat(list) {
     var h = _classHabitat(state.lakeInfo && state.lakeInfo.lakeClass);
     var none = { likely: list, unlikely: [], reason: '' };
-    if (!h) return none;
-    var pred = null, reason = '';
-    if (h.noFishery) {
-      pred = function () { return true; };
-      reason = 'DNR: no sportfish fishery';
-    } else if (h.warm && !h.coldwater) {
-      pred = function (sp) { return !!COLDWATER_SPECIES[sp.name]; };
-      reason = 'warm lake, no coldwater layer';
+    function split(pred, reason) {
+      var likely = [], unlikely = [];
+      list.forEach(function (sp) { (pred(sp) ? unlikely : likely).push(sp); });
+      return { likely: likely, unlikely: unlikely, reason: reason };
     }
-    if (!pred) return none;
-    var likely = [], unlikely = [];
-    list.forEach(function (sp) { (pred(sp) ? unlikely : likely).push(sp); });
-    return { likely: likely, unlikely: unlikely, reason: reason };
+    // A DNR class of "no fishery" overrides everything else.
+    if (h && h.noFishery) return split(function () { return true; }, 'DNR: no sportfish fishery');
+
+    // Coldwater species: DNR's trout-regulations layer is the authority, so it
+    // outranks any inference from the lake class. A record means this water is
+    // managed for trout; a checked-but-absent lookup means it isn't a
+    // designated trout water — a far stronger signal than water temperature.
+    // Great Lakes are exempt: they carry their own curated baseline and aren't
+    // in the inland trout-lake layer.
+    if (!state.troutWater && !_isGreatLakesWater()) {
+      if (state.troutRegsChecked) {
+        return split(function (sp) { return !!COLDWATER_SPECIES[sp.name]; }, 'not a DNR trout water');
+      }
+      if (h && h.warm && !h.coldwater) {
+        return split(function (sp) { return !!COLDWATER_SPECIES[sp.name]; }, 'warm lake, no coldwater layer');
+      }
+    }
+    return none;
   }
   function _isHabitatUnlikely(sp) {
     return _partitionByHabitat([sp]).unlikely.length > 0;
@@ -822,6 +838,8 @@
     state.lakeRegs = null;
     state.lakeClassNote = null;
     state.stockingHistory = null;
+    state.troutWater = null;       // FM_TROUT_REGS record, if this is a trout water
+    state.troutRegsChecked = false; // absence only means something once checked
     _speciesReqKey = null;
     _lakeInfoKey = null;
     _wiDnrKey = null;
@@ -2737,6 +2755,16 @@
           (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</span></span>';
       }).join('') + '</div>';
     }
+    // Designated trout water (FM_TROUT_REGS) — real bag limits and season, so
+    // it belongs next to the other official designations.
+    if (state.troutWater) {
+      var tw = state.troutWater;
+      var twSub = [tw.regcat, tw.bag].filter(Boolean).join(' · ');
+      badges = (badges || '') + '<div class="lake-badges"><span class="lake-badge">' + ic('award', 16) +
+        '<span class="badge-text">Trout Water' +
+        (twSub ? '<span class="sub">' + esc(twSub) + '</span>' : '') +
+        '</span></span></div>';
+    }
     // Real per-species regulation text (probe round 4 confirmed the field
     // schema). Fall back to the generic presence note only if we know regs
     // exist but couldn't parse specifics. Demoted into the Tier B "Sources &
@@ -3247,15 +3275,69 @@
       }
       if (a.FISHERIES) state.lakeClassNote = String(a.FISHERIES).trim();
       try { renderLakeInfo(); } catch (e) {}
+
       // LAKE_CLASS drives habitat plausibility (_partitionByHabitat), but this
       // fetch resolves AFTER the advisor/species UI has already rendered — so
       // refresh that UI too, or the picker keeps presenting trout as equally
       // likely on a warm lake. Same staleness class as the field-notes fix.
       try { _applySpeciesUpdate(); } catch (e) {}
     }).catch(function() {});
+
+    // 6. Trout waters (FM_TROUT_REGS, "Trout Lake/Pond Regulations", probe
+    //    round 9). This is the authority the lake-regulations table itself
+    //    points at — its TROUT_AND_SALMON column literally reads "See Trout
+    //    regulations layer". A record here means DNR manages this water for
+    //    trout with real bag limits; no record means it is not a designated
+    //    trout water. Confirmed on-device: Green Lake and Lake Geneva return
+    //    lake-trout bag limits, Yellow Lake and Brushy Mound return nothing.
+    //
+    //    Deliberately NOT name-matched: DNR datasets disagree on names for the
+    //    same water ("Geneva Lake" in the classification layer vs "Lake Geneva"
+    //    here), so a strict name check would drop real trout waters. The tight
+    //    150 m radius is the safeguard — the selected lake's own center falls
+    //    inside its polygon, while a neighboring trout lake's does not.
+    fetchJson(_wiQueryUrl(WI_TROUT_REGS, 1, lat, lng, 150), 9000).then(function(j) {
+      if (_wiDnrKey !== key) return; // superseded by a newer lake selection
+      var feats = (j && j.features) || [];
+      var a = feats.length && feats[0].attributes;
+      if (a) {
+        state.troutWater = {
+          name: a.WATERBODY_ || '', bag: a.BAG_LMT || '',
+          season: a.SEASON_TXT || '', gear: a.GEAR_RESTR || '', regcat: a.REGCAT || ''
+        };
+        // Bag-limit text distinguishes lake trout from "other trout", so read
+        // the species DNR actually names rather than assuming all four.
+        var bagTxt = String(a.BAG_LMT || '') + ' ' + String(a.SEASON_TXT || '');
+        var low = bagTxt.toLowerCase();
+        var found = [];
+        if (low.indexOf('lake trout') !== -1) found.push('Lake Trout');
+        if (/other trout|\btrout\b/.test(low.replace(/lake trout/g, ''))) {
+          found.push('Rainbow/Brown Trout');
+          found.push('Brook Trout');
+        }
+        if (low.indexOf('salmon') !== -1) found.push('Chinook/Coho Salmon');
+        if (found.length) {
+          state._speciesDesignated = (state._speciesDesignated || []).concat(found);
+          state._desigSources = state._desigSources || {};
+          found.forEach(function(n) {
+            var k2 = n.toLowerCase();
+            if (!state._desigSources[k2]) state._desigSources[k2] = [];
+            if (state._desigSources[k2].indexOf('WI DNR trout water regulations') === -1) {
+              state._desigSources[k2].push('WI DNR trout water regulations');
+            }
+          });
+        }
+      }
+      state.troutRegsChecked = true;
+      try { renderLakeInfo(); } catch (e) {}
+      try { _applySpeciesUpdate(); } catch (e) {}
+    }).catch(function() { /* leave troutRegsChecked false — absence proves nothing */ });
   }
 
   var WI_ARCGIS2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
+  // Trout regulations live on the arcgis (not arcgis2) host. Layer 1 is
+  // "Trout Lake/Pond Regulations"; layer 0 is streams, layer 2 county defaults.
+  var WI_TROUT_REGS = 'https://dnrmaps.wi.gov/arcgis/rest/services/FM_Trout/FM_TROUT_REGS_WTM_Ext';
 
   function _humanizeRegKey(k) {
     return k.toLowerCase().split('_').map(function(w) {

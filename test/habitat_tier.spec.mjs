@@ -42,7 +42,7 @@ const NHD_WB = { type: 'FeatureCollection', features: [
 
 // Loads the app against a mocked DNR classification record and reports how the
 // species picker and outlook grouped things.
-async function loadClass(lakeClass, fisheries, { acres = 900, maxDep = 40 } = {}) {
+async function loadClass(lakeClass, fisheries, { acres = 900, maxDep = 40, troutRegs = null } = {}) {
   const browser = await chromium.launch({ executablePath: CHROME });
   const page = await (await browser.newContext()).newPage();
   await page.route('**/*', async (route) => {
@@ -62,6 +62,14 @@ async function loadClass(lakeClass, fisheries, { acres = 900, maxDep = 40 } = {}
         LAKE_NAME: 'Class Lake', WBIC: 123456, LAKE_CLASS: lakeClass,
         COUNTY: 'Burnett', AREA_ACRES_: acres, MAXDEP_FT: maxDep, FISHERIES: fisheries
       } }] }) });
+    }
+    // FM_TROUT_REGS layer 1 = "Trout Lake/Pond Regulations". A record here is
+    // DNR's authoritative "this water is managed for trout"; absence means it
+    // is not a designated trout water.
+    if (url.includes('FM_TROUT_REGS')) {
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        features: troutRegs ? [{ attributes: troutRegs }] : []
+      }) });
     }
     if (url.includes('hydro.nationalmap.gov') && !url.includes('MapServer/6'))
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(NHD_WB) });
@@ -92,7 +100,15 @@ async function loadClass(lakeClass, fisheries, { acres = 900, maxDep = 40 } = {}
   return { groups, allOpts, unlikelyRows, lakeText };
 }
 
-// ---------- 1. Warm lake with no coldwater layer: trout/salmon demoted ----------
+// Real FM_TROUT_REGS record captured for Green Lake in probe round 9.
+const GREEN_LAKE_TROUT = {
+  WATERBODY_: 'Green Lake', EARLY_SEASON_TXT: 'N/A',
+  REGCAT: 'Length, Bag and Possession Limits Vary by Water',
+  BAG_LMT: '2 lake trout over 17", 3 other trout over 14".',
+  SEASON_TXT: 'Lake trout - First Saturday in January to Sept. 30, Other trout: - First Saturday in May to first Sunday in March.'
+};
+
+// ---------- 1. Warm lake, not a trout water: trout/salmon demoted ----------
 const warm = await loadClass('Simple - Warm - Dark',
   'Simple warm dark lakes can provide great opportunities for action for black crappie, and often also support bluegill and largemouth bass. They rarely have any walleye or muskellunge.',
   { maxDep: 10 });
@@ -100,8 +116,8 @@ console.log('  warm groups: ' + JSON.stringify(warm.groups.map(g => g.label)));
 check('warm lake splits the picker into groups', warm.groups.length === 2);
 check('warm lake has a "Likely in this water" group',
   warm.groups.some(g => /Likely in this water/.test(g.label)));
-check('warm lake flags the unlikely group with a reason',
-  warm.groups.some(g => /Unlikely here/.test(g.label) && /warm lake, no coldwater layer/.test(g.label)));
+check('unlikely group cites the DNR trout-water lookup, not just temperature',
+  warm.groups.some(g => /Unlikely here/.test(g.label) && /not a DNR trout water/.test(g.label)));
 const warmUnlikelyGroup = warm.groups.find(g => /Unlikely here/.test(g.label));
 check('all four coldwater species land in the unlikely group',
   !!warmUnlikelyGroup && COLDWATER.every(n => warmUnlikelyGroup.opts.includes(n)));
@@ -113,13 +129,35 @@ console.log('  warm unlikely outlook rows: ' + JSON.stringify(warm.unlikelyRows.
 check('outlook rows tag coldwater species as unlikely',
   warm.unlikelyRows.length === 4 && warm.unlikelyRows.every(t => /unlikely here/.test(t)));
 
-// ---------- 2. Two-story lake: coldwater species are plausible ----------
-const twoStory = await loadClass('Complex - Two Story',
+// ---------- 2. Confirmed trout water: coldwater species are plausible ----------
+const trout = await loadClass('Complex - Two Story',
   'Complex two story lakes are able to support coldwater species - primarily cisco, and occasionally lake trout or lake whitefish. They have the potential to produce action and quality walleye fisheries.',
-  { maxDep: 236 });
-check('two-story lake does NOT demote anything (no optgroups)', twoStory.groups.length === 0);
-check('two-story lake keeps the full flat list', twoStory.allOpts.length === 14);
-check('two-story lake tags no species as unlikely', twoStory.unlikelyRows.length === 0);
+  { maxDep: 236, troutRegs: GREEN_LAKE_TROUT });
+console.log('  trout-water options: ' + JSON.stringify(trout.allOpts));
+check('a DNR trout water demotes nothing (no optgroups)', trout.groups.length === 0);
+check('trout water tags no species as unlikely', trout.unlikelyRows.length === 0);
+// The trout-regs record is itself a CONFIRMED-presence source, so with no
+// stocking/iNat records mocked the list filters down to the trout species DNR
+// actually names in the bag limit ("2 lake trout ... 3 other trout").
+check('trout water confirms Lake Trout from the bag-limit text', trout.allOpts.includes('Lake Trout'));
+check('"other trout" confirms stream-trout species',
+  trout.allOpts.includes('Rainbow/Brown Trout') && trout.allOpts.includes('Brook Trout'));
+check('no salmon claimed — the bag text never mentions salmon',
+  !trout.allOpts.includes('Chinook/Coho Salmon'));
+check('list is genuinely filtered to the confirmed trout species', trout.allOpts.length === 3);
+check('lake card shows the Trout Water designation', /Trout Water/.test(trout.lakeText));
+check('lake card shows DNR\'s real bag limit', /2 lake trout over 17/.test(trout.lakeText));
+
+// ---------- 2b. Two-story lake that is NOT a trout water: still demoted ----------
+// The trout-regs authority outranks the "two story supports coldwater" class
+// hint — Lake Mendota is two-story but is not a designated trout water.
+const twoStoryNoTrout = await loadClass('Complex - Two Story',
+  'Complex two story lakes are able to support coldwater species - primarily cisco, and occasionally lake trout or lake whitefish.',
+  { maxDep: 82 });
+check('two-story lake with no trout record still demotes coldwater',
+  twoStoryNoTrout.groups.some(g => /Unlikely here/.test(g.label) && /not a DNR trout water/.test(g.label)));
+check('two-story non-trout lake demotes exactly the four coldwater species',
+  twoStoryNoTrout.unlikelyRows.length === 4);
 
 // ---------- 3. "No Fishery" lake: everything flagged, and DNR says why ----------
 const none = await loadClass('Simple - Harsh - No Fishery',

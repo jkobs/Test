@@ -87,6 +87,20 @@ QA step — don't mark this kind of change "done" on green tests alone.
   CENTER (`clat`/`clng`) for map framing, not the edge point.
 - **WI DNR data** (`fetchWiDnrLakeData`): designated waters, WBIC, clarity,
   regs, classification — all endpoints confirmed on-device, not guessed.
+- **Per-lake species tiering** (onX-style, probe rounds 8–9): `FM_TROUT_REGS`
+  layer 1 ("Trout Lake/Pond Regulations", on `arcgis` not `arcgis2`) is the
+  AUTHORITY on trout presence — the lake-regs table's own `TROUT_AND_SALMON`
+  column says "See Trout regulations layer". A record = managed trout water
+  (parse `BAG_LMT` for which trout); absent-after-check = not a trout water, so
+  coldwater species get demoted. `FM_WFF_LAKE_CLASSIFICATIONS.LAKE_CLASS` is a
+  controlled vocabulary ("Complex - Two Story", "Simple - Warm - Dark",
+  "Simple - Harsh - No Fishery") used as a weaker fallback; `_partitionByHabitat`
+  groups species into likely/unlikely and NEVER hides any.
+  - Dead ends, do not re-probe: the lake **regulations** table is not a presence
+    signal (every water returns the same ~34 species columns, incl. sturgeon and
+    paddlefish on a no-fishery pond); `WY_WBHB_AND_WATERBODY_SPECIES` is
+    aquatic-INVASIVE species, not gamefish; the classification layer has no
+    mean-depth column; per-species survey length/abundance data isn't public.
 - **Species search radius**: `_searchRadiusM` is uncapped at source; each
   consumer clamps to its own safe max (lake-info ~5 km; DNR stocking 30 km —
   safe because the query is ANDed with a lake-name match; iNaturalist 12 km,
