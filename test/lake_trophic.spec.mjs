@@ -97,8 +97,14 @@ console.log('  full card: ' + full.slice(0, 260));
 check('water clarity value is shown', /10\.0 ft/.test(full));
 check('clarity is attributed to the DNR satellite survey, with year', full.includes('DNR satellite survey, 2025'));
 check('max depth is shown', full.includes('42 ft'));
-check('mean depth from DNR is shown when the field exists', full.includes('15 ft'));
 check('trophic status is attributed to Carlson TSI', full.includes('Carlson TSI'));
+// Probe round 8 dumped this layer's full schema: OBJECTID, OBJECTID_1,
+// LAKE_NAME, WBIC, LAKE_CLASS, COUNTY, AREA_ACRES_, MAXDEP_FT, DESCRIPT,
+// FISHERIES, SHAPE*. There is NO mean-depth column, so avg depth can only ever
+// come from Wikidata — a mocked MEANDEP_FT must be ignored, not surfaced as if
+// the DNR survey reported it.
+check('a mean-depth column that the real schema lacks is NOT read', !full.includes('15 ft'));
+check('no DNR-attributed Avg depth row is fabricated', !/Avg depth/.test(full));
 
 // --- No clarity data: no trophic row invented, and nothing breaks.
 const bare = await loadLake(null);

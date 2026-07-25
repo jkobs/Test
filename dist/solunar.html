@@ -1188,6 +1188,13 @@ button.toggle {
 .species-row:last-child { border-bottom: none; }
 .species-row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
 .species-name { font-weight: 600; color: var(--ink); font-size: var(--t-md); }
+/* Species the DNR lake classification argues against: kept in the list (never
+   silently hidden) but visibly demoted and labeled with the reason. */
+.species-row.species-unlikely { opacity: .62; }
+.species-unlikely-tag {
+  display: block; font-weight: 500; font-size: var(--t-xs); color: var(--muted);
+  font-family: var(--serif); font-style: italic; margin-top: 1px;
+}
 .species-badge { font-weight: 700; font-size: var(--t-xs); }
 .species-detail { color: var(--muted); font-size: var(--t-sm); line-height: 1.5; }
 .species-detail b { color: var(--ink); font-weight: 600; }
@@ -1297,6 +1304,7 @@ button.toggle {
 .lake-info-note { font-family: var(--serif); font-style: italic; font-size: var(--t-md); color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
 .lake-info-loading { font-size: var(--t-sm); color: var(--muted); padding: 8px 0 10px; }
 .lake-info-fishery-note span { font-family: var(--serif); font-style: italic; }
+.lake-info-fishery-note.warn { color: var(--sun); }
 .species-group { margin-top: 12px; }
 .species-group-lbl { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--good); font-weight: 700; margin-bottom: 6px; }
 .species-group-lbl.low { color: var(--muted); }
@@ -2415,6 +2423,78 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   function _phraseIn(haystack, needle) {
     return (' ' + haystack + ' ').indexOf(' ' + needle + ' ') !== -1;
   }
+  // ---- Habitat plausibility from the DNR lake CLASSIFICATION (probe round 8).
+  // LAKE_CLASS is a controlled vocabulary; values confirmed in the wild include
+  // "Complex - Two Story", "Complex - Warm - Dark", "Simple - Warm - Dark" and
+  // "Simple - Harsh - No Fishery". DNR's own FISHERIES text spells out what each
+  // supports — e.g. two-story lakes "are able to support coldwater species",
+  // while warm lakes "rarely have any walleye or muskellunge", and the
+  // no-fishery class "usually [has] not sportfish species present".
+  //
+  // Parse the COMPONENTS rather than whole strings so an unseen combination
+  // still classifies sensibly.
+  function _classHabitat(lakeClass) {
+    if (!lakeClass) return null;
+    var s = String(lakeClass).toLowerCase();
+    return {
+      noFishery: /no fishery/.test(s),
+      coldwater: /two story|cold/.test(s), // has a cold, oxygenated deep layer
+      warm: /warm/.test(s),
+      harsh: /harsh/.test(s)
+    };
+  }
+  // Species that need a cold, well-oxygenated layer to hold over summer.
+  var COLDWATER_SPECIES = {
+    'Lake Trout': 1, 'Rainbow/Brown Trout': 1, 'Brook Trout': 1, 'Chinook/Coho Salmon': 1
+  };
+  // Split a species list into what this water can plausibly hold vs. what its
+  // DNR classification argues against. Nothing is hidden — the caller groups
+  // and labels, so an angler can still pick anything (see the tiered-confidence
+  // decision) but is never told trout live in a shallow warm lake.
+  function _partitionByHabitat(list) {
+    var h = _classHabitat(state.lakeInfo && state.lakeInfo.lakeClass);
+    var none = { likely: list, unlikely: [], reason: '' };
+    if (!h) return none;
+    var pred = null, reason = '';
+    if (h.noFishery) {
+      pred = function () { return true; };
+      reason = 'DNR: no sportfish fishery';
+    } else if (h.warm && !h.coldwater) {
+      pred = function (sp) { return !!COLDWATER_SPECIES[sp.name]; };
+      reason = 'warm lake, no coldwater layer';
+    }
+    if (!pred) return none;
+    var likely = [], unlikely = [];
+    list.forEach(function (sp) { (pred(sp) ? unlikely : likely).push(sp); });
+    return { likely: likely, unlikely: unlikely, reason: reason };
+  }
+  function _isHabitatUnlikely(sp) {
+    return _partitionByHabitat([sp]).unlikely.length > 0;
+  }
+  // Shared <option> markup for both species selects, grouped into "likely here"
+  // and "unlikely here" when the DNR classification argues against some of them.
+  function _speciesOptionsHtml(list, selName) {
+    var parts = _partitionByHabitat(list);
+    function opt(s) {
+      return '<option value="' + esc(s.name) + '"' +
+        (s.name === selName ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    }
+    if (!parts.unlikely.length) return list.map(opt).join('');
+    var html = '';
+    if (parts.likely.length) {
+      html += '<optgroup label="Likely in this water">' + parts.likely.map(opt).join('') + '</optgroup>';
+    }
+    html += '<optgroup label="Unlikely here — ' + esc(parts.reason) + '">' +
+      parts.unlikely.map(opt).join('') + '</optgroup>';
+    return html;
+  }
+  // Default the initial selection to something the water can actually hold, but
+  // never override a species the angler picked themselves.
+  function _preferLikely(list) {
+    var parts = _partitionByHabitat(list);
+    return parts.likely[0] || list[0] || SPECIES[0];
+  }
+
   function _speciesInWater(sp) {
     if (!state.knownSpecies) return true;
     var phrases = _matchPhrases(sp);
@@ -2453,7 +2533,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     if (!sp) sp = SPECIES[0];
     var visibleSpecies = _visibleSpecies();
     if (!_speciesInWater(sp) && !_speciesFallbackActive()) {
-      sp = visibleSpecies[0] || SPECIES[0];
+      sp = _preferLikely(visibleSpecies);
     }
     return sp;
   }
@@ -2464,15 +2544,22 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       return !f || sp.name.toLowerCase().indexOf(f) !== -1;
     });
     if (!list.length) return '<div class="species-no-match">No species match "' + _speciesFilter + '"</div>';
+    // Order what the water can hold first; species the DNR classification
+    // argues against sink to the bottom and are labeled rather than removed.
+    var parts = _partitionByHabitat(list);
+    list = parts.likely.concat(parts.unlikely);
     return list.map(function(sp) {
       var sc = _speciesScore(sp, delta, airTemp, solBoost);
       var depth     = sp.depth(delta, airTemp);
       var structure = sp.structure(delta, airTemp, solBoost);
       var gear      = sp.gear(delta, airTemp, solBoost);
       gear = gear + lureColorHint(sp.name, state.lastAdv && state.lastAdv.cloudCover);
-      return '<div class="species-row">' +
+      var unlikely = parts.unlikely.indexOf(sp) !== -1;
+      return '<div class="species-row' + (unlikely ? ' species-unlikely' : '') + '">' +
         '<div class="species-row-head">' +
-          '<div class="species-name">' + sp.name + '</div>' +
+          '<div class="species-name">' + sp.name +
+            (unlikely ? '<span class="species-unlikely-tag">unlikely here · ' + esc(parts.reason) + '</span>' : '') +
+          '</div>' +
           '<div class="species-badge score-' + sc + '">' + BITE_LABELS[sc - 1] + '</div>' +
         '</div>' +
         '<div class="species-detail">' +
@@ -2524,10 +2611,8 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     var gear      = sp.gear(adv.delta, adv.airTemp, adv.solunarBoost);
     gear = gear + lureColorHint(sp.name, adv.cloudCover);
     var visibleSpecies = _visibleSpecies();
-    if (!_speciesInWater(sp) && !_speciesFallbackActive()) { sp = visibleSpecies[0] || SPECIES[0]; _selectedSpeciesName = sp.name; }
-    var opts = visibleSpecies.map(function(s) {
-      return '<option value="' + s.name + '"' + (s.name === sp.name ? ' selected' : '') + '>' + s.name + '</option>';
-    }).join('');
+    if (!_speciesInWater(sp) && !_speciesFallbackActive()) { sp = _preferLikely(visibleSpecies); _selectedSpeciesName = sp.name; }
+    var opts = _speciesOptionsHtml(visibleSpecies, sp.name);
     return '<div class="conditions-head">' +
         '<div class="bite-scale-label">' + ic('target', 13) + 'Bite Conditions</div>' +
         '<select id="conditions-species-select" class="conditions-species-select">' + opts + '</select>' +
@@ -2576,10 +2661,8 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     for (i = 0; i < visibleSpecies.length; i++) {
       if (visibleSpecies[i].name === _selectedSpeciesName) { sel = visibleSpecies[i]; break; }
     }
-    if (!sel) sel = visibleSpecies[0] || SPECIES[0];
-    el.innerHTML = visibleSpecies.map(function(s) {
-      return '<option value="' + esc(s.name) + '"' + (s.name === sel.name ? ' selected' : '') + '>' + esc(s.name) + '</option>';
-    }).join('');
+    if (!sel) sel = _preferLikely(visibleSpecies);
+    el.innerHTML = _speciesOptionsHtml(visibleSpecies, sel.name);
     el.onchange = function() { _onSpeciesChange(el.value); };
   }
 
@@ -4530,7 +4613,8 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     // looking like an app bug when a user cross-checks against the embedded
     // report below.
     if (info.type) rows.push(['Type', info.type.charAt(0).toUpperCase() + info.type.slice(1)]);
-    if (info.area) rows.push(['Surface area', info.area]);
+    if (info.area) rows.push(['Surface area', info.area,
+      info.areaSource === 'wi-dnr' ? 'DNR lake classification survey' : null]);
     if (info.maxDepth) rows.push(['Max depth', info.maxDepth, 'DNR lake classification survey']);
     if (info.avgDepth) rows.push(['Avg depth', info.avgDepth,
       info.avgDepthSource === 'wi-dnr' ? 'DNR lake classification survey' : null]);
@@ -4688,7 +4772,14 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     // out the "at a glance" card.
     var fisheryNotes = '';
     if (note) fisheryNotes += '<div class="lake-info-fishery-note">' + ic('droplet', 14) + '<span>' + note + '</span></div>';
-    if (state.lakeClassNote) fisheryNotes += '<div class="lake-info-fishery-note">' + ic('droplet', 14) + '<span>' + esc(state.lakeClassNote) + '</span></div>';
+    // DNR's own fishery description for this lake class. A "no fishery" class
+    // (winterkill lakes that hold only mudminnows/small minnows) is important
+    // enough to flag rather than bury in the same muted italic as the rest.
+    if (state.lakeClassNote) {
+      var hb = _classHabitat(info.lakeClass);
+      fisheryNotes += '<div class="lake-info-fishery-note' + (hb && hb.noFishery ? ' warn' : '') + '">' +
+        ic('droplet', 14) + '<span>' + esc(state.lakeClassNote) + '</span></div>';
+    }
 
     // Tier A — "at a glance": name, badges, stat grid, depth map, stocking,
     // species, fishery notes. Tier B — demoted detail (regs table, both
@@ -5045,21 +5136,24 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         state.lakeInfo.maxDepthM = a.MAXDEP_FT / 3.281;
         state.lakeInfo.maxDepthSource = 'wi-dnr';
       }
-      // Mean depth, if this dataset carries it. The exact column name is NOT
-      // yet confirmed (probe round 8 dumps the full field schema), so read the
-      // plausible spellings tolerantly: if none exist this is a no-op and the
-      // Wikidata-derived avgDepth stands, and we can never invent a value —
-      // we only ever read a field literally named for mean/average depth.
-      var meanFt = a.MEANDEP_FT != null ? a.MEANDEP_FT
-                 : a.MEAN_DEPTH_FT != null ? a.MEAN_DEPTH_FT
-                 : a.AVGDEP_FT != null ? a.AVGDEP_FT
-                 : a.AVG_DEPTH_FT;
-      if (meanFt != null && isFinite(+meanFt) && +meanFt > 0) {
-        state.lakeInfo.avgDepth = Math.round(+meanFt) + ' ft';
-        state.lakeInfo.avgDepthSource = 'wi-dnr';
+      // NOTE: this layer carries NO mean-depth column. Probe round 8 dumped the
+      // full schema — OBJECTID, OBJECTID_1, LAKE_NAME, WBIC, LAKE_CLASS, COUNTY,
+      // AREA_ACRES_, MAXDEP_FT, DESCRIPT, FISHERIES, SHAPE* — so avgDepth can
+      // only ever come from Wikidata. Don't re-add a speculative read here.
+      //
+      // DNR's own surveyed acreage is authoritative over the NHD polygon area,
+      // so it overwrites unconditionally (same precedence rule as MAXDEP_FT).
+      if (a.AREA_ACRES_ != null && isFinite(+a.AREA_ACRES_) && +a.AREA_ACRES_ > 0) {
+        state.lakeInfo.area = Math.round(+a.AREA_ACRES_) + ' acres';
+        state.lakeInfo.areaSource = 'wi-dnr';
       }
       if (a.FISHERIES) state.lakeClassNote = String(a.FISHERIES).trim();
       try { renderLakeInfo(); } catch (e) {}
+      // LAKE_CLASS drives habitat plausibility (_partitionByHabitat), but this
+      // fetch resolves AFTER the advisor/species UI has already rendered — so
+      // refresh that UI too, or the picker keeps presenting trout as equally
+      // likely on a warm lake. Same staleness class as the field-notes fix.
+      try { _applySpeciesUpdate(); } catch (e) {}
     }).catch(function() {});
   }
 

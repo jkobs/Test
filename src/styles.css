@@ -514,6 +514,13 @@ button.toggle {
 .species-row:last-child { border-bottom: none; }
 .species-row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
 .species-name { font-weight: 600; color: var(--ink); font-size: var(--t-md); }
+/* Species the DNR lake classification argues against: kept in the list (never
+   silently hidden) but visibly demoted and labeled with the reason. */
+.species-row.species-unlikely { opacity: .62; }
+.species-unlikely-tag {
+  display: block; font-weight: 500; font-size: var(--t-xs); color: var(--muted);
+  font-family: var(--serif); font-style: italic; margin-top: 1px;
+}
 .species-badge { font-weight: 700; font-size: var(--t-xs); }
 .species-detail { color: var(--muted); font-size: var(--t-sm); line-height: 1.5; }
 .species-detail b { color: var(--ink); font-weight: 600; }
@@ -623,6 +630,7 @@ button.toggle {
 .lake-info-note { font-family: var(--serif); font-style: italic; font-size: var(--t-md); color: var(--muted); line-height: 1.5; padding: 6px 0 10px; border-top: 1px solid var(--line); margin-top: 8px; margin-bottom: 6px; }
 .lake-info-loading { font-size: var(--t-sm); color: var(--muted); padding: 8px 0 10px; }
 .lake-info-fishery-note span { font-family: var(--serif); font-style: italic; }
+.lake-info-fishery-note.warn { color: var(--sun); }
 .species-group { margin-top: 12px; }
 .species-group-lbl { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--good); font-weight: 700; margin-bottom: 6px; }
 .species-group-lbl.low { color: var(--muted); }
