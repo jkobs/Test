@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fishing Advisor — Data Source Probe (round 7: real depth-contour PDFs)</title>
+<title>Fishing Advisor — Data Source Probe (round 8: per-lake fish species presence)</title>
 <style>
   :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553;
-          --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; }
+          --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; --hit:#ffd166; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
     font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding:14px; }
@@ -17,23 +17,23 @@
   section { background:var(--card); border:1px solid var(--line); border-radius:12px;
     padding:12px; margin-bottom:12px; }
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 8px; }
-  .row { font-size:12.5px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,.05); word-break:break-all; }
+  .row { font-size:12.5px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,.05); word-break:break-word; }
   .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
-  iframe.probe { width:100%; height:420px; background:#fff; border:2px solid var(--line); border-radius:8px; margin:6px 0; }
-  .frame-label { font-weight:700; font-size:13px; margin-top:10px; color:var(--major); }
-  .imgnote { font-size:11.5px; color:var(--muted); }
-  textarea { width:100%; height:80px; background:#0d2330; color:var(--ink); border:1px solid var(--line); }
+  .hit { color:var(--hit); font-weight:700; }
+  code { font-size:11.5px; color:#a5f3fc; }
+  textarea { width:100%; height:120px; background:#0d2330; color:var(--ink); border:1px solid var(--line); }
+  .spin { color:var(--muted); font-size:12px; }
 </style>
 </head>
 <body>
-<h1>🎣 Data Source Probe — round 7: does the /doclink/ PDF pattern generalize?</h1>
+<h1>🎣 Probe round 8 — what does WI DNR actually know about fish species per lake?</h1>
 <div class="intro">
-  You found a working depth-contour PDF for Yellow Lake at
-  <code>apps.dnr.wi.gov/doclink/lakes_maps/2675200a.pdf</code> — a different, working path from
-  the ones we tried before (which all 404'd). Before wiring this into the app for every lake, I
-  need to confirm it's a GENERAL pattern, not a one-off. The boxes below try the same pattern for
-  Yellow Lake again (control) and for Cedar Lake and a couple other WBICs we've used in this app.
-  <b>Tell me which boxes show a real depth-contour map</b> — a screenshot is ideal.
+  Goal: build an onX-style <b>per-lake species list</b>. We already pull DNR lake
+  <b>regulations</b> (one text field per species group) and <b>lake classification</b>
+  (fish-community type + a FISHERIES description) — but only display them, never use them
+  to filter. This probe captures the <b>real field names and values</b> across deliberately
+  contrasting lakes, and lists DNR's service catalog to find any dedicated fish-presence
+  layer. Tap <b>Copy report</b> when the spinners stop (~30–60s) and paste the whole thing back.
 </div>
 <button id="copy">📋 Copy report</button>
 <div id="out"></div>
@@ -42,8 +42,9 @@
 <script>
 (function () {
   'use strict';
-  var R = { generated: new Date().toISOString(), round: 7, results: [] };
+  var R = { generated: new Date().toISOString(), round: 8, lines: [] };
   var out = document.getElementById('out');
+  var pending = 0;
 
   function sec(title) {
     var s = document.createElement('section');
@@ -52,39 +53,152 @@
     return function line(status, text) {
       var d = document.createElement('div');
       d.className = 'row';
-      var icon = status === 'ok' ? '✅' : status === 'bad' ? '❌' : status === 'warn' ? '⚠️' : '·';
+      var icon = status === 'ok' ? '✅' : status === 'bad' ? '❌' : status === 'warn' ? '⚠️'
+               : status === 'hit' ? '⭐' : '·';
       d.innerHTML = '<span class="' + status + '">' + icon + '</span> ' + text;
       s.appendChild(d);
-      R.results.push('[' + title + '] ' + icon + ' ' + d.textContent.trim());
+      R.lines.push('[' + title + '] ' + icon + ' ' + d.textContent.trim());
       return d;
     };
   }
-
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+  function trunc(v, n) {
+    var s = (v == null) ? '' : String(v);
+    return s.length > n ? s.slice(0, n) + '…[+' + (s.length - n) + ' chars]' : s;
+  }
+  function getJson(url, ms) {
+    pending++;
+    var ctl = ('AbortController' in window) ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctl) ctl.abort(); }, ms || 12000);
+    return fetch(url, ctl ? { signal: ctl.signal } : undefined)
+      .then(function (r) { return r.json(); })
+      .then(function (j) { clearTimeout(t); pending--; return j; })
+      .catch(function (e) { clearTimeout(t); pending--; throw e; });
+  }
 
-  var log1 = sec('1 · /doclink/lakes_maps/ candidates — WHICH BOXES SHOW A REAL CONTOUR MAP?');
-  var CANDIDATES = [
-    ['Yellow Lake (control — user-confirmed working)', 'https://apps.dnr.wi.gov/doclink/lakes_maps/2675200a.pdf'],
-    ['Cedar Lake, St. Croix Co. (WBIC 2615100)', 'https://apps.dnr.wi.gov/doclink/lakes_maps/2615100a.pdf'],
-    ['Cedar Lake — no "a" suffix', 'https://apps.dnr.wi.gov/doclink/lakes_maps/2615100.pdf'],
-    ['Perch Lake (WBIC 2488300, from earlier probe data)', 'https://apps.dnr.wi.gov/doclink/lakes_maps/2488300a.pdf'],
-    ['Indianhead Flowage (WBIC 2634400, from earlier probe data)', 'https://apps.dnr.wi.gov/doclink/lakes_maps/2634400a.pdf']
-  ];
-  CANDIDATES.forEach(function (c, i) {
-    var d = log1('none', '<span class="frame-label">BOX ' + (i + 1) + ' — ' + esc(c[0]) + '</span><br><span class="imgnote">' + esc(c[1]) + '</span>');
-    var f = document.createElement('iframe');
-    f.className = 'probe';
-    f.src = c[1];
-    f.onload = function () { log1('warn', 'BOX ' + (i + 1) + ' — frame loaded (may still be blank/error page; judge visually)'); };
-    d.appendChild(f);
+  var ARC  = 'https://dnrmaps.wi.gov/arcgis/rest/services';
+  var ARC2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
+  // Anything whose NAME hints at fish/species/survey data is worth knowing about.
+  var FISHY = /fish|species|survey|community|fmdb|creel|biota|aquatic/i;
+
+  /* ---------- 1. Service catalog discovery (authoritative — no name guessing) ---------- */
+  var log1 = sec('1 · DNR service catalog — any dedicated fish/species layer?');
+  [['arcgis', ARC], ['arcgis2', ARC2]].forEach(function (srv) {
+    getJson(srv[1] + '?f=json').then(function (j) {
+      var folders = (j && j.folders) || [];
+      var svcs = ((j && j.services) || []).map(function (s) { return s.name; });
+      log1('ok', srv[0] + ' root: ' + folders.length + ' folders, ' + svcs.length + ' root services');
+      log1('none', srv[0] + ' folders: <code>' + esc(folders.join(', ')) + '</code>');
+      // Drill into folders that look fisheries-related.
+      folders.filter(function (f) { return FISHY.test(f) || /^FM|^WY|^WT/i.test(f); })
+        .slice(0, 8).forEach(function (f) {
+          getJson(srv[1] + '/' + f + '?f=json').then(function (fj) {
+            var names = ((fj && fj.services) || []).map(function (s) { return s.name.split('/').pop(); });
+            var hits = names.filter(function (n) { return FISHY.test(n); });
+            log1(hits.length ? 'hit' : 'none', srv[0] + '/' + f + ' → ' + names.length + ' services'
+              + (hits.length ? '; FISH-RELATED: <code>' + esc(hits.join(', ')) + '</code>' : ''));
+            if (!hits.length) log1('none', '   ' + srv[0] + '/' + f + ' all: <code>' + esc(trunc(names.join(', '), 600)) + '</code>');
+          }).catch(function () { log1('bad', srv[0] + '/' + f + ' folder listing FAILED'); });
+        });
+    }).catch(function (e) { log1('bad', srv[0] + ' root listing FAILED: ' + e); });
   });
 
-  // ---- copy report ----
+  /* ---------- 2. Field schemas — the COMPLETE set of species columns ---------- */
+  var log2 = sec('2 · Layer field schemas — every species column that exists statewide');
+  var SCHEMAS = [
+    ['LAKE REGULATIONS (arcgis2 FM_WFF layer 2)', ARC2 + '/FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT/MapServer/2'],
+    ['LAKE CLASSIFICATIONS (arcgis2 FM_WFF layer 0)', ARC2 + '/FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT/MapServer/0'],
+    ['FM_WFF service root (all layers)', ARC2 + '/FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT/MapServer']
+  ];
+  SCHEMAS.forEach(function (s) {
+    getJson(s[1] + '?f=json').then(function (j) {
+      if (j && j.layers) {
+        log2('ok', s[0] + ' → layers: <code>' + esc(j.layers.map(function (L) { return L.id + ':' + L.name; }).join(' | ')) + '</code>');
+        return;
+      }
+      var fields = (j && j.fields) || [];
+      log2('ok', s[0] + ' → ' + fields.length + ' fields');
+      log2('none', '   <code>' + esc(fields.map(function (f) { return f.name; }).join(', ')) + '</code>');
+    }).catch(function (e) { log2('bad', s[0] + ' schema FAILED: ' + e); });
+  });
+
+  /* ---------- 3. Real values across deliberately contrasting lakes ---------- */
+  var log3 = sec('3 · Real per-lake values (contrasting water types)');
+  // Chosen to span the full range: shallow warmwater, deep two-story/coldwater,
+  // huge shallow sturgeon water, Great Lake. Radius is generous (2 km) so a
+  // slightly-off coordinate still resolves — the returned NAME self-documents
+  // which lake actually matched.
+  var LAKES = [
+    ['Yellow Lake (app default — mixed warmwater)', 45.94, -92.38],
+    ['Lake Mendota, Madison (eutrophic, walleye/musky/panfish)', 43.107, -89.416],
+    ['Green Lake (deepest inland WI — lake trout/cisco)', 43.800, -88.960],
+    ['Geneva Lake (deep two-story, stocked lake trout)', 42.585, -88.500],
+    ['Lake Winnebago (huge shallow — sturgeon/walleye)', 44.050, -88.400],
+    ['Lake Superior nearshore (Great Lake — salmon/trout)', 46.800, -90.800]
+  ];
+  var TARGETS = [
+    ['REGS', ARC2 + '/FM_WFF/FM_WFF_LAKE_REGULATIONS_WTM_EXT/MapServer/2', 'WATERBODY_NAME'],
+    ['CLASS', ARC2 + '/FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT/MapServer/0', 'LAKE_NAME']
+  ];
+  function qUrl(base, lat, lng, dist) {
+    return base + '/query?f=json&geometry=' + lng + ',' + lat +
+      '&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects' +
+      '&distance=' + dist + '&units=esriSRUnit_Meter&outFields=*&returnGeometry=false&resultRecordCount=3';
+  }
+  LAKES.forEach(function (L) {
+    log3('none', '<b>— ' + esc(L[0]) + ' (' + L[1] + ', ' + L[2] + ')</b>');
+    TARGETS.forEach(function (T) {
+      getJson(qUrl(T[1], L[1], L[2], 2000)).then(function (j) {
+        var feats = (j && j.features) || [];
+        if (!feats.length) { log3('warn', '   ' + T[0] + ': no features within 2 km'); return; }
+        feats.slice(0, 2).forEach(function (f, idx) {
+          var a = f.attributes || {};
+          log3('ok', '   ' + T[0] + '[' + idx + '] matched <b>' + esc(a[T[2]] || '(unnamed)') + '</b>');
+          // Dump EVERY populated non-geometry field — this is the payload I need.
+          Object.keys(a).forEach(function (k) {
+            var v = a[k];
+            if (v == null || v === '' || k.indexOf('SHAPE') === 0) return;
+            log3('none', '      <code>' + esc(k) + '</code> = ' + esc(trunc(v, 240)));
+          });
+        });
+      }).catch(function (e) { log3('bad', '   ' + T[0] + ' query FAILED: ' + e); });
+    });
+  });
+
+  /* ---------- 4. Your current location (whatever water you're actually near) ---------- */
+  var log4 = sec('4 · Your current GPS location');
+  if (navigator.geolocation) {
+    log4('none', 'requesting GPS… (allow the prompt)');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      var la = +pos.coords.latitude.toFixed(5), ln = +pos.coords.longitude.toFixed(5);
+      log4('ok', 'GPS: ' + la + ', ' + ln);
+      TARGETS.forEach(function (T) {
+        getJson(qUrl(T[1], la, ln, 3000)).then(function (j) {
+          var feats = (j && j.features) || [];
+          if (!feats.length) { log4('warn', T[0] + ': no features within 3 km of you'); return; }
+          var a = feats[0].attributes || {};
+          log4('ok', T[0] + ' matched <b>' + esc(a[T[2]] || '(unnamed)') + '</b>');
+          Object.keys(a).forEach(function (k) {
+            var v = a[k];
+            if (v == null || v === '' || k.indexOf('SHAPE') === 0) return;
+            log4('none', '   <code>' + esc(k) + '</code> = ' + esc(trunc(v, 240)));
+          });
+        }).catch(function (e) { log4('bad', T[0] + ' failed: ' + e); });
+      });
+    }, function (err) { log4('warn', 'GPS denied/unavailable: ' + err.message + ' (fine — sections 1–3 are the important ones)'); },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 });
+  } else log4('warn', 'no geolocation support');
+
+  /* ---------- copy ---------- */
   document.getElementById('copy').onclick = function () {
-    var txt = 'PROBE REPORT r7 ' + R.generated + '\n\n' + R.results.join('\n');
+    var txt = 'PROBE REPORT r8 ' + R.generated +
+      (pending ? '\n\n*** WARNING: ' + pending + ' request(s) still in flight — wait and re-copy ***' : '') +
+      '\n\n' + R.lines.join('\n');
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(txt).then(function () { alert('Copied — paste it into the chat, and note which BOX numbers showed a real map.'); },
-        function () { showFallback(txt); });
+      navigator.clipboard.writeText(txt).then(function () {
+        alert(pending ? (pending + ' requests still loading — wait a few seconds and tap Copy again.')
+                      : 'Copied — paste the whole thing into the chat.');
+      }, function () { showFallback(txt); });
     } else showFallback(txt);
     function showFallback(t) {
       var ta = document.getElementById('fallback');
