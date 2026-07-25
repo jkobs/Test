@@ -73,7 +73,16 @@ check('lake-info shows the real species (Mooneye)', lakeInfoText.includes('Moone
 const dropdownOptions = await page.$$eval('#conditions-species-select option', els => els.map(e => e.textContent));
 console.log('Bite Conditions dropdown options: ' + JSON.stringify(dropdownOptions));
 check('Bite Conditions dropdown is NOT empty (was broken before fix)', dropdownOptions.length > 0);
-check('Bite Conditions dropdown falls back to the full curated species list (14 incl. salmon + brook trout)', dropdownOptions.length === 14);
+// Record-based fallback shows the curated list, but habitat still applies: this
+// mocked lake is in Wisconsin with no record in the DNR trout lake/pond
+// regulations layer, so the four coldwater species are excluded as implausible.
+// The fallback is about missing RECORDS; it never resurrects fish the water
+// cannot hold.
+check('Bite Conditions dropdown falls back to the curated list', dropdownOptions.length === 10);
+check('fallback still excludes coldwater species on a non-trout water',
+  ['Chinook/Coho Salmon', 'Lake Trout', 'Rainbow/Brown Trout', 'Brook Trout']
+    .every(n => !dropdownOptions.includes(n)));
+check('fallback includes the warmwater species (Largemouth Bass)', dropdownOptions.includes('Largemouth Bass'));
 
 const outlookText = await page.$eval('#species-rows', el => el.textContent).catch(() => '');
 console.log('Species Outlook rows text (first 150 chars): ' + outlookText.slice(0, 150));

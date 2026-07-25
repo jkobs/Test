@@ -94,8 +94,15 @@ QA step — don't mark this kind of change "done" on green tests alone.
   (parse `BAG_LMT` for which trout); absent-after-check = not a trout water, so
   coldwater species get demoted. `FM_WFF_LAKE_CLASSIFICATIONS.LAKE_CLASS` is a
   controlled vocabulary ("Complex - Two Story", "Simple - Warm - Dark",
-  "Simple - Harsh - No Fishery") used as a weaker fallback; `_partitionByHabitat`
-  groups species into likely/unlikely and NEVER hides any.
+  "Simple - Harsh - No Fishery") used as a weaker fallback. `_partitionByHabitat`
+  splits likely/unlikely and `_visibleSpecies()` REMOVES the unlikely ones —
+  demoting them into an "unlikely" optgroup was not enough (a small pond still
+  sat on salmon, headlining offshore trolling advice). Two invariants: real
+  records always outrank habitat inference, and habitat never empties the list
+  (a "no fishery" lake keeps everything, labeled).
+  - The selected species persists in `localStorage`, so every render path must
+    reconcile it against `_visibleSpecies()` — otherwise a pick made on one
+    water (salmon on Superior) follows the angler to the next one.
   - Dead ends, do not re-probe: the lake **regulations** table is not a presence
     signal (every water returns the same ~34 species columns, incl. sturgeon and
     paddlefish on a no-fishery pond); `WY_WBHB_AND_WATERBODY_SPECIES` is

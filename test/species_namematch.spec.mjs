@@ -14,6 +14,12 @@
    matches still work (a Brown Trout record DOES surface Rainbow/Brown Trout,
    a White Crappie record DOES surface Crappie), and the list stays filtered.
 
+   The mocked lake sits OUTSIDE Wisconsin on purpose. Inside WI the DNR
+   trout-water lookup would exclude every coldwater species on habitat grounds,
+   which would mask this bug rather than test it: "Rainbow/Brown Trout" could
+   not appear at all, so a false "rainbow" match would be invisible. Outside WI
+   that logic is dormant and the matcher is what's under test.
+
    Run: node test/species_namematch.spec.mjs
 */
 import { chromium } from 'playwright';
@@ -29,7 +35,7 @@ function check(label, cond) { console.log((cond ? 'PASS  ' : 'FAIL  ') + label);
 
 const NHD_WB = { type: 'FeatureCollection', features: [
   { type: 'Feature', properties: { GNIS_NAME: 'Bass Lake', AREASQKM: 1.5, FTYPE: 390 },
-    geometry: { type: 'Polygon', coordinates: [[[-92.40,45.93],[-92.36,45.93],[-92.36,45.95],[-92.40,45.95],[-92.40,45.93]]] } }
+    geometry: { type: 'Polygon', coordinates: [[[-94.52,45.93],[-94.48,45.93],[-94.48,45.95],[-94.52,45.95],[-94.52,45.93]]] } }
 ] };
 
 // Returns { options, badge, hero } after selecting the mocked lake, whose only
@@ -66,7 +72,7 @@ async function loadLake(inatNames) {
 
   await page.goto(APP, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#advisor-body', { timeout: 15000 });
-  await page.evaluate(() => window.__testHooks.selectMapPoint(45.94, -92.38));
+  await page.evaluate(() => window.__testHooks.selectMapPoint(45.94, -94.50));
   await page.waitForTimeout(3000);
 
   const options = await page.$$eval('#conditions-species-select option', els => els.map(e => e.textContent));

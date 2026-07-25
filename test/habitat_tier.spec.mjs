@@ -108,26 +108,21 @@ const GREEN_LAKE_TROUT = {
   SEASON_TXT: 'Lake trout - First Saturday in January to Sept. 30, Other trout: - First Saturday in May to first Sunday in March.'
 };
 
-// ---------- 1. Warm lake, not a trout water: trout/salmon demoted ----------
+// ---------- 1. Warm lake, not a trout water: trout/salmon NOT selectable ----------
+// Demoting these into an "unlikely" group wasn't enough in practice: a real
+// on-device report showed a small pond still switched to salmon, headlining
+// "troll offshore temperature breaks". Implausible species are now removed.
 const warm = await loadClass('Simple - Warm - Dark',
   'Simple warm dark lakes can provide great opportunities for action for black crappie, and often also support bluegill and largemouth bass. They rarely have any walleye or muskellunge.',
   { maxDep: 10 });
-console.log('  warm groups: ' + JSON.stringify(warm.groups.map(g => g.label)));
-check('warm lake splits the picker into groups', warm.groups.length === 2);
-check('warm lake has a "Likely in this water" group',
-  warm.groups.some(g => /Likely in this water/.test(g.label)));
-check('unlikely group cites the DNR trout-water lookup, not just temperature',
-  warm.groups.some(g => /Unlikely here/.test(g.label) && /not a DNR trout water/.test(g.label)));
-const warmUnlikelyGroup = warm.groups.find(g => /Unlikely here/.test(g.label));
-check('all four coldwater species land in the unlikely group',
-  !!warmUnlikelyGroup && COLDWATER.every(n => warmUnlikelyGroup.opts.includes(n)));
-check('warm lake keeps warmwater species likely (Walleye, Largemouth)',
-  warm.groups.some(g => /Likely/.test(g.label) && g.opts.includes('Walleye') && g.opts.includes('Largemouth Bass')));
-check('nothing is removed from the picker — full curated list still selectable',
-  warm.allOpts.length === 14);
-console.log('  warm unlikely outlook rows: ' + JSON.stringify(warm.unlikelyRows.map(s => s.split('unlikely')[0])));
-check('outlook rows tag coldwater species as unlikely',
-  warm.unlikelyRows.length === 4 && warm.unlikelyRows.every(t => /unlikely here/.test(t)));
+console.log('  warm options: ' + JSON.stringify(warm.allOpts));
+check('coldwater species are NOT selectable on a warm non-trout lake',
+  COLDWATER.every(n => !warm.allOpts.includes(n)));
+check('warm lake keeps its warmwater species',
+  warm.allOpts.includes('Walleye') && warm.allOpts.includes('Largemouth Bass') && warm.allOpts.includes('Crappie'));
+check('exactly the four coldwater species were removed', warm.allOpts.length === 10);
+check('no "unlikely" group is needed once they are removed', warm.groups.length === 0);
+check('outlook rows carry no unlikely tags either', warm.unlikelyRows.length === 0);
 
 // ---------- 2. Confirmed trout water: coldwater species are plausible ----------
 const trout = await loadClass('Complex - Two Story',
@@ -154,10 +149,10 @@ check('lake card shows DNR\'s real bag limit', /2 lake trout over 17/.test(trout
 const twoStoryNoTrout = await loadClass('Complex - Two Story',
   'Complex two story lakes are able to support coldwater species - primarily cisco, and occasionally lake trout or lake whitefish.',
   { maxDep: 82 });
-check('two-story lake with no trout record still demotes coldwater',
-  twoStoryNoTrout.groups.some(g => /Unlikely here/.test(g.label) && /not a DNR trout water/.test(g.label)));
-check('two-story non-trout lake demotes exactly the four coldwater species',
-  twoStoryNoTrout.unlikelyRows.length === 4);
+check('two-story lake with no trout record still excludes coldwater species',
+  COLDWATER.every(n => !twoStoryNoTrout.allOpts.includes(n)));
+check('two-story non-trout lake keeps its warmwater species',
+  twoStoryNoTrout.allOpts.length === 10 && twoStoryNoTrout.allOpts.includes('Walleye'));
 
 // ---------- 3. "No Fishery" lake: everything flagged, and DNR says why ----------
 const none = await loadClass('Simple - Harsh - No Fishery',

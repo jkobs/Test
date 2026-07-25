@@ -560,7 +560,14 @@
     var none = { likely: list, unlikely: [], reason: '' };
     function split(pred, reason) {
       var likely = [], unlikely = [];
-      list.forEach(function (sp) { (pred(sp) ? unlikely : likely).push(sp); });
+      var haveRecords = !!(state.knownSpecies && state.knownSpecies.length);
+      list.forEach(function (sp) {
+        // Real records outrank habitat inference: if DNR stocked it, or a
+        // designation/trout regulation names it, it IS here whatever the lake
+        // class or trout-layer lookup would otherwise imply.
+        var evidence = haveRecords && _speciesInWater(sp);
+        (!evidence && pred(sp) ? unlikely : likely).push(sp);
+      });
       return { likely: likely, unlikely: unlikely, reason: reason };
     }
     // A DNR class of "no fishery" overrides everything else.
@@ -627,9 +634,20 @@
   // Mooneye), filtering down to zero matches would show an empty,
   // broken-looking section — worse than not filtering at all. Fall back to
   // showing all curated species rather than an empty list in that case.
-  function _visibleSpecies() {
+  function _recordFilteredSpecies() {
     var filtered = SPECIES.filter(_speciesInWater);
     return filtered.length ? filtered : SPECIES;
+  }
+  function _visibleSpecies() {
+    var list = _recordFilteredSpecies();
+    // Habitat REMOVES species outright rather than merely demoting them. A
+    // small warm pond genuinely cannot hold salmon, and leaving it selectable
+    // produced a real absurdity on-device: "Long Pond" (a 1.3 mi pond) showing
+    // "A fair morning for salmon … troll offshore temperature breaks, 40–90 ft".
+    // Never empty the list though — if habitat rules out EVERYTHING (a DNR
+    // "no fishery" lake) keep them and let the caller label them instead.
+    var parts = _partitionByHabitat(list);
+    return parts.likely.length ? parts.likely : list;
   }
   function _speciesFallbackActive() {
     return !!(state.knownSpecies && state.knownSpecies.length) && SPECIES.filter(_speciesInWater).length === 0;
@@ -646,9 +664,13 @@
     }
     if (!sp) sp = SPECIES[0];
     var visibleSpecies = _visibleSpecies();
-    if (!_speciesInWater(sp) && !_speciesFallbackActive()) {
-      sp = _preferLikely(visibleSpecies);
-    }
+    // The pick persists across lakes via localStorage, so a species chosen on
+    // one water (salmon on Lake Superior) followed the angler to the next one
+    // and drove the whole headline there. Reconcile against what THIS water
+    // offers: single membership test covers both record filtering and habitat
+    // exclusion, and when a fallback is active _visibleSpecies is the full list
+    // so nothing is second-guessed.
+    if (visibleSpecies.indexOf(sp) === -1) sp = _preferLikely(visibleSpecies);
     return sp;
   }
 
@@ -725,7 +747,8 @@
     var gear      = sp.gear(adv.delta, adv.airTemp, adv.solunarBoost);
     gear = gear + lureColorHint(sp.name, adv.cloudCover);
     var visibleSpecies = _visibleSpecies();
-    if (!_speciesInWater(sp) && !_speciesFallbackActive()) { sp = _preferLikely(visibleSpecies); _selectedSpeciesName = sp.name; }
+    // Same reconciliation as _resolveSelectedSpecies — see the note there.
+    if (visibleSpecies.indexOf(sp) === -1) { sp = _preferLikely(visibleSpecies); _selectedSpeciesName = sp.name; }
     var opts = _speciesOptionsHtml(visibleSpecies, sp.name);
     return '<div class="conditions-head">' +
         '<div class="bite-scale-label">' + ic('target', 13) + 'Bite Conditions</div>' +
@@ -775,7 +798,9 @@
     for (i = 0; i < visibleSpecies.length; i++) {
       if (visibleSpecies[i].name === _selectedSpeciesName) { sel = visibleSpecies[i]; break; }
     }
-    if (!sel) sel = _preferLikely(visibleSpecies);
+    // Keep the in-memory pick in step with what the pill actually shows, so the
+    // pill, hero headline and field notes can't drift onto three species.
+    if (!sel) { sel = _preferLikely(visibleSpecies); _selectedSpeciesName = sel.name; }
     el.innerHTML = _speciesOptionsHtml(visibleSpecies, sel.name);
     el.onchange = function() { _onSpeciesChange(el.value); };
   }
