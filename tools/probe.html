@@ -26,14 +26,17 @@
 </style>
 </head>
 <body>
-<h1>🎣 Probe round 10 — the last two leads</h1>
+<h1>🎣 Probe round 10 — is there real bathymetry?</h1>
 <div class="intro">
-  Round 9 settled trout presence (FM_TROUT_REGS — now shipping) and ruled out
-  WY_WBHB_AND_WATERBODY_SPECIES (it is aquatic INVASIVE species, not gamefish).
-  Two leads are left: <code>WY_NATURAL_COMMUNITY_MODELING</code> layer 0 "Lake Natural
-  Communities" — schema known, real values never captured, and it carries
-  <b>MAX_DEPTH plus MAX_DEPTH_SOURCE</b> which may settle the Cedar Lake depth
-  disagreement — and the <b>FM_SURVEYS</b> folder on arcgis2, whose name is suggestive.
+  The question this answers: can we replace the satellite basemap on the Lake tab
+  with <b>real depth contours</b>, so your GPS dot reads against structure?
+  LakeMaster, Navionics and C-MAP are licensed products with no public API, so
+  WI DNR's own digitized surveys are the only legitimate route. The code
+  currently records that Wisconsin publishes no live bathymetry service — but
+  that predates having a real folder listing, and <code>FM_SURVEYS</code> has never
+  been inventoried. <b>Section 2 is the one that matters.</b> Section 1 also grabs
+  Lake Natural Communities values (incl. MAX_DEPTH_SOURCE, which may settle the
+  Cedar Lake 28-vs-32 ft disagreement) and section 3 covers trout streams.
   Tap <b>Copy report</b> when the spinners stop (~30-60s) and paste it back.
 </div>
 <button id="copy">📋 Copy report</button>
