@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fishing Advisor — Data Source Probe (round 10: natural communities + FM_SURVEYS)</title>
+<title>Fishing Advisor — Data Source Probe (round 10: natural communities + bathymetry hunt)</title>
 <style>
   :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553;
           --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; --hit:#ffd166; }
@@ -115,29 +115,49 @@
     }).catch(function (e) { log1('bad', L[0] + ' FAILED: ' + e); });
   });
 
-  /* ---------- 2. FM_SURVEYS + other unexplored arcgis2 folders ---------- */
-  var log2 = sec('2 . FM_SURVEYS and friends - is survey data public after all?');
-  ['FM_SURVEYS', 'FM_DFM', 'WM_SPECIES_MGMT_ZONES'].forEach(function (folder) {
-    getJson(ARC2 + '/' + folder + '?f=json').then(function (j) {
+  /* ---------- 2. Bathymetry + survey sweep across both hosts ---------- */
+  var log2 = sec('2 . Bathymetry / survey hunt - is there vector depth data?');
+  // GOAL: replace the satellite basemap on the Lake tab with real contour lines
+  // under the GPS marker. LakeMaster/Navionics/C-MAP are licensed products with
+  // no public API, so DNR's own digitized surveys are the only legitimate route.
+  // Widened from the fish-name filter: a service called FM_BATHYMETRY would
+  // have slipped straight past that.
+  var BATHY = /bathym|contour|depth|sounding|lake_?map|survey|hydro/i;
+  var FOLDERS = [
+    ['arcgis2', ARC2, 'FM_SURVEYS'], ['arcgis2', ARC2, 'FM_DFM'],
+    ['arcgis2', ARC2, 'FM_WFF'],     ['arcgis2', ARC2, 'DW_Map_Dynamic'],
+    ['arcgis',  ARC,  'WT_SWDV'],    ['arcgis',  ARC,  'DW_Map_Cached'],
+    ['arcgis',  ARC,  'WY_PRESTO'],  ['arcgis',  ARC,  'DG_Viewer']
+  ];
+  FOLDERS.forEach(function (F) {
+    var host = F[0], base = F[1], folder = F[2];
+    getJson(base + '/' + folder + '?f=json').then(function (j) {
       var svcs = ((j && j.services) || []).map(function (s) { return s.name.split('/').pop(); });
-      if (!svcs.length) { log2('warn', folder + ': no services listed ' + esc(JSON.stringify(j && j.error || {}).slice(0, 120))); return; }
-      log2('hit', folder + ' -> ' + svcs.length + ' service(s): <code>' + esc(svcs.join(', ')) + '</code>');
-      // Inventory the layers of anything fisheries-sounding.
-      svcs.filter(function (n) { return FISHY.test(n); }).slice(0, 4).forEach(function (n) {
-        getJson(ARC2 + '/' + folder + '/' + n + '/MapServer?f=json').then(function (mj) {
+      if (!svcs.length) { log2('warn', host + '/' + folder + ': no services ' + esc(JSON.stringify(j && j.error || {}).slice(0, 110))); return; }
+      var hits = svcs.filter(function (n) { return BATHY.test(n); });
+      log2(hits.length ? 'hit' : 'ok', host + '/' + folder + ' -> ' + svcs.length + ' service(s)' +
+        (hits.length ? '; <b>BATHY/SURVEY CANDIDATES: ' + esc(hits.join(', ')) + '</b>' : ''));
+      log2('none', '   all: <code>' + esc(trunc(svcs.join(', '), 700)) + '</code>');
+      hits.slice(0, 4).forEach(function (n) {
+        getJson(base + '/' + folder + '/' + n + '/MapServer?f=json').then(function (mj) {
           var L = (mj && mj.layers) || [];
-          log2(L.length ? 'hit' : 'warn', '   ' + folder + '/' + n + ' -> ' +
-            (L.length ? L.map(function (x) { return x.id + ':' + x.name; }).join(' | ') : 'no layers'));
-          // Schema of the first layer, so we can judge without guessing.
+          log2(L.length ? 'hit' : 'warn', '   ' + n + ' -> ' +
+            (L.length ? esc(L.map(function (x) { return x.id + ':' + x.name; }).join(' | ')) : 'no layers'));
+          // singleFusedMapCache tells us whether it can serve map TILES (fast
+          // Leaflet basemap) or only dynamic export images.
+          log2('none', '      tiled: ' + ((mj && mj.singleFusedMapCache) ? 'YES (tile cache)' : 'no (export only)') +
+            ' | spatialRef: ' + esc(JSON.stringify((mj && mj.spatialReference) || {}).slice(0, 80)));
           if (L.length) {
-            getJson(ARC2 + '/' + folder + '/' + n + '/MapServer/' + L[0].id + '?f=json').then(function (lj) {
+            getJson(base + '/' + folder + '/' + n + '/MapServer/' + L[0].id + '?f=json').then(function (lj) {
               var fl = (lj && lj.fields) || [];
-              log2('none', '      fields[' + L[0].id + ']: <code>' + esc(fl.map(function (x) { return x.name; }).join(', ')) + '</code>');
+              log2('none', '      fields[' + L[0].id + ']: <code>' +
+                esc(fl.map(function (x) { return x.name; }).join(', ')) + '</code>');
+              log2('none', '      geometryType: ' + esc((lj && lj.geometryType) || '(none)'));
             }).catch(function () {});
           }
-        }).catch(function () { log2('bad', '   ' + folder + '/' + n + ' inventory FAILED'); });
+        }).catch(function () { log2('bad', '   ' + n + ' inventory FAILED'); });
       });
-    }).catch(function (e) { log2('bad', folder + ' FAILED: ' + e); });
+    }).catch(function (e) { log2('bad', host + '/' + folder + ' FAILED: ' + e); });
   });
 
   /* ---------- 3. Trout STREAM regs + habitat target species ---------- */
