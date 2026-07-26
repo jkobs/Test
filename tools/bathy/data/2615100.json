@@ -1,0 +1,19 @@
+{
+ "lake": "Cedar Lake (WBIC 2615100), 1960 survey sheet",
+ "bounds": [
+  [
+   45.2001679,
+   -92.5876614
+  ],
+  [
+   45.232357,
+   -92.5586352
+  ]
+ ],
+ "size_px": [
+  1360,
+  2141
+ ],
+ "ft_per_px": 5.4726,
+ "rotation_applied_deg": 87.8
+}

@@ -47,6 +47,8 @@ jobs:
           cp tools/probe.html public/probe.html
           mkdir -p public/align
           cp tools/align/index.html tools/align/cedar.png public/align/
+          mkdir -p public/bathy
+          cp tools/bathy/data/*.png public/bathy/
 
       - uses: actions/upload-pages-artifact@v3
         with:

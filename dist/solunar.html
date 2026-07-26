@@ -3533,6 +3533,37 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       layers: '1' }
   ];
 
+  // Per-lake depth contours digitised from WI DNR survey sheets, keyed by WBIC.
+  // Wisconsin publishes no bathymetry map service (settled by probe round 10),
+  // so each of these is a scanned survey sheet that has been georeferenced and
+  // masked to its own shoreline — see tools/bathy/. Served as a separate file
+  // rather than inlined so it only downloads when that lake is selected, and
+  // so the single-file app doesn't grow with every lake added.
+  var BATHY_OVERLAYS = {
+    '2615100': { url: 'bathy/2615100.png',
+                 bounds: [[45.2001679, -92.5876614], [45.232357, -92.5586352]],
+                 label: 'WI DNR lake survey, 1960' }
+  };
+
+  function _applySurveyOverlay(map) {
+    if (!map) return;
+    var wb = state.lakeInfo && state.lakeInfo.wbic;
+    var key = wb == null ? '' : String(wb);
+    var ov = _drnEnabled ? BATHY_OVERLAYS[key] : null;
+    if (map.__surveyKey === (ov ? key : '')) return;    // already correct
+    if (map.__surveyLayer) {
+      try { map.removeLayer(map.__surveyLayer); } catch (e) {}
+      map.__surveyLayer = null;
+    }
+    map.__surveyKey = ov ? key : '';
+    if (!ov) return;
+    try {
+      map.__surveyLayer = L.imageOverlay(ov.url, ov.bounds,
+        { opacity: 0.85, interactive: false, attribution: ov.label });
+      map.__surveyLayer.addTo(map);
+    } catch (e) {}
+  }
+
   function pickBathySource(lat, lng) {
     for (var i = 0; i < BATHY_SOURCES.length; i++) {
       if (BATHY_SOURCES[i].inRegion(lat, lng)) return BATHY_SOURCES[i];
@@ -3549,7 +3580,9 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // than in shared module state — otherwise adding a layer already attached
   // to the main map onto the modal map (or vice versa) would misbehave.
   function _applyContourLayers(map, lat, lng) {
-    if (!map || !_drnEnabled) return;
+    if (!map) return;
+    _applySurveyOverlay(map);   // digitised survey sheet, if we have one
+    if (!_drnEnabled) return;
     if (!map.__topoLayer) {
       try {
         map.__topoLayer = L.tileLayer(TOPO_URL, { opacity: 0.55, maxZoom: 16, pane: 'overlayPane' });
@@ -3575,7 +3608,8 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     if (!map) return;
     if (map.__topoLayer)  { try { map.removeLayer(map.__topoLayer); }  catch (e) {} map.__topoLayer = null; }
     if (map.__bathyLayer) { try { map.removeLayer(map.__bathyLayer); } catch (e) {} map.__bathyLayer = null; }
-    map.__bathySrcName = null;
+    if (map.__surveyLayer) { try { map.removeLayer(map.__surveyLayer); } catch (e) {} map.__surveyLayer = null; }
+    map.__bathySrcName = null; map.__surveyKey = '';
   }
 
   function refreshDNRLayer() { _applyContourLayers(_map, state.loc.lat, state.loc.lng); }
@@ -5013,7 +5047,10 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
           var s = a.SPECIES_NAME || a.COMMON_NAME;
           if (s) record(s, 'WI DNR stocking record');
           if (a.WBIC) {
-            if (state.lakeInfo && !state.lakeInfo.wbic) state.lakeInfo.wbic = a.WBIC;
+            if (state.lakeInfo && !state.lakeInfo.wbic) {
+              state.lakeInfo.wbic = a.WBIC;
+              try { refreshDNRLayer(); } catch (e) {}
+            }
             _fetchWiStockingHistory(a.WBIC);
           }
         });
@@ -5072,6 +5109,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       if (wbic) {
         if (state.lakeInfo && !state.lakeInfo.wbic) {
           state.lakeInfo.wbic = wbic;
+          try { refreshDNRLayer(); } catch (e) {}
           try { renderLakeInfo(); } catch (e) {}
         }
         _fetchWiStockingHistory(wbic);
