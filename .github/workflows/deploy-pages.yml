@@ -45,6 +45,8 @@ jobs:
           mkdir -p public
           cp dist/solunar.html public/index.html
           cp tools/probe.html public/probe.html
+          mkdir -p public/align
+          cp tools/align/index.html tools/align/cedar.png public/align/
 
       - uses: actions/upload-pages-artifact@v3
         with:

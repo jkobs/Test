@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fishing Advisor — Data Source Probe (round 10: natural communities + bathymetry hunt)</title>
+<title>Fishing Advisor — Data Source Probe (round 11: Cedar Lake reference polygon)</title>
 <style>
   :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553;
           --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffb020; --hit:#ffd166; }
@@ -26,18 +26,17 @@
 </style>
 </head>
 <body>
-<h1>🎣 Probe round 10 — is there real bathymetry?</h1>
+<h1>🎣 Probe round 11 — Cedar Lake reference polygon</h1>
 <div class="intro">
-  The question this answers: can we replace the satellite basemap on the Lake tab
-  with <b>real depth contours</b>, so your GPS dot reads against structure?
-  LakeMaster, Navionics and C-MAP are licensed products with no public API, so
-  WI DNR's own digitized surveys are the only legitimate route. The code
-  currently records that Wisconsin publishes no live bathymetry service — but
-  that predates having a real folder listing, and <code>FM_SURVEYS</code> has never
-  been inventoried. <b>Section 2 is the one that matters.</b> Section 1 also grabs
-  Lake Natural Communities values (incl. MAX_DEPTH_SOURCE, which may settle the
-  Cedar Lake 28-vs-32 ft disagreement) and section 3 covers trout streams.
-  Tap <b>Copy report</b> when the spinners stop (~30-60s) and paste it back.
+  Round 10 settled it: WI publishes no bathymetry service, so we are digitising the
+  1960 Cedar Lake survey sheet ourselves. The scan has NO lat/long ticks, so to place
+  it on the map we need an authoritative outline of the same lake to fit it against.
+  Scale is already solved (5.440 ft/px, self-calibrated from the printed 1,100 acres
+  and cross-checked against the printed 6.3 mi shoreline) — this only supplies
+  position and rotation. Queried by <b>WBIC 2615100</b> so there is no ambiguity with
+  Wisconsin's many other Cedar Lakes.
+  Tap <b>Copy report</b> when the spinners stop and paste it back — it will be long,
+  that is expected; the coordinate list IS the payload.
 </div>
 <button id="copy">📋 Copy report</button>
 <div id="out"></div>
@@ -46,7 +45,7 @@
 <script>
 (function () {
   'use strict';
-  var R = { generated: new Date().toISOString(), round: 10, lines: [] };
+  var R = { generated: new Date().toISOString(), round: 11, lines: [] };
   var out = document.getElementById('out');
   var pending = 0;
 
@@ -81,127 +80,76 @@
   }
 
   var ARC  = 'https://dnrmaps.wi.gov/arcgis/rest/services';
-  var ARC2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
-  var NCM  = ARC + '/WT_SWDV/WY_NATURAL_COMMUNITY_MODELING/MapServer';
-  var FISHY = /fish|species|survey|community|creel|biota|aquatic|trout|lake/i;
+  var WBIC = 2615100;   // Cedar Lake, Polk & St Croix counties
 
-  /* ---------- 1. Lake Natural Communities: REAL values ---------- */
-  var log1 = sec('1 . Lake Natural Communities - real records');
-  // Same contrasting lakes as rounds 8-9 so values line up with what we know:
-  // Green Lake is two story w/ trout, Yellow Lake is not a trout water,
-  // Brushy Mound is "no fishery", Cedar Lake is the depth-disagreement case.
-  var LAKES = [
-    ['Yellow Lake (not a trout water)', 45.94, -92.38],
-    ['Green Lake (two story, trout)', 43.800, -88.960],
-    ['Geneva Lake (two story, trout)', 42.585, -88.500],
-    ['Lake Mendota (two story, NOT trout)', 43.107, -89.416],
-    ['Brushy Mound Lk (no fishery)', 45.07152, -92.51623],
-    ['Cedar Lake, St Croix Co (depth dispute: 28 vs 32 ft)', 45.1075, -92.5000]
-  ];
-  LAKES.forEach(function (L) {
-    var url = NCM + '/0/query?f=json&geometry=' + L[2] + ',' + L[1] +
-      '&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects' +
-      '&distance=1200&units=esriSRUnit_Meter&outFields=*&returnGeometry=false&resultRecordCount=3';
-    getJson(url).then(function (j) {
-      if (j && j.error) { log1('bad', L[0] + ': error ' + esc(JSON.stringify(j.error).slice(0, 140))); return; }
+  function ring(label, log, geom) {
+    if (!geom) { log('bad', label + ': no geometry returned'); return; }
+    var rings = geom.rings || (geom.paths || null);
+    if (!rings || !rings.length) { log('bad', label + ': geometry had no rings'); return; }
+    var best = rings[0];
+    for (var i = 1; i < rings.length; i++) if (rings[i].length > best.length) best = rings[i];
+    var xs = best.map(function (p) { return p[0]; }), ys = best.map(function (p) { return p[1]; });
+    var mnx = Math.min.apply(null, xs), mxx = Math.max.apply(null, xs);
+    var mny = Math.min.apply(null, ys), mxy = Math.max.apply(null, ys);
+    log('hit', label + ': ' + best.length + ' pts, bbox lon ' + mnx.toFixed(6) + ' .. ' + mxx.toFixed(6) +
+        ' , lat ' + mny.toFixed(6) + ' .. ' + mxy.toFixed(6));
+    log('none', label + ' CENTROID approx: ' + ((mnx+mxx)/2).toFixed(6) + ',' + ((mny+mxy)/2).toFixed(6));
+    // Emit as compact lon,lat pairs, wrapped so the report stays readable.
+    var out = [], line = [];
+    for (var j = 0; j < best.length; j++) {
+      line.push(best[j][0].toFixed(6) + ',' + best[j][1].toFixed(6));
+      if (line.length === 6) { out.push(line.join(' ')); line = []; }
+    }
+    if (line.length) out.push(line.join(' '));
+    log('none', label + ' RING BEGIN');
+    out.forEach(function (l) { log('none', '  ' + l); });
+    log('none', label + ' RING END');
+  }
+
+  /* ---------- 1. WI DNR 24K hydrography polygon, by WBIC ---------- */
+  var log1 = sec('1 . DNR 24K hydro polygon for WBIC ' + WBIC);
+  // maxAllowableOffset generalises server-side so the ring is pasteable.
+  [0.0004, 0.0010].forEach(function (off) {
+    var url = ARC + '/WT_SWDV/WY_INLAND_WATER_RESOURCES/MapServer/3/query?f=json' +
+      '&where=' + encodeURIComponent('WATERBODY_WBIC=' + WBIC) +
+      '&outFields=WATERBODY_ROW_NAME,WATERBODY_WBIC,WATERBODY_ACRES' +
+      '&returnGeometry=true&outSR=4326&maxAllowableOffset=' + off + '&resultRecordCount=4';
+    getJson(url, 20000).then(function (j) {
+      if (j && j.error) { log1('bad', 'offset ' + off + ': ' + esc(JSON.stringify(j.error).slice(0,160))); return; }
       var feats = (j && j.features) || [];
-      if (!feats.length) { log1('warn', L[0] + ': no features within 1200 m'); return; }
-      feats.slice(0, 2).forEach(function (f, i) {
+      if (!feats.length) { log1('warn', 'offset ' + off + ': no feature for WBIC ' + WBIC); return; }
+      feats.forEach(function (f, i) {
         var a = f.attributes || {};
-        log1('hit', '<b>' + esc(L[0]) + '</b> record ' + i + ' -> ' + esc(a.OFFICIAL_NAME || '(unnamed)'));
-        Object.keys(a).forEach(function (k) {
-          var v = a[k];
-          if (v == null || v === '' || k.indexOf('SHAPE') === 0) return;
-          log1('none', '   <code>' + esc(k) + '</code> = ' + esc(trunc(v, 200)));
-        });
+        log1('ok', 'offset ' + off + ' feature ' + i + ': name=' + esc(a.WATERBODY_ROW_NAME || '?') +
+             ' wbic=' + esc(a.WATERBODY_WBIC) + ' acres=' + esc(a.WATERBODY_ACRES));
+        if (i === 0 && off === 0.0004) ring('DNR24K', log1, f.geometry);
       });
-    }).catch(function (e) { log1('bad', L[0] + ' FAILED: ' + e); });
+    }).catch(function (e) { log1('bad', 'offset ' + off + ' FAILED: ' + e); });
   });
 
-  /* ---------- 2. Bathymetry + survey sweep across both hosts ---------- */
-  var log2 = sec('2 . Bathymetry / survey hunt - is there vector depth data?');
-  // GOAL: replace the satellite basemap on the Lake tab with real contour lines
-  // under the GPS marker. LakeMaster/Navionics/C-MAP are licensed products with
-  // no public API, so DNR's own digitized surveys are the only legitimate route.
-  // Widened from the fish-name filter: a service called FM_BATHYMETRY would
-  // have slipped straight past that.
-  var BATHY = /bathym|contour|depth|sounding|lake_?map|survey|hydro/i;
-  var FOLDERS = [
-    ['arcgis2', ARC2, 'FM_SURVEYS'], ['arcgis2', ARC2, 'FM_DFM'],
-    ['arcgis2', ARC2, 'FM_WFF'],     ['arcgis2', ARC2, 'DW_Map_Dynamic'],
-    ['arcgis',  ARC,  'WT_SWDV'],    ['arcgis',  ARC,  'DW_Map_Cached'],
-    ['arcgis',  ARC,  'WY_PRESTO'],  ['arcgis',  ARC,  'DG_Viewer']
-  ];
-  FOLDERS.forEach(function (F) {
-    var host = F[0], base = F[1], folder = F[2];
-    getJson(base + '/' + folder + '?f=json').then(function (j) {
-      var svcs = ((j && j.services) || []).map(function (s) { return s.name.split('/').pop(); });
-      if (!svcs.length) { log2('warn', host + '/' + folder + ': no services ' + esc(JSON.stringify(j && j.error || {}).slice(0, 110))); return; }
-      var hits = svcs.filter(function (n) { return BATHY.test(n); });
-      log2(hits.length ? 'hit' : 'ok', host + '/' + folder + ' -> ' + svcs.length + ' service(s)' +
-        (hits.length ? '; <b>BATHY/SURVEY CANDIDATES: ' + esc(hits.join(', ')) + '</b>' : ''));
-      log2('none', '   all: <code>' + esc(trunc(svcs.join(', '), 700)) + '</code>');
-      hits.slice(0, 4).forEach(function (n) {
-        getJson(base + '/' + folder + '/' + n + '/MapServer?f=json').then(function (mj) {
-          var L = (mj && mj.layers) || [];
-          log2(L.length ? 'hit' : 'warn', '   ' + n + ' -> ' +
-            (L.length ? esc(L.map(function (x) { return x.id + ':' + x.name; }).join(' | ')) : 'no layers'));
-          // singleFusedMapCache tells us whether it can serve map TILES (fast
-          // Leaflet basemap) or only dynamic export images.
-          log2('none', '      tiled: ' + ((mj && mj.singleFusedMapCache) ? 'YES (tile cache)' : 'no (export only)') +
-            ' | spatialRef: ' + esc(JSON.stringify((mj && mj.spatialReference) || {}).slice(0, 80)));
-          if (L.length) {
-            getJson(base + '/' + folder + '/' + n + '/MapServer/' + L[0].id + '?f=json').then(function (lj) {
-              var fl = (lj && lj.fields) || [];
-              log2('none', '      fields[' + L[0].id + ']: <code>' +
-                esc(fl.map(function (x) { return x.name; }).join(', ')) + '</code>');
-              log2('none', '      geometryType: ' + esc((lj && lj.geometryType) || '(none)'));
-            }).catch(function () {});
-          }
-        }).catch(function () { log2('bad', '   ' + n + ' inventory FAILED'); });
-      });
-    }).catch(function (e) { log2('bad', host + '/' + folder + ' FAILED: ' + e); });
-  });
-
-  /* ---------- 3. Trout STREAM regs + habitat target species ---------- */
-  var log3 = sec('3 . Trout streams - the app supports rivers too');
-  // FM_TROUT_REGS layer 0 is stream LINES, so a lake-center point misses it.
-  // Probe from your GPS with a wide radius, plus the habitat-project layer whose
-  // TARGETSPECIES field names the trout species a project is for.
-  if (navigator.geolocation) {
-    log3('none', 'requesting GPS...');
-    navigator.geolocation.getCurrentPosition(function (pos) {
-      var la = +pos.coords.latitude.toFixed(5), ln = +pos.coords.longitude.toFixed(5);
-      log3('ok', 'GPS: ' + la + ', ' + ln);
-      [['TROUT_STREAM_REGS', ARC + '/FM_Trout/FM_TROUT_REGS_WTM_Ext/MapServer/0'],
-       ['TROUT_COUNTY_REGS', ARC + '/FM_Trout/FM_TROUT_REGS_WTM_Ext/MapServer/2'],
-       ['TROUT_HAB_SITES',   ARC + '/FM_Trout/FM_TROUT_HAB_SITES_WTM_Ext/MapServer/1']
-      ].forEach(function (t) {
-        var u = t[1] + '/query?f=json&geometry=' + ln + ',' + la +
-          '&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects' +
-          '&distance=8000&units=esriSRUnit_Meter&outFields=*&returnGeometry=false&resultRecordCount=3';
-        getJson(u).then(function (j) {
-          if (j && j.error) { log3('bad', t[0] + ': error ' + esc(JSON.stringify(j.error).slice(0, 140))); return; }
-          var feats = (j && j.features) || [];
-          if (!feats.length) { log3('warn', t[0] + ': nothing within 8 km of you'); return; }
-          feats.slice(0, 2).forEach(function (f, i) {
-            var a = f.attributes || {};
-            log3('hit', t[0] + ' record ' + i);
-            Object.keys(a).forEach(function (k) {
-              var v = a[k];
-              if (v == null || v === '' || k.indexOf('SHAPE') === 0) return;
-              log3('none', '   <code>' + esc(k) + '</code> = ' + esc(trunc(v, 200)));
-            });
-          });
-        }).catch(function (e) { log3('bad', t[0] + ' FAILED: ' + e); });
-      });
-    }, function (err) { log3('warn', 'GPS denied: ' + err.message + ' (sections 1-2 are the important ones)'); },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 });
-  } else log3('warn', 'no geolocation support');
+  /* ---------- 2. USGS NHD polygon (independent cross-check) ---------- */
+  var log2 = sec('2 . USGS NHD waterbody (independent of DNR)');
+  var NHD = 'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/12/query';
+  var nhdUrl = NHD + '?f=json&where=' + encodeURIComponent("GNIS_NAME='Cedar Lake'") +
+    '&geometry=' + encodeURIComponent('-92.75,45.05,-92.35,45.35') +
+    '&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects' +
+    '&outFields=GNIS_NAME,AREASQKM,FTYPE&returnGeometry=true&outSR=4326' +
+    '&maxAllowableOffset=0.0004&resultRecordCount=5';
+  getJson(nhdUrl, 20000).then(function (j) {
+    if (j && j.error) { log2('bad', esc(JSON.stringify(j.error).slice(0,160))); return; }
+    var feats = (j && j.features) || [];
+    if (!feats.length) { log2('warn', 'no Cedar Lake found in the NW-Wisconsin envelope'); return; }
+    feats.forEach(function (f, i) {
+      var a = f.attributes || {};
+      var acres = a.AREASQKM != null ? (a.AREASQKM * 247.105).toFixed(0) : '?';
+      log2('ok', 'feature ' + i + ': ' + esc(a.GNIS_NAME) + ' ~' + acres + ' acres (sheet says 1,100)');
+      if (i === 0) ring('NHD', log2, f.geometry);
+    });
+  }).catch(function (e) { log2('bad', 'NHD FAILED: ' + e); });
 
   /* ---------- copy ---------- */
   document.getElementById('copy').onclick = function () {
-    var txt = 'PROBE REPORT r10 ' + R.generated +
+    var txt = 'PROBE REPORT r11 ' + R.generated +
       (pending ? '\n\n*** WARNING: ' + pending + ' request(s) still in flight — wait and re-copy ***' : '') +
       '\n\n' + R.lines.join('\n');
     if (navigator.clipboard && navigator.clipboard.writeText) {

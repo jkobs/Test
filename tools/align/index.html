@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Cedar Lake — align the 1960 survey to satellite</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#071620; --card:#122d3b; --ink:#f3f9fb; --muted:#8fadb8; --line:#1f4553; --hit:#ffd166; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #map { position:absolute; inset:0 0 auto 0; height:62%; }
+  #panel { position:absolute; inset:62% 0 0 0; overflow:auto; padding:10px 12px 24px;
+    background:var(--card); border-top:1px solid var(--line); }
+  h1 { font-size:15px; margin:0 0 4px; }
+  p.hint { color:var(--muted); font-size:12px; margin:0 0 10px; }
+  .row { display:flex; align-items:center; gap:8px; margin:7px 0; }
+  .row label { width:78px; color:var(--muted); font-size:12px; flex-shrink:0; }
+  input[type=range] { flex:1; }
+  .val { width:74px; text-align:right; font-variant-numeric:tabular-nums; font-size:12px; }
+  button { background:#2dd4bf; color:#04222c; border:none; border-radius:9px;
+    padding:9px 13px; font-size:13px; font-weight:700; margin:3px 4px 3px 0; }
+  button.sec { background:#24485c; color:var(--ink); }
+  #readout { white-space:pre-wrap; font:11.5px/1.4 ui-monospace,Menlo,monospace;
+    background:#0d2330; border:1px solid var(--line); border-radius:8px; padding:8px; margin-top:8px; }
+  .scan { position:absolute; transform-origin:50% 50%; pointer-events:auto;
+    cursor:move; touch-action:none; will-change:transform; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>Align the 1960 Cedar Lake survey to satellite</h1>
+  <p class="hint">Pan/zoom to Cedar Lake, tap <b>Place overlay</b>, then drag the cyan
+  scan onto the lake and adjust rotation until the shoreline matches the water.
+  Scale is already known (5.440 ft/px) — only nudge it if the fit is clearly off.
+  Then tap <b>Copy transform</b> and paste the result back into the chat.</p>
+
+  <div><button id="place">📍 Place overlay here</button>
+       <button id="locate" class="sec">Use my location</button>
+       <button id="flip" class="sec">Toggle satellite/topo</button></div>
+
+  <div class="row"><label>Rotation</label>
+    <input id="rot" type="range" min="-20" max="20" step="0.1" value="0">
+    <span class="val" id="rotv">0.0°</span></div>
+  <div class="row"><label>Scale</label>
+    <input id="scl" type="range" min="0.85" max="1.15" step="0.002" value="1">
+    <span class="val" id="sclv">5.440 ft/px</span></div>
+  <div class="row"><label>Opacity</label>
+    <input id="op" type="range" min="0.2" max="1" step="0.05" value="0.8">
+    <span class="val" id="opv">80%</span></div>
+
+  <div><button id="copy">📋 Copy transform</button>
+       <button id="reset" class="sec">Reset</button></div>
+  <div id="readout">place the overlay to begin</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+  // Scan geometry. ftPerPx was self-calibrated from the sheet's printed
+  // 1,100 acres and cross-checked against its printed 6.3 mi shoreline.
+  var IMG = { w: 2760, h: 2458, ftPerPxBase: 5.440, src: 'cedar.png' };
+  var st = { lat: null, lng: null, rot: 0, sclMul: 1, op: 0.8 };
+
+  var map = L.map('map', { zoomControl: true }).setView([45.1161, -92.5304], 13);
+  var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, attribution: 'Esri' }).addTo(map);
+  var topo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 16, attribution: 'USGS' });
+  var showingSat = true;
+
+  var img = document.createElement('img');
+  img.src = IMG.src; img.className = 'scan'; img.style.display = 'none';
+  map.getPanes().overlayPane.appendChild(img);
+
+  function ftPerPx() { return IMG.ftPerPxBase * st.sclMul; }
+  function metersPerPixel() {
+    return 40075016.686 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8);
+  }
+  function draw() {
+    if (st.lat == null) return;
+    var groundW = IMG.w * ftPerPx() * 0.3048;          // metres across the sheet
+    var wpx = groundW / metersPerPixel();
+    var hpx = wpx * IMG.h / IMG.w;                      // Mercator is conformal locally
+    var p = map.latLngToLayerPoint([st.lat, st.lng]);
+    img.style.display = '';
+    img.style.width = wpx + 'px'; img.style.height = hpx + 'px';
+    img.style.left = (p.x - wpx / 2) + 'px'; img.style.top = (p.y - hpx / 2) + 'px';
+    img.style.transform = 'rotate(' + st.rot + 'deg)';
+    img.style.opacity = st.op;
+    report();
+  }
+  // Corner coordinates of the (rotated) sheet — this is what the warping step needs.
+  function corners() {
+    var groundW = IMG.w * ftPerPx() * 0.3048, groundH = IMG.h * ftPerPx() * 0.3048;
+    var c = map.project([st.lat, st.lng], 20), mpp20 = metersPerPixelAtZoom(20, st.lat);
+    var hw = (groundW / 2) / mpp20, hh = (groundH / 2) / mpp20;
+    var a = -st.rot * Math.PI / 180, out = {};
+    [['nw', -hw, -hh], ['ne', hw, -hh], ['se', hw, hh], ['sw', -hw, hh]].forEach(function (k) {
+      var dx = k[1] * Math.cos(a) + k[2] * Math.sin(a);
+      var dy = -k[1] * Math.sin(a) + k[2] * Math.cos(a);
+      var ll = map.unproject([c.x + dx, c.y + dy], 20);
+      out[k[0]] = [ +ll.lat.toFixed(7), +ll.lng.toFixed(7) ];
+    });
+    return out;
+  }
+  function metersPerPixelAtZoom(z, lat) {
+    return 40075016.686 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z + 8);
+  }
+  function report() {
+    var c = corners();
+    document.getElementById('readout').textContent = JSON.stringify({
+      lake: 'Cedar Lake (WBIC 2615100), 1960 survey sheet',
+      center: [ +st.lat.toFixed(7), +st.lng.toFixed(7) ],
+      rotation_deg: +st.rot.toFixed(2),
+      ft_per_px: +ftPerPx().toFixed(4),
+      image_px: [IMG.w, IMG.h],
+      corners: c
+    }, null, 1);
+  }
+
+  map.on('move zoom viewreset', draw);
+
+  // Drag the scan itself.
+  var drag = null;
+  img.addEventListener('pointerdown', function (e) {
+    drag = { x: e.clientX, y: e.clientY }; img.setPointerCapture(e.pointerId);
+    map.dragging.disable(); e.preventDefault();
+  });
+  img.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag = { x: e.clientX, y: e.clientY };
+    var p = map.latLngToContainerPoint([st.lat, st.lng]);
+    var ll = map.containerPointToLatLng([p.x + dx, p.y + dy]);
+    st.lat = ll.lat; st.lng = ll.lng; draw();
+  });
+  ['pointerup', 'pointercancel'].forEach(function (ev) {
+    img.addEventListener(ev, function () { drag = null; map.dragging.enable(); });
+  });
+
+  function bind(id, key, fmt, transform) {
+    var el = document.getElementById(id), out = document.getElementById(id + 'v');
+    el.oninput = function () {
+      st[key] = parseFloat(el.value); out.textContent = fmt(st[key]); draw();
+    };
+    out.textContent = fmt(st[key]);
+  }
+  bind('rot', 'rot', function (v) { return v.toFixed(1) + '°'; });
+  bind('scl', 'sclMul', function () { return ftPerPx().toFixed(3) + ' ft/px'; });
+  bind('op', 'op', function (v) { return Math.round(v * 100) + '%'; });
+
+  document.getElementById('place').onclick = function () {
+    var c = map.getCenter(); st.lat = c.lat; st.lng = c.lng; draw();
+  };
+  document.getElementById('locate').onclick = function () {
+    if (!navigator.geolocation) return alert('no geolocation');
+    navigator.geolocation.getCurrentPosition(function (p) {
+      map.setView([p.coords.latitude, p.coords.longitude], 15);
+    }, function (e) { alert('location denied: ' + e.message); });
+  };
+  document.getElementById('flip').onclick = function () {
+    if (showingSat) { map.removeLayer(sat); topo.addTo(map); } else { map.removeLayer(topo); sat.addTo(map); }
+    showingSat = !showingSat;
+  };
+  document.getElementById('reset').onclick = function () {
+    st.rot = 0; st.sclMul = 1;
+    document.getElementById('rot').value = 0; document.getElementById('scl').value = 1;
+    document.getElementById('rotv').textContent = '0.0°';
+    document.getElementById('sclv').textContent = IMG.ftPerPxBase.toFixed(3) + ' ft/px';
+    draw();
+  };
+  document.getElementById('copy').onclick = function () {
+    if (st.lat == null) return alert('place the overlay first');
+    var t = document.getElementById('readout').textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(
+      function () { alert('Copied — paste it into the chat.'); },
+      function () { alert('Copy blocked — select the text box manually.'); });
+    else alert('Select the text manually.');
+  };
+})();
+</script>
+</body>
+</html>
