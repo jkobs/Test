@@ -4658,7 +4658,8 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     if (info.type) rows.push(['Type', info.type.charAt(0).toUpperCase() + info.type.slice(1)]);
     if (info.area) rows.push(['Surface area', info.area,
       info.areaSource === 'wi-dnr' ? 'DNR lake classification survey' : null]);
-    if (info.maxDepth) rows.push(['Max depth', info.maxDepth, 'DNR lake classification survey']);
+    if (info.maxDepth) rows.push(['Max depth', info.maxDepth,
+      info.maxDepthNote || 'DNR lake classification survey']);
     if (info.avgDepth) rows.push(['Avg depth', info.avgDepth,
       info.avgDepthSource === 'wi-dnr' ? 'DNR lake classification survey' : null]);
     if (info.elevation) rows.push(['Elevation', info.elevation]);
@@ -4669,6 +4670,9 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     if (info.clarity) rows.push(['Water clarity', info.clarity,
       'DNR satellite survey' + (info.clarityYear ? ', ' + info.clarityYear : '')]);
     if (info.lakeClass) rows.push(['Lake class', info.lakeClass, 'DNR lake classification survey']);
+    if (info.naturalCommunity) rows.push(['Lake community',
+      info.naturalCommunity + (info.twoStoryType ? ' · ' + _titleCase(info.twoStoryType.replace(/_/g, ' ')) : ''),
+      'DNR natural community modeling']);
     var note = _trophicFishingNote(info);
     // Official DNR fisheries designations (e.g. "Walleye Water · Natural
     // Reproduction Only · Confirmed") — the strongest per-lake fish signal
@@ -5210,61 +5214,120 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       try { _applySpeciesUpdate(); } catch (e) {}
     }).catch(function() {});
 
-    // 6. Trout waters (FM_TROUT_REGS, "Trout Lake/Pond Regulations", probe
-    //    round 9). This is the authority the lake-regulations table itself
-    //    points at — its TROUT_AND_SALMON column literally reads "See Trout
-    //    regulations layer". A record here means DNR manages this water for
-    //    trout with real bag limits; no record means it is not a designated
-    //    trout water. Confirmed on-device: Green Lake and Lake Geneva return
-    //    lake-trout bag limits, Yellow Lake and Brushy Mound return nothing.
+    // 6. Trout waters (FM_TROUT_REGS, probe rounds 9-10). This is the authority
+    //    the lake-regulations table itself points at — its TROUT_AND_SALMON
+    //    column literally reads "See Trout regulations layer". A record means
+    //    DNR manages this water for trout with real bag limits; no record means
+    //    it is not a designated trout water.
+    //
+    //    BOTH layers are queried. Layer 1 is lake/pond POLYGONS, layer 0 is
+    //    stream LINES — checking only lakes wrongly demoted trout on real trout
+    //    streams, since a stream never matches the polygon layer. Confirmed
+    //    on-device: Green Lake and Lake Geneva return lake-trout bag limits from
+    //    layer 1, while the North Fork Willow River returns "5 trout in total of
+    //    any length" from layer 0. Layer 2 (county base regs) is deliberately
+    //    NOT used — every county has one, so it says nothing about this water.
     //
     //    Deliberately NOT name-matched: DNR datasets disagree on names for the
     //    same water ("Geneva Lake" in the classification layer vs "Lake Geneva"
-    //    here), so a strict name check would drop real trout waters. The tight
-    //    150 m radius is the safeguard — the selected lake's own center falls
-    //    inside its polygon, while a neighboring trout lake's does not.
-    fetchJson(_wiQueryUrl(WI_TROUT_REGS, 1, lat, lng, 150), 9000).then(function(j) {
-      if (_wiDnrKey !== key) return; // superseded by a newer lake selection
-      var feats = (j && j.features) || [];
-      var a = feats.length && feats[0].attributes;
-      if (a) {
-        state.troutWater = {
-          name: a.WATERBODY_ || '', bag: a.BAG_LMT || '',
-          season: a.SEASON_TXT || '', gear: a.GEAR_RESTR || '', regcat: a.REGCAT || ''
-        };
-        // Bag-limit text distinguishes lake trout from "other trout", so read
-        // the species DNR actually names rather than assuming all four.
-        var bagTxt = String(a.BAG_LMT || '') + ' ' + String(a.SEASON_TXT || '');
-        var low = bagTxt.toLowerCase();
-        var found = [];
-        if (low.indexOf('lake trout') !== -1) found.push('Lake Trout');
-        if (/other trout|\btrout\b/.test(low.replace(/lake trout/g, ''))) {
-          found.push('Rainbow/Brown Trout');
-          found.push('Brook Trout');
-        }
-        if (low.indexOf('salmon') !== -1) found.push('Chinook/Coho Salmon');
-        if (found.length) {
-          state._speciesDesignated = (state._speciesDesignated || []).concat(found);
-          state._desigSources = state._desigSources || {};
-          found.forEach(function(n) {
-            var k2 = n.toLowerCase();
-            if (!state._desigSources[k2]) state._desigSources[k2] = [];
-            if (state._desigSources[k2].indexOf('WI DNR trout water regulations') === -1) {
-              state._desigSources[k2].push('WI DNR trout water regulations');
-            }
-          });
-        }
-      }
+    //    here), so a strict name check would drop real trout waters. A tight
+    //    radius is the safeguard instead — the selected water's own point falls
+    //    on its polygon/line, a neighbouring trout water's does not.
+    var _troutPending = 2;
+    function _troutDone() {
+      if (--_troutPending > 0) return;
       state.troutRegsChecked = true;
       try { renderLakeInfo(); } catch (e) {}
       try { _applySpeciesUpdate(); } catch (e) {}
-    }).catch(function() { /* leave troutRegsChecked false — absence proves nothing */ });
+    }
+    function _readTroutRegs(layerId, distM, nameField) {
+      fetchJson(_wiQueryUrl(WI_TROUT_REGS, layerId, lat, lng, distM), 9000).then(function(j) {
+        if (_wiDnrKey !== key) return; // superseded by a newer lake selection
+        var feats = (j && j.features) || [];
+        var a = feats.length && feats[0].attributes;
+        if (a && !state.troutWater) {
+          state.troutWater = {
+            name: a[nameField] || '', bag: a.BAG_LMT || '', season: a.SEASON_TXT || '',
+            gear: a.GEAR_RESTR || a.GEAR_RESTRICTIONS || '', regcat: a.REGCAT || '',
+            early: a.EARLY_SEASON_TXT || '', kind: layerId === 0 ? 'stream' : 'lake'
+          };
+          // Bag-limit text distinguishes lake trout from "other trout", so read
+          // the species DNR actually names rather than assuming all four.
+          var low = (String(a.BAG_LMT || '') + ' ' + String(a.SEASON_TXT || '') + ' ' +
+                     String(a.REGCAT || '')).toLowerCase();
+          var found = [];
+          if (low.indexOf('lake trout') !== -1) found.push('Lake Trout');
+          if (/other trout|\btrout\b/.test(low.replace(/lake trout/g, ''))) {
+            found.push('Rainbow/Brown Trout');
+            found.push('Brook Trout');
+          }
+          if (low.indexOf('salmon') !== -1) found.push('Chinook/Coho Salmon');
+          if (found.length) {
+            state._speciesDesignated = (state._speciesDesignated || []).concat(found);
+            state._desigSources = state._desigSources || {};
+            found.forEach(function(n) {
+              var k2 = n.toLowerCase();
+              if (!state._desigSources[k2]) state._desigSources[k2] = [];
+              if (state._desigSources[k2].indexOf('WI DNR trout water regulations') === -1) {
+                state._desigSources[k2].push('WI DNR trout water regulations');
+              }
+            });
+          }
+        }
+        _troutDone();
+      }).catch(function() { /* leave troutRegsChecked false — absence proves nothing */ });
+    }
+    _readTroutRegs(1, 150, 'WATERBODY_'); // trout lakes/ponds (polygons)
+    _readTroutRegs(0, 400, 'STREAM');     // trout streams (lines, need a little slack)
+
+    // 7. Lake Natural Communities (WY_NATURAL_COMMUNITY_MODELING layer 0, probe
+    //    round 10). Independent of the FM_WFF classification and richer:
+    //    NATURAL_COMMUNITY ("Two-Story", "Shallow Seepage", "Shallow Headwater",
+    //    "Impounded Flowing Water"), MIX_STRATIFY_RATIO (a real stratification
+    //    indicator — Geneva 12.3 and Mendota 7 both stratify, shallow Como is 1),
+    //    TWO_STORY_TYPE, and a max depth that carries its own MAX_DEPTH_SOURCE
+    //    ("WI LAKE MAP" / "WDNR LAKE BOOK" / "UNKNOWN") so provenance is stated
+    //    rather than guessed.
+    fetchJson(_wiQueryUrl(WI_NAT_COMM, 0, lat, lng, 150), 9000).then(function(j) {
+      if (_wiDnrKey !== key || !state.lakeInfo) return;
+      var feats = (j && j.features) || [];
+      var f = _pickByName(feats, function (x) { return x.attributes && x.attributes.OFFICIAL_NAME; }, name);
+      if (!f || !f.attributes) return;
+      var a = f.attributes;
+      if (a.NATURAL_COMMUNITY) state.lakeInfo.naturalCommunity = String(a.NATURAL_COMMUNITY).trim();
+      if (a.TWO_STORY_TYPE) state.lakeInfo.twoStoryType = String(a.TWO_STORY_TYPE).trim();
+      if (a.MIX_STRATIFY_RATIO != null && isFinite(+a.MIX_STRATIFY_RATIO)) {
+        state.lakeInfo.stratifyRatio = +a.MIX_STRATIFY_RATIO;
+      }
+      // Only fill depth if the classification survey didn't already provide one —
+      // that stays authoritative. When this IS the source, state which record it
+      // came from instead of a generic attribution.
+      if (state.lakeInfo.maxDepthSource !== 'wi-dnr' && a.MAX_DEPTH != null &&
+          isFinite(+a.MAX_DEPTH) && +a.MAX_DEPTH > 0 &&
+          String(a.MAX_DEPTH_UNITS || '').toUpperCase() === 'FEET') {
+        state.lakeInfo.maxDepth = Math.round(+a.MAX_DEPTH) + ' ft';
+        state.lakeInfo.maxDepthM = +a.MAX_DEPTH / 3.281;
+        state.lakeInfo.maxDepthSource = 'wi-dnr';
+        var src = String(a.MAX_DEPTH_SOURCE || '').trim();
+        // Title-casing DNR's own wording ("WI LAKE MAP") mangles the acronyms
+        // into "Wi Lake Map", so restore them afterwards.
+        if (src && src.toUpperCase() !== 'UNKNOWN') {
+          state.lakeInfo.maxDepthNote = 'DNR ' + _titleCase(src)
+            .replace(/\bWi\b/g, 'WI').replace(/\bWdnr\b/g, 'WDNR');
+        }
+      }
+      try { renderLakeInfo(); } catch (e) {}
+      try { _applySpeciesUpdate(); } catch (e) {}
+    }).catch(function() {});
   }
 
   var WI_ARCGIS2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
   // Trout regulations live on the arcgis (not arcgis2) host. Layer 1 is
   // "Trout Lake/Pond Regulations"; layer 0 is streams, layer 2 county defaults.
   var WI_TROUT_REGS = 'https://dnrmaps.wi.gov/arcgis/rest/services/FM_Trout/FM_TROUT_REGS_WTM_Ext';
+  // Lake Natural Communities — richer than FM_WFF's LAKE_CLASS and carries a
+  // stratification ratio plus depth provenance (probe round 10).
+  var WI_NAT_COMM = 'https://dnrmaps.wi.gov/arcgis/rest/services/WT_SWDV/WY_NATURAL_COMMUNITY_MODELING';
 
   function _humanizeRegKey(k) {
     return k.toLowerCase().split('_').map(function(w) {

@@ -103,6 +103,20 @@ QA step — don't mark this kind of change "done" on green tests alone.
   - The selected species persists in `localStorage`, so every render path must
     reconcile it against `_visibleSpecies()` — otherwise a pick made on one
     water (salmon on Superior) follows the angler to the next one.
+  - Trout regs must query BOTH layers: 1 = lake/pond polygons, 0 = stream lines.
+    Lakes-only wrongly demoted trout on real trout streams. Layer 2 is county
+    base regs — every county has one, so it is NOT a presence signal.
+  - `WY_NATURAL_COMMUNITY_MODELING` layer 0 (`WT_SWDV`) adds `NATURAL_COMMUNITY`
+    ("Two-Story" / "Shallow Seepage" / …), `TWO_STORY_TYPE`, `MIX_STRATIFY_RATIO`
+    and a `MAX_DEPTH` carrying its own `MAX_DEPTH_SOURCE`. `MIX_STRATIFY_RATIO`
+    is stored but deliberately unused — the field is undocumented, so no
+    stratification claim is made from it.
+  - **Bathymetry: WI publishes none.** Settled for good by probe round 10, which
+    swept eight folders on both hosts for `bathym|contour|depth|sounding|
+    lake_map|survey|hydro`: `FM_SURVEYS` and `FM_DFM` are EMPTY, and the only
+    matches were false positives (soil survey, HUC watersheds). Per-lake PDFs on
+    the DNR lake pages remain the only WI depth data. LakeMaster/Navionics/C-MAP
+    are licensed with no public API. Do not re-probe.
   - Dead ends, do not re-probe: the lake **regulations** table is not a presence
     signal (every water returns the same ~34 species columns, incl. sturgeon and
     paddlefish on a no-fishery pond); `WY_WBHB_AND_WATERBODY_SPECIES` is
