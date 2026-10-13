@@ -135,6 +135,11 @@ QA step — don't mark this kind of change "done" on green tests alone.
     contoured every 5 ft. The georeferenced 1960 Cedar Lake survey-sheet overlay
     was tried and REMOVED: old hand-drafted sheets are unevenly distorted and
     would not line up with the shoreline. Do not bring raster survey overlays back.
+  - **MN DNR depth tiles are gated by the real MN–WI border** (`MN_WI_BORDER`,
+    US Census 1:500k simplified to 50 m, plus 400 m slack toward MN on the
+    river), not a lat/lng box: the old box took in most of western WI. Test
+    border points with authoritative coordinates; GeoNames town centroids
+    can sit ~1 km off on the river (Taylors Falls did).
   - **Stocking evidence** comes from `FH_ANNUAL_STOCKING_SUMMARY` (arcgis2
     `FM_WFF`) keyed by exact WBIC; entries in `STOCKING_RECORDS_JSON` carry
     `year` + `species`, and only the last `STOCKING_EVIDENCE_YEARS` (15) count.

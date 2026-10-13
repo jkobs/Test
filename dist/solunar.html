@@ -3791,9 +3791,76 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // (which the lake-info card deep-links via WBIC). The previous WI WMS
   // entry pointed at a service that does not exist and silently rendered
   // blank tiles. MN below remains best-effort (unverified from sandbox).
+  //
+  // MN's eastern border is the St. Croix and Mississippi rivers, so no
+  // lat/lng box separates it from Wisconsin: the old box (lng <= -89.4) took
+  // in most of western WI, laying MN tiles (and an "MN DNR" credit) over WI
+  // lakes such as Cedar and Yellow. MN_WI_BORDER is that border, north to
+  // south from Duluth to the Iowa line, from the US Census 1:500k state
+  // boundaries simplified to 50 m (112 points; matches the full-detail line to
+  // within 16 m). MN_REGION closes it westward and back through open Lake
+  // Superior; the other edges abut ND/SD/IA/Ontario, where MN's WMS simply has
+  // no tiles.
+  var MN_WI_BORDER = [
+    [46.7943,-92.0861],[46.7878,-92.0941],[46.7736,-92.0883],[46.7454,-92.0645],[46.7108,-92.0258],
+    [46.7065,-92.0153],[46.704,-92.0203],[46.7089,-92.034],[46.7492,-92.0895],[46.7486,-92.1166],
+    [46.7175,-92.1891],[46.7096,-92.1953],[46.7021,-92.1966],[46.6952,-92.1934],[46.6902,-92.1878],
+    [46.6789,-92.1876],[46.655,-92.2023],[46.6519,-92.2071],[46.6499,-92.2124],[46.6492,-92.2425],
+    [46.6519,-92.2699],[46.6632,-92.2922],[46.6046,-92.2916],[46.0744,-92.294],[46.0724,-92.3068],
+    [46.0666,-92.3269],[46.0146,-92.4433],[45.9244,-92.6561],[45.8949,-92.7077],[45.8838,-92.7211],
+    [45.8681,-92.734],[45.8192,-92.7625],[45.798,-92.7684],[45.7642,-92.7846],[45.7498,-92.804],
+    [45.73,-92.8411],[45.7218,-92.8637],[45.7176,-92.8692],[45.6549,-92.884],[45.6284,-92.8881],
+    [45.5949,-92.8864],[45.5755,-92.8837],[45.5676,-92.8711],[45.5609,-92.8233],[45.5625,-92.8034],
+    [45.5311,-92.7262],[45.4643,-92.6802],[45.3933,-92.6641],[45.3265,-92.7048],[45.3042,-92.7326],
+    [45.2927,-92.7517],[45.2788,-92.7606],[45.1942,-92.7671],[45.0785,-92.7929],[45.0457,-92.7912],
+    [45.008,-92.7686],[44.9373,-92.7506],[44.8362,-92.7655],[44.794,-92.7844],[44.7452,-92.8024],
+    [44.7172,-92.7373],[44.649,-92.6321],[44.639,-92.6217],[44.6292,-92.6198],[44.576,-92.5497],
+    [44.5704,-92.5342],[44.566,-92.4918],[44.5585,-92.3573],[44.5553,-92.3401],[44.5509,-92.329],
+    [44.5449,-92.3199],[44.538,-92.3141],[44.5186,-92.303],[44.5003,-92.3022],[44.4855,-92.291],
+    [44.4736,-92.2768],[44.4543,-92.242],[44.4463,-92.2339],[44.4404,-92.2211],[44.4161,-92.1153],
+    [44.3944,-92.0463],[44.3668,-91.9725],[44.3621,-91.9636],[44.3335,-91.9256],[44.3227,-91.9186],
+    [44.2525,-91.8872],[44.2464,-91.8879],[44.2351,-91.893],[44.2311,-91.8927],[44.2006,-91.8752],
+    [44.1593,-91.8081],[44.1339,-91.7409],[44.1303,-91.7216],[44.0913,-91.6725],[44.0314,-91.5921],
+    [44.0269,-91.58],[44.0222,-91.547],[44.0187,-91.5059],[44.009,-91.4635],[44,-91.4374],
+    [43.9968,-91.4325],[43.9266,-91.3632],[43.8674,-91.311],[43.8566,-91.2988],[43.8471,-91.2841],
+    [43.7922,-91.2624],[43.6683,-91.2733],[43.6153,-91.2687],[43.61,-91.2651],[43.5005,-91.2177],
+    [43.5006,-92.4088],[43.4995,-92.8703]
+  ];
+  var MN_REGION = MN_WI_BORDER.concat([[43.4, MN_WI_BORDER[MN_WI_BORDER.length - 1][1]],
+    [43.4, -97.5], [49.5, -97.5], [49.5, -89.4], [47.3, -89.4], [47.3, -91.0], [46.9, -91.8]]);
+  // Within this distance of the border river, err toward MN: the 1:500k line
+  // can't place a lake on the bank that precisely, and a missing MN depth map
+  // costs more than a few blank tiles over the WI side.
+  var MN_BORDER_SLACK_M = 400;
+
+  function _inRing(ring, lat, lng) {   // ring of [lat,lng]; even-odd ray cast
+    var c = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var yi = ring[i][0], xi = ring[i][1], yj = ring[j][0], xj = ring[j][1];
+      if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  }
+
+  function _metersToLine(line, lat, lng) {
+    var mLat = 111320, mLng = 111320 * Math.cos(lat * Math.PI / 180), best = Infinity;
+    for (var i = 1; i < line.length; i++) {
+      var ax = line[i - 1][1] * mLng, ay = line[i - 1][0] * mLat, bx = line[i][1] * mLng, by = line[i][0] * mLat;
+      var px = lng * mLng, py = lat * mLat, dx = bx - ax, dy = by - ay;
+      var t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1)));
+      best = Math.min(best, Math.hypot(px - ax - t * dx, py - ay - t * dy));
+    }
+    return best;
+  }
+
+  function _inMinnesotaRegion(lat, lng) {
+    if (lat < 43.4 || lat > 49.5 || lng < -97.5 || lng > -89.4) return false;
+    return _inRing(MN_REGION, lat, lng) || _metersToLine(MN_WI_BORDER, lat, lng) <= MN_BORDER_SLACK_M;
+  }
+
   var BATHY_SOURCES = [
     { name: 'MN DNR',
-      inRegion: function (lat, lng) { return lat >= 43.4 && lat <= 49.5 && lng >= -97.5 && lng <= -89.4; },
+      inRegion: _inMinnesotaRegion,
       wms: 'https://arcgis.dnr.state.mn.us/public/services/water/water_lake_bathymetry/MapServer/WMSServer',
       layers: '1' }
   ];
@@ -6354,6 +6421,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   if (typeof window !== 'undefined') {
     window.__testHooks = {
       selectMapPoint: selectMapPoint,
+      inMinnesotaRegion: _inMinnesotaRegion,
       getLoc: function () { return { name: state.loc.name, lat: state.loc.lat, lng: state.loc.lng }; }
     };
   }
