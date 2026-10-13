@@ -51,7 +51,7 @@ as the authoritative source.
 ## Build & test
 
 ```bash
-node build.mjs                 # inlines src/ -> dist/solunar.html
+node build.mjs                 # inlines src/ (incl. sonarlog.js) -> dist/solunar.html
 node test/uat.test.mjs         # 21 JSDOM acceptance checks (no CSS visibility)
 node test/<name>.spec.mjs      # Playwright specs (real Chromium, enforce visibility)
 node test/run-specs.mjs        # all Playwright specs; CI runs this and gates deploy on it
@@ -124,7 +124,17 @@ QA step — don't mark this kind of change "done" on green tests alone.
     lake_map|survey|hydro`: `FM_SURVEYS` and `FM_DFM` are EMPTY, and the only
     matches were false positives (soil survey, HUC watersheds). Per-lake PDFs on
     the DNR lake pages remain the only WI depth data. LakeMaster/Navionics/C-MAP
-    are licensed with no public API. Do not re-probe.
+    are licensed with no public API (Navionics Web API v2 was retired in 2026;
+    C-MAP's WMTS is a commercial developer licence — a personal C-MAP
+    subscription does not cover it). Do not re-probe.
+  - **Depth charts come from the user's own Lowrance sonar logs** (`src/sonarlog.js`,
+    "My depth charts" card on the Lake tab). `.sl2`/`.sl3` are parsed in chunks
+    on-device (field offsets checked against node-sl2format and sonarlight sample
+    logs), thinned to 1.5 m, stored in IndexedDB, merged, IDW-gridded at 6 m
+    (interpolating at most 36 m from real soundings — no invented bottom), and
+    contoured every 5 ft. The georeferenced 1960 Cedar Lake survey-sheet overlay
+    was tried and REMOVED: old hand-drafted sheets are unevenly distorted and
+    would not line up with the shoreline. Do not bring raster survey overlays back.
   - **Stocking evidence** comes from `FH_ANNUAL_STOCKING_SUMMARY` (arcgis2
     `FM_WFF`) keyed by exact WBIC; entries in `STOCKING_RECORDS_JSON` carry
     `year` + `species`, and only the last `STOCKING_EVIDENCE_YEARS` (15) count.

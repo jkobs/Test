@@ -682,3 +682,23 @@ button.toggle {
 
 /* ---- Period active highlight ---- */
 .period.period-now { border: 1px solid var(--good); }
+
+/* ---- My depth charts (Lowrance sonar-log contours) ---- */
+.sonar-intro { font-size: var(--t-sm); color: var(--muted); line-height: 1.45; margin: 4px 0 10px; }
+.sonar-import { display: inline-flex; align-items: center; min-height: 36px; padding: 6px 14px;
+  font-size: var(--t-sm); font-weight: 600; color: var(--ink); }
+.sonar-import.busy { opacity: .6; cursor: progress; }
+.sonar-status { font-size: var(--t-sm); color: var(--muted); margin-top: 8px; line-height: 1.4; }
+.sonar-status:empty { display: none; }
+.sonar-summary { font-size: var(--t-sm); color: var(--good); font-weight: 600; margin-top: 10px; }
+.sonar-log { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); margin-top: 8px; }
+.sonar-log-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sonar-log-name { font-size: var(--t-md); color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sonar-log-sub { font-size: var(--t-xs); color: var(--muted); }
+.sonar-log .adv-dnr-btn { min-height: 32px; }
+/* Depth number sitting on its contour line on the map. Centred via the inner
+   span: Leaflet positions the marker element itself with a transform. */
+.sonar-depth-label { pointer-events: none; }
+.sonar-depth-label span { position: absolute; transform: translate(-50%, -50%);
+  font: 700 11px/1 system-ui, sans-serif; color: #fff; white-space: nowrap;
+  text-shadow: 0 0 3px #000, 0 0 2px #000; }

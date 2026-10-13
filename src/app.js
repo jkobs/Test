@@ -1631,35 +1631,238 @@
       layers: '1' }
   ];
 
-  // Per-lake depth contours digitised from WI DNR survey sheets, keyed by WBIC.
-  // Wisconsin publishes no bathymetry map service (settled by probe round 10),
-  // so each of these is a scanned survey sheet that has been georeferenced and
-  // masked to its own shoreline — see tools/bathy/. Served as a separate file
-  // rather than inlined so it only downloads when that lake is selected, and
-  // so the single-file app doesn't grow with every lake added.
-  var BATHY_OVERLAYS = {
-    '2615100': { url: 'bathy/2615100.png',
-                 bounds: [[45.2001679, -92.5876614], [45.232357, -92.5586352]],
-                 label: 'WI DNR lake survey, 1960' }
-  };
+  // ---- the angler's own depth charts, built from Lowrance sonar logs ----
+  // Wisconsin publishes no usable bathymetry: the DNR survey sheets are 1940s–
+  // 60s paper maps that would not line up when georeferenced (Cedar Lake was
+  // tried and dropped), and LakeMaster / Navionics / C-MAP are licensed with no
+  // public API. An angler's own .sl2/.sl3 logs carry GPS position + sonar depth
+  // for every ping — better data than any of those for the water they fish.
+  // Parsed and contoured on-device by sonarlog.js; stored in IndexedDB so the
+  // logs never leave the phone.
+  var SONAR_DB = 'fishing-advisor-sonar', SONAR_STORE = 'logs';
+  var SONAR_THIN_M = 1.5;          // stored resolution: one averaged reading per 1.5 m
+  var SONAR_CHUNK = 8 * 1024 * 1024;
+  var SONAR_LABEL_PX = 44, SONAR_MAX_LABELS = 150; // depth-label spacing on screen, and cap
+  var SONAR_LABEL_SPOTS = [0.5, 0.25, 0.75, 0.125, 0.375, 0.625, 0.875];
+  var _sonarLogs = [];             // metadata only: {id,name,added,n,bounds}
+  var _sonarContours = null;       // SonarLog.contour() of every stored log merged
+  var _sonarVersion = 0;           // bumped whenever _sonarContours changes
+  var _sonarStatus = '', _sonarBusy = false;
 
-  function _applySurveyOverlay(map) {
-    if (!map) return;
-    var wb = state.lakeInfo && state.lakeInfo.wbic;
-    var key = wb == null ? '' : String(wb);
-    var ov = _drnEnabled ? BATHY_OVERLAYS[key] : null;
-    if (map.__surveyKey === (ov ? key : '')) return;    // already correct
-    if (map.__surveyLayer) {
-      try { map.removeLayer(map.__surveyLayer); } catch (e) {}
-      map.__surveyLayer = null;
+  function _sonarStore(mode, fn) {
+    return new Promise(function (resolve, reject) {
+      if (typeof indexedDB === 'undefined') return reject(new Error('This browser has no local storage for logs.'));
+      var open = indexedDB.open(SONAR_DB, 1);
+      open.onupgradeneeded = function () {
+        open.result.createObjectStore(SONAR_STORE, { keyPath: 'id', autoIncrement: true });
+      };
+      open.onerror = function () { reject(open.error); };
+      open.onsuccess = function () {
+        var db = open.result, tx = db.transaction(SONAR_STORE, mode), req = fn(tx.objectStore(SONAR_STORE));
+        tx.oncomplete = function () { db.close(); resolve(req ? req.result : undefined); };
+        tx.onerror = tx.onabort = function () { db.close(); reject(tx.error || new Error('Storage failed')); };
+      };
+    });
+  }
+
+  function _loadSonar() {
+    if (typeof SonarLog === 'undefined') return Promise.resolve();
+    return _sonarStore('readonly', function (st) { return st.getAll(); }).then(function (recs) {
+      recs = recs || [];
+      _sonarLogs = recs.map(function (r) {
+        return { id: r.id, name: r.name, added: r.added, n: r.n, bounds: r.bounds };
+      });
+      var pts = [];
+      recs.forEach(function (r) {
+        for (var i = 0; i < r.d.length; i++) pts.push({ lat: r.lat[i], lng: r.lng[i], depthFt: r.d[i] });
+      });
+      _sonarContours = pts.length ? SonarLog.contour(pts) : null;
+      _sonarVersion++;
+      _applySonarLayer(_map);
+      _applySonarLayer(_modalMap);
+      renderSonarCard();
+    }).catch(function (e) {
+      _sonarStatus = 'Could not open saved logs: ' + ((e && e.message) || e);
+      renderSonarCard();
+    });
+  }
+
+  // Read one File in chunks so a multi-hundred-MB sidescan log never has to
+  // sit in memory whole.
+  function _readSonarFile(file, onProgress) {
+    var parser = SonarLog.createParser(), off = 0;
+    function step() {
+      if (off >= file.size) return Promise.resolve(parser.finish());
+      var end = Math.min(off + SONAR_CHUNK, file.size);
+      return file.slice(off, end).arrayBuffer().then(function (buf) {
+        parser.push(buf);
+        off = end;
+        onProgress(off / file.size);
+        return step();
+      });
     }
-    map.__surveyKey = ov ? key : '';
-    if (!ov) return;
+    return step();
+  }
+
+  function importSonarFiles(fileList) {
+    var files = Array.prototype.slice.call(fileList || []);
+    if (!files.length || _sonarBusy || typeof SonarLog === 'undefined') return;
+    _sonarBusy = true;
+    var added = 0, errors = [];
+    var chain = Promise.resolve();
+    files.forEach(function (f, idx) {
+      chain = chain.then(function () {
+        var label = files.length > 1 ? ' (' + (idx + 1) + ' of ' + files.length + ')' : '';
+        _sonarStatus = 'Reading ' + f.name + label + '…';
+        renderSonarCard();
+        return _readSonarFile(f, function (frac) {
+          var el = document.getElementById('sonar-status');
+          if (el) el.textContent = 'Reading ' + f.name + label + '… ' + Math.round(frac * 100) + '%';
+        });
+      }).then(function (r) {
+        var pts = SonarLog.thin(r.points, SONAR_THIN_M), n = pts.length;
+        var rec = { name: f.name, added: Date.now(), n: r.points.length, bounds: SonarLog.bounds(pts),
+                    lat: new Float64Array(n), lng: new Float64Array(n), d: new Float32Array(n) };
+        for (var i = 0; i < n; i++) { rec.lat[i] = pts[i].lat; rec.lng[i] = pts[i].lng; rec.d[i] = pts[i].depthFt; }
+        return _sonarStore('readwrite', function (st) { return st.add(rec); });
+      }).then(function () { added++; }, function (e) {
+        errors.push(f.name + ': ' + ((e && e.message) || e));
+      });
+    });
+    chain.then(function () {
+      _sonarStatus = (added ? 'Added ' + added + ' log' + (added > 1 ? 's' : '') + '. ' : '') + errors.join(' ');
+      _sonarBusy = false;
+      return _loadSonar();
+    });
+  }
+
+  function removeSonarLog(id) {
+    _sonarStore('readwrite', function (st) { return st.delete(id); }).then(function () {
+      _sonarStatus = '';
+      return _loadSonar();
+    }).catch(function (e) {
+      _sonarStatus = 'Could not remove log: ' + ((e && e.message) || e);
+      renderSonarCard();
+    });
+  }
+
+  function showSonarLogOnMap(id) {
+    var log = null;
+    _sonarLogs.forEach(function (l) { if (l.id === id) log = l; });
+    if (!log) return;
+    var tab = document.querySelector('.tab[data-tab="today"]');
+    if (tab) tab.click();
+    if (!_drnEnabled) toggleDNRLayer();
+    setTimeout(function () {
+      if (!_map) return;
+      _map.invalidateSize();
+      _map.fitBounds([[log.bounds.minlat, log.bounds.minlng], [log.bounds.maxlat, log.bounds.maxlng]],
+        { padding: [16, 16], maxZoom: 18 });
+    }, 80);
+  }
+
+  // Shallow = pale yellow, deep = magenta: legible over both dark water and
+  // pale shallows on satellite imagery.
+  function _sonarColor(depthFt, maxFt) {
+    var t = maxFt > 0 ? Math.min(1, depthFt / maxFt) : 0;
+    return 'hsl(' + Math.round((55 - 95 * t + 360) % 360) + ',95%,' + Math.round(70 - 15 * t) + '%)';
+  }
+
+  // Draws the contours on a map. Layer refs live ON the map instance, like the
+  // other contour layers, so the main and modal maps each hold their own.
+  function _applySonarLayer(map) {
+    if (!map || typeof L === 'undefined') return;
+    var want = _drnEnabled && _sonarContours && _sonarContours.levels.length ? _sonarVersion : -1;
+    if (map.__sonarVersion === want) return;          // already current
+    if (map.__sonarLayer) { try { map.removeLayer(map.__sonarLayer); } catch (e) {} map.__sonarLayer = null; }
+    map.__sonarVersion = want;
+    if (want < 0) return;
     try {
-      map.__surveyLayer = L.imageOverlay(ov.url, ov.bounds,
-        { opacity: 0.85, interactive: false, attribution: ov.label });
-      map.__surveyLayer.addTo(map);
+      var group = L.layerGroup(), renderer = L.canvas({ padding: 0.3 });
+      var maxD = _sonarContours.maxDepthFt;
+      _sonarContours.levels.forEach(function (lv) {
+        var major = lv.depthFt % 10 === 0;
+        lv.lines.forEach(function (ln) {
+          group.addLayer(L.polyline(ln, { renderer: renderer, color: _sonarColor(lv.depthFt, maxD),
+            weight: major ? 2.2 : 1.3, opacity: 0.95, interactive: false }));
+        });
+      });
+      map.__sonarLabels = L.layerGroup().addTo(group);
+      if (!map.__sonarZoomHooked) {
+        map.__sonarZoomHooked = true;
+        map.on('zoomend', function () { _layoutSonarLabels(map); });
+      }
+      map.__sonarLayer = group.addTo(map);
+      _layoutSonarLabels(map);
     } catch (e) {}
+  }
+
+  // Depth labels are laid out in screen pixels and redone on every zoom: one
+  // per contour line, only where the line is long enough on screen to read
+  // (a single pass crosses each contour as a short tick) and never crowding
+  // another label. A tight deep-hole ring still qualifies once zoomed in.
+  function _layoutSonarLabels(map) {
+    var layer = map.__sonarLabels;
+    if (!layer || !map.__sonarLayer || !_sonarContours) return;
+    layer.clearLayers();
+    var z = map.getZoom(), placed = [];
+    _sonarContours.levels.forEach(function (lv) {
+      lv.lines.forEach(function (ln) {
+        if (placed.length >= SONAR_MAX_LABELS) return;
+        var pts = ln.map(function (p) { return map.project(p, z); }), len = 0;
+        for (var i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
+        if (len < SONAR_LABEL_PX) return;
+        // Try a few spots along the line; nested rings all start at the same
+        // angle, so their midpoints alone would line up and block each other.
+        var idx = -1;
+        for (var c = 0; c < SONAR_LABEL_SPOTS.length && idx < 0; c++) {
+          var k = Math.floor(SONAR_LABEL_SPOTS[c] * (ln.length - 1));
+          if (!placed.some(function (p) { return p.distanceTo(pts[k]) < SONAR_LABEL_PX; })) idx = k;
+        }
+        if (idx < 0) return;
+        placed.push(pts[idx]);
+        layer.addLayer(L.marker(ln[idx], { interactive: false, keyboard: false,
+          icon: L.divIcon({ className: 'sonar-depth-label', html: '<span>' + lv.depthFt + '</span>', iconSize: null }) }));
+      });
+    });
+  }
+
+  function renderSonarCard() {
+    var el = document.getElementById('sonar-card');
+    if (!el) return;
+    if (typeof SonarLog === 'undefined') { el.innerHTML = ''; return; }
+    var c = _sonarContours;
+    var list = _sonarLogs.map(function (l) {
+      var when = new Date(l.added).toLocaleDateString();
+      return '<div class="sonar-log">' +
+        '<div class="sonar-log-main"><span class="sonar-log-name">' + esc(l.name) + '</span>' +
+        '<span class="sonar-log-sub">' + l.n.toLocaleString() + ' soundings · added ' + esc(when) + '</span></div>' +
+        '<button type="button" class="adv-dnr-btn" data-sonar-show="' + l.id + '">Show</button>' +
+        '<button type="button" class="adv-dnr-btn" data-sonar-del="' + l.id + '" aria-label="Remove ' + esc(l.name) + '">Remove</button>' +
+      '</div>';
+    }).join('');
+    el.innerHTML =
+      '<div class="lake-regs-hd">' + ic('layers', 14) + 'My depth charts</div>' +
+      '<p class="sonar-intro">Import sonar logs (.sl2 or .sl3) from your Lowrance SD card. ' +
+        'Depth contours are built from your own soundings and drawn on the map with your GPS position. ' +
+        'Logs stay on this device.</p>' +
+      // No accept= filter: iOS greys out file types it doesn't recognise, and
+      // it doesn't know .sl2/.sl3. The parser rejects anything that isn't a log.
+      '<label class="adv-dnr-btn sonar-import' + (_sonarBusy ? ' busy' : '') + '">' +
+        (_sonarBusy ? 'Importing…' : 'Import sonar logs') +
+        '<input type="file" id="sonar-file" multiple hidden' + (_sonarBusy ? ' disabled' : '') + '></label>' +
+      '<div class="sonar-status" id="sonar-status" role="status">' + esc(_sonarStatus) + '</div>' +
+      (c ? '<div class="sonar-summary">' + c.levels.length + ' contour levels every ' + c.intervalFt +
+           ' ft · deepest sounding ' + Math.round(c.maxDepthFt) + ' ft</div>' : '') +
+      list;
+    var input = document.getElementById('sonar-file');
+    if (input) input.onchange = function () { importSonarFiles(input.files); input.value = ''; };
+    el.querySelectorAll('[data-sonar-show]').forEach(function (b) {
+      b.onclick = function () { showSonarLogOnMap(+b.getAttribute('data-sonar-show')); };
+    });
+    el.querySelectorAll('[data-sonar-del]').forEach(function (b) {
+      b.onclick = function () { removeSonarLog(+b.getAttribute('data-sonar-del')); };
+    });
   }
 
   function pickBathySource(lat, lng) {
@@ -1679,7 +1882,7 @@
   // to the main map onto the modal map (or vice versa) would misbehave.
   function _applyContourLayers(map, lat, lng) {
     if (!map) return;
-    _applySurveyOverlay(map);   // digitised survey sheet, if we have one
+    _applySonarLayer(map);      // the angler's own sonar-log contours, if any
     if (!_drnEnabled) return;
     if (!map.__topoLayer) {
       try {
@@ -1706,8 +1909,8 @@
     if (!map) return;
     if (map.__topoLayer)  { try { map.removeLayer(map.__topoLayer); }  catch (e) {} map.__topoLayer = null; }
     if (map.__bathyLayer) { try { map.removeLayer(map.__bathyLayer); } catch (e) {} map.__bathyLayer = null; }
-    if (map.__surveyLayer) { try { map.removeLayer(map.__surveyLayer); } catch (e) {} map.__surveyLayer = null; }
-    map.__bathySrcName = null; map.__surveyKey = '';
+    if (map.__sonarLayer) { try { map.removeLayer(map.__sonarLayer); } catch (e) {} map.__sonarLayer = null; }
+    map.__bathySrcName = null; map.__sonarVersion = -1;
   }
 
   function refreshDNRLayer() { _applyContourLayers(_map, state.loc.lat, state.loc.lng); }
@@ -3952,6 +4155,8 @@
     wireTabs();
     renderLakeJump();
     renderSpeciesPill();
+    renderSonarCard();
+    _loadSonar();
     recompute();
     setInterval(renderHero, 1000);
     startGpsWatch();

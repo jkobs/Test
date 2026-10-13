@@ -17,6 +17,7 @@ const leafletCss = S('node_modules/leaflet/dist/leaflet.css');
 const leafletJs = S('node_modules/leaflet/dist/leaflet.js');
 const vendor = S('src/vendor/astronomy.browser.min.js');
 const engine = S('src/solunar.js');
+const sonar = S('src/sonarlog.js');
 const app = S('src/app.js');
 
 const bundled = html
@@ -25,6 +26,7 @@ const bundled = html
   .replace('<script src="vendor/leaflet.js"></script>', `<script>\n${leafletJs}\n</script>`)
   .replace('<script src="vendor/astronomy.browser.min.js"></script>', `<script>\n${vendor}\n</script>`)
   .replace('<script src="solunar.js"></script>', `<script>\n${engine}\n</script>`)
+  .replace('<script src="sonarlog.js"></script>', () => `<script>\n${sonar}\n</script>`)
   .replace('<script src="app.js"></script>', `<script>\n${app}\n</script>`);
 
 mkdirSync(join(root, 'dist'), { recursive: true });
