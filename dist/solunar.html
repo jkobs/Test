@@ -4975,12 +4975,9 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     state.knownSpecies = null;
     state._speciesRecords = null;
     state._recordSources = null;
-    // Scale search distance to the lake's own size (floor ~1 mi / 1600m).
-    // DNR stocking query is ANDed with a lake-name match, so a wide radius
-    // (up to 30 km) is safe and needed on Great Lakes-scale water. iNaturalist
-    // has no name filter, so it stays tighter (12 km cap) to limit
+    // Scale the iNaturalist search to the lake's own size (floor ~1 mi /
+    // 1600m). It has no name filter, so it stays capped at 12 km to limit
     // misattributing neighboring inland waters' fish.
-    var stockM = Math.min(30000, Math.max(1600, radiusM || 0));
     var inatM  = Math.min(12000, Math.max(1600, radiusM || 0));
     var searchKm = (inatM / 1000).toFixed(1);
 
@@ -4992,7 +4989,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       if (!sources[k]) sources[k] = [];
       if (sources[k].indexOf(sourceLabel) === -1) sources[k].push(sourceLabel);
     }
-    var pending = 2;
+    var pending = 1; // iNaturalist only; stocking now arrives via WBIC (see below)
 
     // Great Lakes are too big for point-radius lookups to ever be complete —
     // even 30 km around the selected point misses most of the fishery. Seed
@@ -5026,39 +5023,15 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       _applySpeciesUpdate();
     }
 
-    // Source 1: WI DNR ArcGIS fish stocking — stocked species for this water body.
-    // Also pulls WBIC so the lake-info card can deep-link to the full DNR report.
-    // IMPORTANT: name-only matching is unsafe — Wisconsin has many identically
-    // named lakes ("Bass Lake" alone exists in a dozen+ counties). Without a
-    // spatial constraint this pulls in species from a totally different lake
-    // states away. Add a tight geometry filter (point + ~1 mi) ANDed with the
-    // name match so only the actual selected water body's records match.
-    var lakeName = name.replace(/,.*/, '').trim();
-    var safeQ = "UPPER(WATER_BODY_NAME) LIKE UPPER('%" + lakeName.replace(/'/g, "''") + "%')";
-    var dnrUrl = 'https://dnrmaps.wi.gov/arcgis/rest/services/FM_Fisheries/FM_Fish_Stocking_Public/MapServer/0/query' +
-      '?where=' + encodeURIComponent(safeQ) +
-      '&geometry=' + lng + ',' + lat + '&geometryType=esriGeometryPoint&inSR=4326' +
-      '&spatialRel=esriSpatialRelIntersects&distance=' + Math.round(stockM) + '&units=esriSRUnit_Meter' +
-      '&outFields=SPECIES_NAME,WBIC&returnDistinctValues=true&resultRecordCount=200&f=json';
-    fetch(dnrUrl).then(function(r) { return r.json(); }).then(function(j) {
-      if (j.features) {
-        j.features.forEach(function(feat) {
-          var a = feat.attributes || {};
-          var s = a.SPECIES_NAME || a.COMMON_NAME;
-          if (s) record(s, 'WI DNR stocking record');
-          if (a.WBIC) {
-            if (state.lakeInfo && !state.lakeInfo.wbic) {
-              state.lakeInfo.wbic = a.WBIC;
-              try { refreshDNRLayer(); } catch (e) {}
-            }
-            _fetchWiStockingHistory(a.WBIC);
-          }
-        });
-      }
-      finish();
-    }).catch(function() { finish(); });
+    // Stocking records USED to come from FM_Fisheries/FM_Fish_Stocking_Public
+    // here, queried by lake name + radius. That service was removed by DNR
+    // (404 "service not found"; already absent from probe round 8's folder
+    // listing in July 2026) and, because a failed request reads as "no
+    // records", stocking evidence silently vanished from species filtering.
+    // It now comes from FH_ANNUAL_STOCKING_SUMMARY keyed by WBIC — exact rather
+    // than name+radius — in _fetchWiStockingHistory (fetchWiDnrLakeData).
 
-    // Source 2: iNaturalist citizen-science observations. Radius scales with
+// Source 2: iNaturalist citizen-science observations. Radius scales with
     // lake size (see searchKm above) — kept tight for small lakes to avoid
     // misattributing a DIFFERENT nearby lake/river's fish to this one, but
     // widened for larger lakes where a flat small radius returned nothing.
@@ -5112,7 +5085,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
           try { refreshDNRLayer(); } catch (e) {}
           try { renderLakeInfo(); } catch (e) {}
         }
-        _fetchWiStockingHistory(wbic);
+        _fetchWiStockingHistory(wbic, key);
       }
     }).catch(function() {});
 
@@ -5377,7 +5350,11 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // row carries a STOCKING_RECORDS_JSON array of {year, species, age_class,
   // number_stocked, ...}). Powers the "stocked N of the last 15 years" line.
   var _stockHistKey = null;
-  function _fetchWiStockingHistory(wbic) {
+  // Recent stocking counts as evidence a species is present; a stocking from
+  // decades ago doesn't. Matches the "Stocked N of the last 15 years" line.
+  var STOCKING_EVIDENCE_YEARS = 15;
+
+  function _fetchWiStockingHistory(wbic, guardKey) {
     var n = Number(wbic);
     if (!n || isNaN(n) || _stockHistKey === n) return;
     _stockHistKey = n;
@@ -5390,8 +5367,30 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       if (!raw) return;
       var recs;
       try { recs = JSON.parse(raw); } catch (e) { return; }
+      if (guardKey != null && _wiDnrKey !== guardKey) return; // newer lake selected
       if (recs && recs.length) {
         state.stockingHistory = recs;
+        // This is now the ONLY stocking source (the old name+radius service is
+        // gone), so feed it into species evidence rather than just displaying it.
+        var cutoff = new Date().getFullYear() - STOCKING_EVIDENCE_YEARS;
+        var seen = {}, found = [];
+        recs.forEach(function(r) {
+          if (!r || !r.species || !(+r.year >= cutoff)) return;
+          var nm = _titleCase(String(r.species).trim());
+          if (nm && !seen[nm.toLowerCase()]) { seen[nm.toLowerCase()] = true; found.push(nm); }
+        });
+        if (found.length) {
+          state._speciesDesignated = (state._speciesDesignated || []).concat(found);
+          state._desigSources = state._desigSources || {};
+          found.forEach(function(nm) {
+            var k = nm.toLowerCase();
+            if (!state._desigSources[k]) state._desigSources[k] = [];
+            if (state._desigSources[k].indexOf('WI DNR stocking record') === -1) {
+              state._desigSources[k].push('WI DNR stocking record');
+            }
+          });
+          try { _applySpeciesUpdate(); } catch (e) {}
+        }
         try { renderLakeInfo(); } catch (e) {}
       }
     }).catch(function() {});

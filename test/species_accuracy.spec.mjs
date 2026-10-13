@@ -1,12 +1,17 @@
-/* Playwright validation: species lookups are geographically constrained so a
-   lake doesn't inherit species from a different, identically-named or merely
-   nearby water body (e.g. Wisconsin has a dozen+ lakes named "Bass Lake";
-   without a spatial filter the DNR name-only query pulled stocking records
-   from ALL of them).
+/* Playwright validation: species evidence stays tied to THIS water body, not a
+   different identically-named or merely nearby one (Wisconsin has a dozen+
+   lakes named "Bass Lake").
 
-   This test intercepts the outgoing DNR/iNaturalist requests and asserts they
-   carry a tight geographic constraint, rather than a name-only / wide-radius
-   query that could pull in an unrelated water body's species.
+   Stocking evidence used to come from a DNR service queried by lake NAME plus
+   a search radius, so this spec asserted that query carried a spatial filter.
+   That service was removed by DNR (404), and stocking now comes from
+   FH_ANNUAL_STOCKING_SUMMARY keyed by the lake's exact WBIC — which is
+   resolved from the 24K hydro polygon directly under the selected point. So
+   the guarantee is now stronger and the assertions follow it:
+     - the WBIC lookup is a tight point query,
+     - stocking is requested by that exact WBIC, never by name,
+     - the removed service is never called,
+     - iNaturalist (which has no name filter) keeps a size-scaled radius.
 
    Run: node test/species_accuracy.spec.mjs
 */
@@ -28,21 +33,28 @@ function check(label, cond) { console.log((cond ? 'PASS  ' : 'FAIL  ') + label);
 const browser = await chromium.launch({ executablePath: CHROME });
 const page = await (await browser.newContext()).newPage();
 
-let dnrUrl = null, inatUrl = null;
+let inatUrl = null, stockUrl = null, deadUrl = null, wbicUrl = null;
 
 await page.route('**/*', async (route) => {
   const url = route.request().url();
   if (url.startsWith('file://')) return route.continue();
-  if (url.includes('FM_Fish_Stocking_Public')) {
-    dnrUrl = url;
-    // Two "Bass Lake" records with DIFFERENT WBICs simulate two distinct real
-    // lakes sharing a name. The point is just to confirm the request itself
-    // carries a spatial constraint — a live DNR server would only return the
-    // geographically-matching one once the filter is applied server-side.
+  // WBIC comes from the 24K hydro polygon under the point; stocking is then
+  // fetched by that exact WBIC (the old name+radius stocking service is gone).
+  if (url.includes('WY_INLAND_WATER_RESOURCES')) {
+    wbicUrl = url;
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ features: [
-      { attributes: { SPECIES_NAME: 'Walleye', WBIC: '1111111' } }
+      { attributes: { WATERBODY_ROW_NAME: 'Bass Lake', WATERBODY_WBIC: 1111111 } }
     ] }) });
   }
+  if (url.includes('FH_ANNUAL_STOCKING_SUMMARY')) {
+    stockUrl = url;
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ features: [
+      { attributes: { WBIC: 1111111, STOCKING_RECORDS_JSON: JSON.stringify([
+        { year: new Date().getFullYear() - 2, species: 'WALLEYE', number_stocked: 4000 }
+      ]) } }
+    ] }) });
+  }
+  if (url.includes('FM_Fish_Stocking_Public')) deadUrl = url;
   if (url.includes('api.inaturalist.org')) {
     inatUrl = url;
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ results: [] }) });
@@ -77,20 +89,19 @@ await page.waitForTimeout(1500);
 await page.evaluate(() => window.__testHooks.selectMapPoint(45.94, -92.38));
 await page.waitForTimeout(2500);
 
-console.log('DNR request URL:  ' + (dnrUrl || '(none captured)'));
+console.log('WBIC lookup URL:  ' + (wbicUrl || '(none captured)'));
+console.log('Stocking URL:     ' + (stockUrl || '(none captured)'));
 console.log('iNat request URL: ' + (inatUrl || '(none captured)'));
 
-check('DNR query includes a point geometry (not name-only)', !!dnrUrl && dnrUrl.includes('geometry='));
-check('DNR query uses intersects spatial filter', !!dnrUrl && dnrUrl.includes('spatialRel=esriSpatialRelIntersects'));
-
-// Distance/radius now scale with the water body's own size (floor ~1 mi /
-// 1600m, cap ~3.1 mi / 5000m) instead of a flat number — a flat 1 mi radius
-// returned zero species for large lakes. Assert the value stays within that
-// bounded range (still far tighter than the old unconstrained/8km behavior),
-// rather than pinning an exact literal.
-var dnrDistM = dnrUrl && (dnrUrl.match(/distance=(\d+)/) || [])[1];
-check('DNR query constrains distance within the scaled 1600-5000m range',
-  !!dnrDistM && +dnrDistM >= 1600 && +dnrDistM <= 5000);
+check('WBIC is resolved by a point query (not name-only)',
+  !!wbicUrl && wbicUrl.includes('geometry=') && wbicUrl.includes('spatialRel=esriSpatialRelIntersects'));
+check('WBIC point query is tight (150 m, the polygon under the point)',
+  !!wbicUrl && /distance=150\b/.test(wbicUrl));
+check('stocking is requested by the exact WBIC',
+  !!stockUrl && decodeURIComponent(stockUrl).includes('WBIC=1111111'));
+check('stocking is NOT requested by lake name',
+  !!stockUrl && !/WATER_BODY_NAME|LIKE/i.test(decodeURIComponent(stockUrl)));
+check('the removed FM_Fish_Stocking_Public service is never called', deadUrl === null);
 var inatRadiusKm = inatUrl && (inatUrl.match(/radius=([\d.]+)/) || [])[1];
 check('iNaturalist query uses a scaled radius within 1.6-5.0 km (not the old wide 8 km)',
   !!inatRadiusKm && +inatRadiusKm >= 1.6 && +inatRadiusKm <= 5.0);

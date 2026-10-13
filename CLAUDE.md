@@ -125,6 +125,12 @@ QA step — don't mark this kind of change "done" on green tests alone.
     matches were false positives (soil survey, HUC watersheds). Per-lake PDFs on
     the DNR lake pages remain the only WI depth data. LakeMaster/Navionics/C-MAP
     are licensed with no public API. Do not re-probe.
+  - **Stocking evidence** comes from `FH_ANNUAL_STOCKING_SUMMARY` (arcgis2
+    `FM_WFF`) keyed by exact WBIC; entries in `STOCKING_RECORDS_JSON` carry
+    `year` + `species`, and only the last `STOCKING_EVIDENCE_YEARS` (15) count.
+    The old `FM_Fisheries/FM_Fish_Stocking_Public` service is GONE (404) — its
+    failure read as "no records", silently dropping stocking from filtering
+    for months until the contract check caught it. Don't reintroduce it.
   - Dead ends, do not re-probe: the lake **regulations** table is not a presence
     signal (every water returns the same ~34 species columns, incl. sturgeon and
     paddlefish on a no-fishery pond); `WY_WBHB_AND_WATERBODY_SPECIES` is

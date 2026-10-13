@@ -34,6 +34,7 @@ const NHD_WB = { type: 'FeatureCollection', features: [
 const browser = await chromium.launch({ executablePath: CHROME });
 const page = await (await browser.newContext()).newPage();
 
+let stockUrl = null, deadUrl = null;
 await page.route('**/*', async (route) => {
   const url = route.request().url();
   if (url.startsWith('file://')) return route.continue();
@@ -51,12 +52,23 @@ await page.route('**/*', async (route) => {
   if (url.includes('hydro.nationalmap.gov') || url.includes('services.arcgis.com'))
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [] }) });
   if (url.includes('/api/interpreter')) return route.abort('failed');
-  if (url.includes('FM_Fish_Stocking_Public')) {
-    // Official DNR record: only Black Crappie was ever stocked here.
+  // Official DNR record: only Black Crappie was ever stocked here.
+  // WBIC comes from the 24K hydro polygon under the point; stocking is then
+  // fetched by that exact WBIC (the old name+radius stocking service is gone).
+  if (url.includes('WY_INLAND_WATER_RESOURCES')) {
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ features: [
-      { attributes: { SPECIES_NAME: 'Black Crappie', WBIC: '1234567' } }
+      { attributes: { WATERBODY_ROW_NAME: 'Perch Lake', WATERBODY_WBIC: 1234567 } }
     ] }) });
   }
+  if (url.includes('FH_ANNUAL_STOCKING_SUMMARY')) {
+    stockUrl = url;
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ features: [
+      { attributes: { WBIC: 1234567, STOCKING_RECORDS_JSON: JSON.stringify([
+        { year: new Date().getFullYear() - 2, species: 'BLACK CRAPPIE', number_stocked: 4000 }
+      ]) } }
+    ] }) });
+  }
+  if (url.includes('FM_Fish_Stocking_Public')) deadUrl = url;
   if (url.includes('api.inaturalist.org')) {
     // A citizen sighting of a species DNR never stocked here.
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ results: [

@@ -7,7 +7,7 @@
    a lake this size, so both DNR and iNaturalist queries came up empty).
 
    This test uses a lake sized to roughly match Cedar Lake and asserts the
-   resulting DNR/iNaturalist search radius is meaningfully larger than the
+   resulting iNaturalist search radius is meaningfully larger than the
    1600m floor used for small lakes — proving big lakes get a proportionally
    wider search rather than being stuck at the same tight radius that only
    suits small lakes.
@@ -31,7 +31,11 @@ function check(label, cond) { console.log((cond ? 'PASS  ' : 'FAIL  ') + label);
 
 // Cedar Lake is ~1120 acres (~1.75 sq mi). A roughly square lake of that area
 // is about 1.32 mi on a side -> bounds spanning ~0.019 degrees lat/lng.
-const CEDAR_BOUNDS = { minlat: 45.30, minlon: -93.06, maxlat: 45.319, maxlon: -93.021 };
+// Real Cedar Lake extent (Polk/St Croix, WI), from aligning DNR's 1960 survey
+// sheet against satellite imagery. An earlier version of this spec placed it
+// at lng -93.04 — just inside MINNESOTA — and only passed because the since-
+// removed stocking service was queried by name regardless of state.
+const CEDAR_BOUNDS = { minlat: 45.2002, minlon: -92.5877, maxlat: 45.2324, maxlon: -92.5586 };
 const CEDAR_CENTER = { lat: (CEDAR_BOUNDS.minlat + CEDAR_BOUNDS.maxlat) / 2, lng: (CEDAR_BOUNDS.minlon + CEDAR_BOUNDS.maxlon) / 2 };
 
 const NHD_CEDAR = { type: 'FeatureCollection', features: [
@@ -43,7 +47,7 @@ const NHD_CEDAR = { type: 'FeatureCollection', features: [
     ]] } }
 ] };
 
-let dnrDistances = [], inatRadii = [];
+let inatRadii = [], stockUrl = null, deadUrl = null;
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const page = await (await browser.newContext()).newPage();
@@ -62,16 +66,25 @@ await page.route('**/*', async (route) => {
   }
   if (url.includes('hydro.nationalmap.gov') && !url.includes('MapServer/6'))
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(NHD_CEDAR) });
-  if (url.includes('hydro.nationalmap.gov') || url.includes('services.arcgis.com') && !url.includes('FM_Fish_Stocking'))
+  if (url.includes('hydro.nationalmap.gov') || url.includes('services.arcgis.com'))
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [] }) });
   if (url.includes('/api/interpreter')) return route.abort('failed');
-  if (url.includes('FM_Fish_Stocking_Public')) {
-    var m = url.match(/distance=(\d+)/);
-    if (m) dnrDistances.push(+m[1]);
+  // WBIC comes from the 24K hydro polygon under the point; stocking is then
+  // fetched by that exact WBIC (the old name+radius stocking service is gone).
+  if (url.includes('WY_INLAND_WATER_RESOURCES')) {
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ features: [
-      { attributes: { SPECIES_NAME: 'Walleye', WBIC: '9998887' } }
+      { attributes: { WATERBODY_ROW_NAME: 'Cedar Lake', WATERBODY_WBIC: 2615100 } }
     ] }) });
   }
+  if (url.includes('FH_ANNUAL_STOCKING_SUMMARY')) {
+    stockUrl = url;
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ features: [
+      { attributes: { WBIC: 2615100, STOCKING_RECORDS_JSON: JSON.stringify([
+        { year: new Date().getFullYear() - 2, species: 'WALLEYE', number_stocked: 4000 }
+      ]) } }
+    ] }) });
+  }
+  if (url.includes('FM_Fish_Stocking_Public')) deadUrl = url;
   if (url.includes('api.inaturalist.org')) {
     var rm = url.match(/radius=([\d.]+)/);
     if (rm) inatRadii.push(+rm[1]);
@@ -86,16 +99,15 @@ await page.waitForSelector('#advisor-body', { timeout: 15000 });
 await page.evaluate((pt) => window.__testHooks.selectMapPoint(pt.lat, pt.lng), CEDAR_CENTER);
 await page.waitForTimeout(3000);
 
-console.log('DNR distances requested (m): ' + JSON.stringify(dnrDistances));
 console.log('iNat radii requested (km):   ' + JSON.stringify(inatRadii));
 
 const lakeInfoText = await page.$eval('#lake-info', el => el.textContent).catch(() => '');
 console.log('Lake info: ' + lakeInfoText.replace(/\s+/g, ' ').trim());
 
 check('Cedar Lake resolved correctly', lakeInfoText.includes('Cedar Lake'));
-check('DNR search distance scaled UP beyond the 1600m small-lake floor', dnrDistances.some(d => d > 1600));
 check('iNaturalist radius scaled UP beyond the 1.6km small-lake floor', inatRadii.some(r => r > 1.6));
 check('species now found for the large lake (was empty before this fix)', lakeInfoText.includes('Walleye'));
+check('the removed FM_Fish_Stocking_Public service is never called', deadUrl === null);
 
 await browser.close();
 console.log('\n' + (failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'));

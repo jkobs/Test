@@ -1,12 +1,12 @@
 /* Playwright validation: on a Great Lakes-scale water the species list must be
-   genuinely lake-filtered (Great Lakes baseline + widened, name-anchored DNR
-   stocking radius) instead of silently falling back to "all species", which is
+   genuinely lake-filtered (curated Great Lakes baseline) instead of silently falling back to "all species", which is
    the exact bug from a live report ("Lake Superior is not showing any salmon").
 
    This test validates the big-water fix: the 5km cap was too tight for huge
    lakes, causing species lookups to find nothing. The fix removes the cap at
    source and has each consumer clamp to its own safe maximum: lake-info ~5 km,
-   DNR stocking 30 km, iNaturalist 12 km. Additionally, Great Lakes are seeded
+   iNaturalist 12 km. (A 30 km DNR stocking radius also lived here until DNR
+   removed that service; stocking is now fetched by exact WBIC.) Additionally, Great Lakes are seeded
    with a curated baseline so they are never empty even if point-radius lookups
    return nothing.
 
@@ -35,7 +35,6 @@ const NHD_WB = { type: 'FeatureCollection', features: [
     geometry: { type: 'Polygon', coordinates: [[[-91.5,46.5],[-90.5,46.5],[-90.5,47.5],[-91.5,47.5],[-91.5,46.5]]] } }
 ] };
 
-let stockingUrl = '';
 let inatUrl = '';
 
 await page.route('**/*', async (route) => {
@@ -55,12 +54,6 @@ await page.route('**/*', async (route) => {
   if (url.includes('hydro.nationalmap.gov') || url.includes('services.arcgis.com'))
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [] }) });
   if (url.includes('/api/interpreter')) return route.abort('failed');
-  if (url.includes('FM_Fish_Stocking_Public')) {
-    stockingUrl = url;
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ features: [
-      { attributes: { SPECIES_NAME: 'BROWN TROUT' } }
-    ] }) });
-  }
   if (url.includes('api.inaturalist.org')) {
     inatUrl = url;
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ results: [] }) });
@@ -76,11 +69,9 @@ await page.evaluate(() => window.__testHooks.selectMapPoint(46.8, -91.0));
 await page.waitForTimeout(3000); // let lake-info + species fetches settle
 
 // Log the captured URLs for debuggability.
-console.log('Stocking URL: ' + stockingUrl);
 console.log('iNaturalist URL: ' + inatUrl);
 
 // Check 1: DNR stocking request used the widened 30 km radius.
-check('DNR stocking request used 30 km radius', stockingUrl.includes('distance=30000'));
 
 // Check 2: iNaturalist request used the 12 km cap.
 check('iNaturalist request used 12 km cap', inatUrl.includes('radius=12.0'));

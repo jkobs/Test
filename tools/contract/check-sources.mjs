@@ -72,7 +72,9 @@ const L = {
   fishWtr:  ARC  + '/WT_SWDV/WY_FISHERIES_WATERS/MapServer/7',
   natComm:  ARC  + '/WT_SWDV/WY_NATURAL_COMMUNITY_MODELING/MapServer/0',
   clarity:  ARC  + '/WY_Lakes_AIS/WY_LAKE_SATELLITE_WATER_CLARITY_RESULTS/MapServer/9',
-  stocking: ARC  + '/FM_Fisheries/FM_Fish_Stocking_Public/MapServer/0',
+  // FM_Fisheries/FM_Fish_Stocking_Public was the stocking source until DNR
+  // removed it (404) — caught by this check on its very first run.
+  stockSum: ARC2 + '/FM_WFF/FH_ANNUAL_STOCKING_SUMMARY/MapServer/0',
   troutLk:  ARC  + '/FM_Trout/FM_TROUT_REGS_WTM_Ext/MapServer/1',
   troutSt:  ARC  + '/FM_Trout/FM_TROUT_REGS_WTM_Ext/MapServer/0',
   lakeCls:  ARC2 + '/FM_WFF/FM_WFF_LAKE_CLASSIFICATIONS_WTM_EXT/MapServer/0',
@@ -86,7 +88,7 @@ await Promise.all([
   schema('designated waters',      L.fishWtr,  ['ROI_SHORT_NAME', 'ROI_CODE_DESC', 'ROI_SUBTYPE_DESC', 'ROI_STATUS_DESC']),
   schema('natural communities',    L.natComm,  ['NATURAL_COMMUNITY', 'OFFICIAL_NAME', 'TWO_STORY_TYPE', 'MAX_DEPTH', 'MAX_DEPTH_UNITS', 'MAX_DEPTH_SOURCE']),
   schema('satellite clarity',      L.clarity,  ['SATELLITE_CLARITY_FEET', 'YEAR']),
-  schema('stocking',               L.stocking, ['SPECIES_NAME', 'WBIC', 'WATER_BODY_NAME']),
+  schema('stocking summary',       L.stockSum, ['WBIC', 'STOCKING_RECORDS_JSON']),
   schema('trout lake/pond regs',   L.troutLk,  ['WATERBODY_', 'BAG_LMT', 'SEASON_TXT', 'REGCAT', 'GEAR_RESTR']),
   schema('trout stream regs',      L.troutSt,  ['STREAM', 'BAG_LMT', 'SEASON_TXT', 'REGCAT', 'GEAR_RESTRICTIONS']),
   schema('lake classification',    L.lakeCls,  ['LAKE_NAME', 'WBIC', 'LAKE_CLASS', 'AREA_ACRES_', 'MAXDEP_FT', 'FISHERIES']),
@@ -112,6 +114,22 @@ await Promise.all([
   expectRecord('Geneva Lake carries MAX_DEPTH_SOURCE', L.natComm,
     'WBIC = 758300',
     f => [f.some(a => a.MAX_DEPTH_SOURCE), f.length ? `source="${f[0].MAX_DEPTH_SOURCE}"` : 'no record']),
+
+  // The app parses STOCKING_RECORDS_JSON and reads .year and .species from
+  // each entry; a schema check alone can't see inside the JSON blob.
+  expectRecord('stocking records are JSON with year + species', L.stockSum,
+    "STOCKING_RECORDS_JSON IS NOT NULL",
+    f => {
+      for (const a of f) {
+        let recs; try { recs = JSON.parse(a.STOCKING_RECORDS_JSON); } catch (e) { continue; }
+        if (Array.isArray(recs) && recs.length) {
+          const r = recs[0];
+          const ok = recs.every(x => x && 'year' in x && 'species' in x);
+          return [ok, `WBIC ${a.WBIC}: ${recs.length} entries, e.g. ${JSON.stringify(r).slice(0, 80)}`];
+        }
+      }
+      return [false, `no parseable STOCKING_RECORDS_JSON in ${f.length} record(s)`];
+    }),
 
   // --- the depth-map PDF the lake card embeds ---
   (async () => {

@@ -75,9 +75,17 @@ const WIKIDATA_BASS = { entities: { Q999001: { claims: {
   ]
 } } } };
 // WI DNR fish stocking response: species + WBIC for the deep-link.
+// DNR: the WBIC comes from the 24K hydro polygon under the point, and stocking
+// history is fetched by that exact WBIC. (These used to be one mock of
+// FM_Fisheries/FM_Fish_Stocking_Public, which DNR has since removed.)
+const DNR_WBIC = { features: [
+  { attributes: { WATERBODY_ROW_NAME: 'Bass Lake', WATERBODY_WBIC: 2345600 } }
+] };
 const DNR_STOCKING = { features: [
-  { attributes: { SPECIES_NAME: 'Walleye', WBIC: '2345600' } },
-  { attributes: { SPECIES_NAME: 'Largemouth Bass', WBIC: '2345600' } }
+  { attributes: { WBIC: 2345600, STOCKING_RECORDS_JSON: JSON.stringify([
+    { year: new Date().getFullYear() - 1, species: 'WALLEYE', number_stocked: 5000 },
+    { year: new Date().getFullYear() - 3, species: 'LARGEMOUTH BASS', number_stocked: 800 }
+  ]) } }
 ] };
 
 let failures = 0;
@@ -126,7 +134,11 @@ async function run(label, down) {
       if (down.wikidata) return route.abort('failed');
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(WIKIDATA_BASS) });
     }
-    if (url.includes('FM_Fish_Stocking_Public')) {
+    if (url.includes('WY_INLAND_WATER_RESOURCES')) {
+      if (down.dnr) return route.abort('failed');
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(DNR_WBIC) });
+    }
+    if (url.includes('FH_ANNUAL_STOCKING_SUMMARY')) {
       if (down.dnr) return route.abort('failed');
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(DNR_STOCKING) });
     }
