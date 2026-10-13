@@ -21,7 +21,11 @@ import { dirname, resolve } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP = 'file://' + resolve(__dirname, '../dist/solunar.html');
-const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// The dev sandbox ships a pinned Chromium; anywhere else (CI) fall back to
+// Playwright's own browser by leaving executablePath undefined.
+const { existsSync } = await import('fs');
+const PINNED_CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME = existsSync(PINNED_CHROME) ? PINNED_CHROME : undefined;
 
 // "Current location" is Yellow Lake, WI (the app default). Lake Superior is
 // ~90 miles away — nowhere near "nearest lake to current location."

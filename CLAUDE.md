@@ -54,7 +54,15 @@ as the authoritative source.
 node build.mjs                 # inlines src/ -> dist/solunar.html
 node test/uat.test.mjs         # 21 JSDOM acceptance checks (no CSS visibility)
 node test/<name>.spec.mjs      # Playwright specs (real Chromium, enforce visibility)
+node test/run-specs.mjs        # all Playwright specs; CI runs this and gates deploy on it
+node tools/contract/check-sources.mjs  # live DNR/USGS field-name contract (needs real network)
 ```
+
+CI (`deploy-pages.yml`) runs engine + UAT + all browser specs before deploying.
+`contract-check.yml` runs the live data contract nightly and on demand — it is
+NOT a deploy gate, because a DNR outage must not block shipping. The dev
+sandbox's proxy blocks every DNR/USGS/Esri host, so the contract check (and any
+new endpoint discovery) belongs in GitHub Actions, not in hand-run probe pages.
 
 Playwright Chromium path: `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`.
 Run spec scripts from the project root so `playwright` resolves.

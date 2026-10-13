@@ -1,0 +1,30 @@
+name: Live data contract check
+
+# Hits the real WI DNR / USGS endpoints the app depends on and asserts their
+# field names and a few known answers haven't changed. Runs here rather than in
+# the dev sandbox because the sandbox's proxy blocks every one of these hosts.
+#
+# Deliberately NOT part of the deploy: a DNR outage must not block shipping the
+# app. It runs nightly and on demand, and a failure means "go look", not "broken".
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *"   # daily, ~4am Central
+  push:
+    branches: [ "master" ]
+    paths: [ "tools/contract/**", ".github/workflows/contract-check.yml" ]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check live data sources
+        run: node tools/contract/check-sources.mjs

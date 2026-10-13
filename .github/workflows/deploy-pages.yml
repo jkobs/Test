@@ -40,6 +40,15 @@ jobs:
       - name: Run acceptance tests (UAT)
         run: node test/uat.test.mjs
 
+      # The 24 browser specs enforce real CSS visibility and caught nearly every
+      # real bug in this app, but until now they only ran by hand. They gate the
+      # deploy like the engine and UAT checks do.
+      - name: Install Chromium for browser specs
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser specs (Playwright)
+        run: node test/run-specs.mjs
+
       - name: Assemble site
         run: |
           mkdir -p public

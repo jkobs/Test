@@ -28,7 +28,11 @@ import { dirname, resolve } from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP = 'file://' + resolve(__dirname, '../dist/solunar.html');
 const SCREENSHOT = '/tmp/claude-0/-home-user-Test/9324a1ee-5621-5a59-9558-312bd035d8eb/scratchpad/verify/lake_name_search.png';
-const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// The dev sandbox ships a pinned Chromium; anywhere else (CI) fall back to
+// Playwright's own browser by leaving executablePath undefined.
+const { existsSync } = await import('fs');
+const PINNED_CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME = existsSync(PINNED_CHROME) ? PINNED_CHROME : undefined;
 
 // Three same-named lakes — proves the search is NOT scoped to "nearby," and
 // (now) that results are disambiguated by reverse-geocoded LOCATION (nearest

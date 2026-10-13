@@ -9,7 +9,9 @@
     "test:uat": "node test/uat.test.mjs",
     "shot": "node scripts/screenshot.mjs",
     "verify": "node test/solunar.test.mjs && python3 oracle/oracle.py && node build.mjs && node test/uat.test.mjs",
-    "test": "npm run verify"
+    "test": "npm run verify",
+    "test:specs": "node test/run-specs.mjs",
+    "test:contract": "node tools/contract/check-sources.mjs"
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",
