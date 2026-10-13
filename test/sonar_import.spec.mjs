@@ -103,6 +103,7 @@ check('log is listed with its primary-channel sounding count (downscan + no-fix 
 check('deepest sounding reflects primary channel only (32 ft bowl, not the 999 ft downscan value)',
   /deepest sounding 3[01] ft/.test(card));
 check('contours every 5 ft', /contour levels every 5 ft/.test(card));
+check('depth legend runs 0 ft to the deepest sounding', /0 ft.*31 ft/.test(card.replace(/\s+/g, ' ')));
 
 // Show -> jumps to the map on the Today tab with contours + depth labels drawn.
 await page.click('[data-sonar-show]');
@@ -122,6 +123,13 @@ check('labels are positioned on the map, not stacked at one corner',
   new Set(labels.map(l => l.x + ',' + l.y)).size === labels.length &&
   labels.every(l => l.x > mapBox.x && l.x < mapBox.x + mapBox.w && l.y > mapBox.y && l.y < mapBox.y + mapBox.h));
 check('contour lines drawn on a canvas', (await page.$$('#advisor-map .leaflet-overlay-pane canvas')).length > 0);
+// The soundings themselves are drawn too (a single trip only crosses each
+// contour as a short tick). Sample canvas pixels along the survey area.
+const painted = await page.$eval('#advisor-map .leaflet-overlay-pane canvas', c => {
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; return n; });
+console.log('painted canvas pixels: ' + painted);
+check('soundings drawn as a depth-colored track, not just contour ticks', painted > 20000);
 
 // Zooming in re-lays out labels in screen space: the small 30 ft deep-hole
 // ring, too small to label at the fitted zoom, gets its label.

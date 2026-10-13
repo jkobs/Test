@@ -691,6 +691,11 @@ button.toggle {
 .sonar-status { font-size: var(--t-sm); color: var(--muted); margin-top: 8px; line-height: 1.4; }
 .sonar-status:empty { display: none; }
 .sonar-summary { font-size: var(--t-sm); color: var(--good); font-weight: 600; margin-top: 10px; }
+.sonar-legend { display: flex; align-items: center; gap: 8px; font-size: var(--t-xs); color: var(--muted); margin-top: 8px; }
+/* Same ramp as _sonarColor(): hue 55 (shallow) -> 320 (deep) */
+.sonar-ramp { flex: 1; height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, hsl(55,95%,70%), hsl(23,95%,65%), hsl(352,95%,60%), hsl(320,95%,55%)); }
+.sonar-hint { font-size: var(--t-xs); color: var(--muted); line-height: 1.4; margin-top: 6px; }
 .sonar-log { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); margin-top: 8px; }
 .sonar-log-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sonar-log-name { font-size: var(--t-md); color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

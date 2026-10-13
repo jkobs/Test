@@ -1646,6 +1646,8 @@
   var SONAR_LABEL_SPOTS = [0.5, 0.25, 0.75, 0.125, 0.375, 0.625, 0.875];
   var _sonarLogs = [];             // metadata only: {id,name,added,n,bounds}
   var _sonarContours = null;       // SonarLog.contour() of every stored log merged
+  var _sonarDots = [];             // soundings averaged to SONAR_DOT_M cells, drawn as the track
+  var SONAR_DOT_M = 6;
   var _sonarVersion = 0;           // bumped whenever _sonarContours changes
   var _sonarStatus = '', _sonarBusy = false;
 
@@ -1677,6 +1679,10 @@
         for (var i = 0; i < r.d.length; i++) pts.push({ lat: r.lat[i], lng: r.lng[i], depthFt: r.d[i] });
       });
       _sonarContours = pts.length ? SonarLog.contour(pts) : null;
+      // The soundings themselves, drawn under the contours: a single trip only
+      // crosses each contour as a short tick, but the dots show the depth all
+      // along the boat's path. Contours fill in as trips accumulate.
+      _sonarDots = pts.length ? SonarLog.thin(pts, SONAR_DOT_M) : [];
       _sonarVersion++;
       _applySonarLayer(_map);
       _applySonarLayer(_modalMap);
@@ -1772,7 +1778,7 @@
   // other contour layers, so the main and modal maps each hold their own.
   function _applySonarLayer(map) {
     if (!map || typeof L === 'undefined') return;
-    var want = _drnEnabled && _sonarContours && _sonarContours.levels.length ? _sonarVersion : -1;
+    var want = _drnEnabled && _sonarContours ? _sonarVersion : -1;
     if (map.__sonarVersion === want) return;          // already current
     if (map.__sonarLayer) { try { map.removeLayer(map.__sonarLayer); } catch (e) {} map.__sonarLayer = null; }
     map.__sonarVersion = want;
@@ -1780,6 +1786,10 @@
     try {
       var group = L.layerGroup(), renderer = L.canvas({ padding: 0.3 });
       var maxD = _sonarContours.maxDepthFt;
+      _sonarDots.forEach(function (p) {
+        group.addLayer(L.circleMarker([p.lat, p.lng], { renderer: renderer, radius: 2.5, stroke: false,
+          fillColor: _sonarColor(p.depthFt, maxD), fillOpacity: 0.9, interactive: false }));
+      });
       _sonarContours.levels.forEach(function (lv) {
         var major = lv.depthFt % 10 === 0;
         lv.lines.forEach(function (ln) {
@@ -1852,8 +1862,11 @@
         (_sonarBusy ? 'Importing…' : 'Import sonar logs') +
         '<input type="file" id="sonar-file" multiple hidden' + (_sonarBusy ? ' disabled' : '') + '></label>' +
       '<div class="sonar-status" id="sonar-status" role="status">' + esc(_sonarStatus) + '</div>' +
-      (c ? '<div class="sonar-summary">' + c.levels.length + ' contour levels every ' + c.intervalFt +
-           ' ft · deepest sounding ' + Math.round(c.maxDepthFt) + ' ft</div>' : '') +
+      (c ? '<div class="sonar-summary">' + c.levels.length + ' contour level' + (c.levels.length === 1 ? '' : 's') +
+           ' every ' + c.intervalFt + ' ft · deepest sounding ' + Math.round(c.maxDepthFt) + ' ft</div>' +
+           '<div class="sonar-legend"><span>0 ft</span><span class="sonar-ramp"></span><span>' +
+           Math.round(c.maxDepthFt) + ' ft</span></div>' +
+           '<div class="sonar-hint">Dots are your soundings, colored by depth. Contour lines fill in as more trips cover the same water.</div>' : '') +
       list;
     var input = document.getElementById('sonar-file');
     if (input) input.onchange = function () { importSonarFiles(input.files); input.value = ''; };
