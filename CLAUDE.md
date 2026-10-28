@@ -60,7 +60,9 @@ node tools/contract/check-sources.mjs  # live DNR/USGS field-name contract (need
 
 CI (`deploy-pages.yml`) runs engine + UAT + all browser specs before deploying.
 `contract-check.yml` runs the live data contract nightly and on demand — it is
-NOT a deploy gate, because a DNR outage must not block shipping. The dev
+NOT a deploy gate, because a DNR outage must not block shipping. Each request gets one retry and a 45 s timeout (`tools/contract/http.mjs`,
+spec `test/contract_retry.spec.mjs`): the Lake Mendota query timed out at 20 s
+from GitHub's runners every night. HTTP 4xx is not retried — that is a real break. The dev
 sandbox's proxy blocks every DNR/USGS/Esri host, so the contract check (and any
 new endpoint discovery) belongs in GitHub Actions, not in hand-run probe pages.
 

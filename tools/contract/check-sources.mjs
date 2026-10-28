@@ -17,6 +17,8 @@
 
    Run: node tools/contract/check-sources.mjs   (Node 18+; uses global fetch)
 */
+import { getJson, getHead } from './http.mjs';
+
 const ARC = 'https://dnrmaps.wi.gov/arcgis/rest/services';
 const ARC2 = 'https://dnrmaps.wi.gov/arcgis2/rest/services';
 const NHD = 'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer';
@@ -25,18 +27,6 @@ const results = [];
 function record(name, ok, detail) {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`);
-}
-
-async function getJson(url, ms = 20000) {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), ms);
-  try {
-    const r = await fetch(url, { signal: ctl.signal, headers: { 'User-Agent': 'fishing-advisor-contract-check' } });
-    const text = await r.text();
-    let body = null;
-    try { body = JSON.parse(text); } catch (e) { /* not JSON */ }
-    return { status: r.status, body, text };
-  } finally { clearTimeout(t); }
 }
 
 // Layer schema must still contain every field the app reads.
@@ -134,7 +124,7 @@ await Promise.all([
   // --- the depth-map PDF the lake card embeds ---
   (async () => {
     try {
-      const r = await fetch('https://apps.dnr.wi.gov/doclink/lakes_maps/2615100a.pdf', { method: 'GET' });
+      const r = await getHead('https://apps.dnr.wi.gov/doclink/lakes_maps/2615100a.pdf');
       const ct = r.headers.get('content-type') || '';
       record('Cedar Lake survey PDF', r.status === 200 && /pdf/i.test(ct), `HTTP ${r.status} ${ct}`);
     } catch (e) { record('Cedar Lake survey PDF', false, 'unreachable: ' + e.message); }
