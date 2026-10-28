@@ -5,12 +5,10 @@ name: Live data contract check
 # the dev sandbox because the sandbox's proxy blocks every one of these hosts.
 #
 # Deliberately NOT part of the deploy: a DNR outage must not block shipping the
-# app. It runs nightly and on demand, and a failure means "go look", not "broken".
+# app. It runs on demand (and when this check changes); the nightly schedule was removed, and a failure means "go look", not "broken".
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 9 * * *"   # daily, ~4am Central
   push:
     branches: [ "master" ]
     paths: [ "tools/contract/**", ".github/workflows/contract-check.yml" ]
