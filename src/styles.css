@@ -703,7 +703,7 @@ button.toggle {
 .sonar-log .adv-dnr-btn { min-height: 32px; }
 /* Depth number sitting on its contour line on the map. Centred via the inner
    span: Leaflet positions the marker element itself with a transform. */
-.sonar-depth-label { pointer-events: none; }
-.sonar-depth-label span { position: absolute; transform: translate(-50%, -50%);
+.sonar-depth-label, .bathy-depth-label { pointer-events: none; }
+.sonar-depth-label span, .bathy-depth-label span { position: absolute; transform: translate(-50%, -50%);
   font: 700 11px/1 system-ui, sans-serif; color: #fff; white-space: nowrap;
   text-shadow: 0 0 3px #000, 0 0 2px #000; }

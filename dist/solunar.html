@@ -1377,8 +1377,8 @@ button.toggle {
 .sonar-log .adv-dnr-btn { min-height: 32px; }
 /* Depth number sitting on its contour line on the map. Centred via the inner
    span: Leaflet positions the marker element itself with a transform. */
-.sonar-depth-label { pointer-events: none; }
-.sonar-depth-label span { position: absolute; transform: translate(-50%, -50%);
+.sonar-depth-label, .bathy-depth-label { pointer-events: none; }
+.sonar-depth-label span, .bathy-depth-label span { position: absolute; transform: translate(-50%, -50%);
   font: 700 11px/1 system-ui, sans-serif; color: #fff; white-space: nowrap;
   text-shadow: 0 0 3px #000, 0 0 2px #000; }
 
@@ -3862,12 +3862,19 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     return _inRing(MN_REGION, lat, lng) || _metersToLine(MN_WI_BORDER, lat, lng) <= MN_BORDER_SLACK_M;
   }
 
+  // Minnesota DNR lake contours as vectors: ~46k lines digitized from DNR lake
+  // surveys, 5 ft apart, depth in feet in abs_depth. The old WMS endpoint on
+  // arcgis.dnr.state.mn.us went 404 (seen 2026-10-28) and drew blank tiles
+  // without any error. The data now lives on MN's enterprise host, which has
+  // no WMS but answers GeoJSON queries with CORS. Vectors also get depth labels.
   var BATHY_SOURCES = [
     { name: 'MN DNR',
       inRegion: _inMinnesotaRegion,
-      wms: 'https://arcgis.dnr.state.mn.us/public/services/water/water_lake_bathymetry/MapServer/WMSServer',
-      layers: '1' }
+      query: 'https://enterprise.gisdata.mn.gov/aghost/rest/services/us_mn_state_dnr/water_lake_bathymetry/MapServer/0/query' }
   ];
+  var BATHY_GRID_DEG = 0.02;       // locations within one cell share a fetched chart
+  var BATHY_PAD_DEG = 0.06;        // query envelope around the location, ~6 km
+  var _bathyCharts = {};           // key -> Promise of {levels, maxDepthFt} or null
 
   // ---- the angler's own depth charts, built from Lowrance sonar logs ----
   // Wisconsin publishes no usable bathymetry: the DNR survey sheets are 1940s–
@@ -4051,11 +4058,16 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
   // (a single pass crosses each contour as a short tick) and never crowding
   // another label. A tight deep-hole ring still qualifies once zoomed in.
   function _layoutSonarLabels(map) {
-    var layer = map.__sonarLabels;
-    if (!layer || !map.__sonarLayer || !_sonarContours) return;
+    if (!map.__sonarLabels || !map.__sonarLayer || !_sonarContours) return;
+    _layoutDepthLabels(map, map.__sonarLabels, _sonarContours, 'sonar-depth-label');
+  }
+
+  // Places depth labels along a chart's contour lines in screen space, so they
+  // never crowd each other at any zoom. chart = {levels: [{depthFt, lines}]}.
+  function _layoutDepthLabels(map, layer, chart, cls) {
     layer.clearLayers();
     var z = map.getZoom(), placed = [];
-    _sonarContours.levels.forEach(function (lv) {
+    chart.levels.forEach(function (lv) {
       lv.lines.forEach(function (ln) {
         if (placed.length >= SONAR_MAX_LABELS) return;
         var pts = ln.map(function (p) { return map.project(p, z); }), len = 0;
@@ -4071,7 +4083,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
         if (idx < 0) return;
         placed.push(pts[idx]);
         layer.addLayer(L.marker(ln[idx], { interactive: false, keyboard: false,
-          icon: L.divIcon({ className: 'sonar-depth-label', html: '<span>' + lv.depthFt + '</span>', iconSize: null }) }));
+          icon: L.divIcon({ className: cls, html: '<span>' + lv.depthFt + '</span>', iconSize: null }) }));
       });
     });
   }
@@ -4143,18 +4155,62 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
       } catch (e) {}
     }
     var src = pickBathySource(lat, lng);
-    var wantName = src ? src.name : null;
-    if (map.__bathyLayer && map.__bathySrcName === wantName) return; // already correct
+    var key = src ? src.name + '|' + Math.round(lat / BATHY_GRID_DEG) + '|' + Math.round(lng / BATHY_GRID_DEG) : null;
+    if (map.__bathyKey === key) return; // already correct (or loading)
     if (map.__bathyLayer) { try { map.removeLayer(map.__bathyLayer); } catch (e) {} map.__bathyLayer = null; }
-    map.__bathySrcName = wantName;
+    map.__bathyKey = key; map.__bathySrcName = src ? src.name : null; map.__bathyChart = null;
     if (!src) return; // no state DNR bathymetry source for this region
-    try {
-      map.__bathyLayer = L.tileLayer.wms(src.wms, {
-        layers: src.layers, format: 'image/png', transparent: true,
-        opacity: 0.75, attribution: '© ' + src.name
+    if (!_bathyCharts[key]) _bathyCharts[key] = _fetchBathyChart(src, lat, lng);
+    _bathyCharts[key].then(function (chart) {
+      // A newer location or Hide contours may have landed while this loaded.
+      if (!chart) delete _bathyCharts[key];        // let a later visit retry
+      if (map.__bathyKey !== key || !_drnEnabled || !chart) return;
+      try {
+        var group = L.layerGroup([], { attribution: '© ' + src.name }), renderer = L.canvas({ padding: 0.3 });
+        chart.levels.forEach(function (lv) {
+          lv.lines.forEach(function (ln) {
+            group.addLayer(L.polyline(ln, { renderer: renderer, color: _sonarColor(lv.depthFt, chart.maxDepthFt),
+              weight: lv.depthFt % 10 === 0 ? 2 : 1.2, opacity: 0.9, interactive: false }));
+          });
+        });
+        map.__bathyLabels = L.layerGroup().addTo(group);
+        map.__bathyChart = chart;
+        if (!map.__bathyZoomHooked) {
+          map.__bathyZoomHooked = true;
+          map.on('zoomend', function () {
+            if (map.__bathyLayer && map.__bathyChart) _layoutDepthLabels(map, map.__bathyLabels, map.__bathyChart, 'bathy-depth-label');
+          });
+        }
+        map.__bathyLayer = group.addTo(map);
+        _layoutDepthLabels(map, map.__bathyLabels, chart, 'bathy-depth-label');
+      } catch (e) {}
+    });
+  }
+
+  // One GeoJSON query for every contour line near the location, grouped by
+  // depth. Resolves null on failure so the map simply shows no state contours.
+  function _fetchBathyChart(src, lat, lng) {
+    if (typeof fetch === 'undefined') return Promise.resolve(null);
+    var env = [lng - BATHY_PAD_DEG * 1.4, lat - BATHY_PAD_DEG, lng + BATHY_PAD_DEG * 1.4, lat + BATHY_PAD_DEG].join(',');
+    var url = src.query + '?f=geojson&where=1%3D1&outFields=abs_depth&returnGeometry=true&outSR=4326' +
+      '&geometryPrecision=6&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects' +
+      '&resultRecordCount=2000&geometry=' + encodeURIComponent(env);
+    return fetch(url).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      var byDepth = {}, maxD = 0;
+      ((j && j.features) || []).forEach(function (f) {
+        var d = f.properties && +f.properties.abs_depth, g = f.geometry;
+        if (!(d > 0) || !g) return;
+        var parts = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+        parts.forEach(function (part) {
+          if (part.length < 2) return;
+          (byDepth[d] = byDepth[d] || []).push(part.map(function (c) { return [c[1], c[0]]; }));
+        });
+        if (d > maxD) maxD = d;
       });
-      map.__bathyLayer.addTo(map); // wrong endpoint => blank tiles, no error surfaced
-    } catch (e) {}
+      var levels = Object.keys(byDepth).map(Number).sort(function (a, b) { return a - b; })
+        .map(function (d) { return { depthFt: d, lines: byDepth[d] }; });
+      return levels.length ? { levels: levels, maxDepthFt: maxD } : null;
+    }).catch(function () { return null; });
   }
 
   function _removeContourLayers(map) {
@@ -4162,7 +4218,7 @@ return new kd(this.curr.time,a,b)};$jscomp.global.Object.defineProperties(H.prot
     if (map.__topoLayer)  { try { map.removeLayer(map.__topoLayer); }  catch (e) {} map.__topoLayer = null; }
     if (map.__bathyLayer) { try { map.removeLayer(map.__bathyLayer); } catch (e) {} map.__bathyLayer = null; }
     if (map.__sonarLayer) { try { map.removeLayer(map.__sonarLayer); } catch (e) {} map.__sonarLayer = null; }
-    map.__bathySrcName = null; map.__sonarVersion = -1;
+    map.__bathySrcName = null; map.__bathyKey = undefined; map.__bathyChart = null; map.__sonarVersion = -1;
   }
 
   function refreshDNRLayer() { _applyContourLayers(_map, state.loc.lat, state.loc.lng); }

@@ -1,5 +1,10 @@
-/* Playwright validation: Minnesota DNR lake-depth tiles are requested for
-   Minnesota waters only, not for Wisconsin lakes across the border river.
+/* Playwright validation: Minnesota DNR lake-depth contours are requested for
+   Minnesota waters only, not for Wisconsin lakes across the border river, and
+   they come from the live MN host as labeled vectors.
+
+   The old WMS on arcgis.dnr.state.mn.us went 404 (seen 2026-10-28) and drew
+   blank tiles with no error. The contours now come from MN's enterprise host
+   as GeoJSON (field abs_depth, feet) and are drawn with depth labels.
 
    The MN layer used to be gated by a lat/lng box (lng <= -89.4) that took in
    most of western Wisconsin, so WI lakes like Cedar and Yellow got MN tiles
@@ -34,7 +39,16 @@ const WI = [['Cedar Lake', 45.216, -92.572], ['Yellow Lake', 45.92, -92.38], ['P
   ['St. Croix Falls', 45.4097, -92.6391], ['Danbury', 46.0072, -92.2707], ['Lake Mendota', 43.105, -89.42]];
 
 const browser = await chromium.launch({ executablePath: CHROME });
-let mnTiles = 0;
+let mnTiles = 0, oldHost = 0;
+// GeoJSON like the MN service returns: three nested 5 ft contours around the
+// center of whatever envelope the app asked for.
+function mnContours(url) {
+  const [x1, y1, x2, y2] = decodeURIComponent(new URL(url).searchParams.get('geometry') || '0,0,0,0').split(',').map(Number);
+  const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+  const ring = r => Array.from({ length: 41 }, (_, i) => [cx + r * 1.4 * Math.cos(i * Math.PI / 20), cy + r * Math.sin(i * Math.PI / 20)]);
+  return { type: 'FeatureCollection', features: [5, 10, 15].map((d, i) => ({ type: 'Feature',
+    properties: { abs_depth: d }, geometry: { type: 'MultiLineString', coordinates: [ring(0.012 - i * 0.004)] } })) };
+}
 // Location is driven by simulated GPS: a map tap needs a mocked waterbody
 // lookup to resolve, while a GPS fix moves the map like it does on the water.
 const context = await browser.newContext({ geolocation: { latitude: 45.216, longitude: -92.572 }, permissions: ['geolocation'] });
@@ -42,7 +56,10 @@ const page = await context.newPage();
 await page.route('**/*', async (route) => {
   const url = route.request().url();
   if (url.startsWith('file://')) return route.continue();
-  if (url.includes('arcgis.dnr.state.mn.us')) { mnTiles++; return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.alloc(0) }); }
+  if (url.includes('arcgis.dnr.state.mn.us')) { oldHost++; return route.fulfill({ status: 404, body: 'gone' }); }
+  if (url.includes('enterprise.gisdata.mn.gov') && url.includes('water_lake_bathymetry')) {
+    mnTiles++; return route.fulfill({ contentType: 'application/json', body: JSON.stringify(mnContours(url)) });
+  }
   if (url.includes('api.open-meteo.com/v1/forecast')) {
     const nowS = Math.floor(Date.now() / 1000), time = [], sp = [];
     for (let i = -4; i <= 4; i++) { time.push(nowS + i * 3600); sp.push(1013); }
@@ -82,9 +99,14 @@ const mnSeen = await tilesAt(44.93, -93.6, true);
 console.log('MN tile requests at Lake Minnetonka (MN): ' + mnSeen);
 check('at a MN lake, MN DNR depth tiles are still requested', mnSeen > 0);
 check('"MN DNR" credit shown on a MN lake', /MN DNR/.test(await page.textContent('#advisor-map')));
+const mnLabels = await page.$$eval('#advisor-map .bathy-depth-label span', els => els.map(e => +e.textContent));
+console.log('MN depth labels: ' + JSON.stringify(mnLabels));
+check('MN contours are drawn with depth labels', [5, 10, 15].every(d => mnLabels.includes(d)));
+check('the dead WMS host is never requested', oldHost === 0);
 const backWi = await tilesAt(45.92, -92.38);
 console.log('MN tile requests back at Yellow Lake (WI): ' + backWi);
 check('moving back to a WI lake removes the MN layer', backWi === 0 && !/MN DNR/.test(await page.textContent('#advisor-map')));
+check('no MN depth labels left on a WI lake', (await page.$$('#advisor-map .bathy-depth-label')).length === 0);
 
 await browser.close();
 console.log('\n' + (failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'));
