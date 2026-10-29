@@ -29,15 +29,6 @@ tests costs more than one clean pass).
 then moved to Sonnet-advisor/Haiku-executor per the user's later preference,
 set 2026-07 to cut token spend further.)
 
-### Response format (user preference)
-
-Start every response with: (1) which model is running the main thread
-(Haiku/Sonnet/Opus), and (2) a short token + cost summary so far. Note that
-exact main-thread token/cost isn't precisely measurable from inside the
-session — report subagent token totals (visible in task-notification results)
-precisely, estimate the rest, and point to the Claude Console usage dashboard
-as the authoritative source.
-
 ## Hard rules
 
 - **Only make changes at ≥95% confidence.** Be explicit about uncertainty
