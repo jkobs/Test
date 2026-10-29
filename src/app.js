@@ -20,6 +20,9 @@
   var _lastRecomputeLat = null, _lastRecomputeLng = null;
   var _gpsLat = null, _gpsLng = null; // live GPS position, updated on EVERY fix even after a manual lake pick — the anchor for lake-search proximity ordering
   var _manualLoc = false; // true when user picked a chip/map-click; suppresses GPS overrides
+  // true after Show framed a sonar log: background re-renders and GPS ticks must
+  // not pull the map away. Released when the angler picks another location.
+  var _sonarHold = false;
   var _openModalIdx = null; // index of the day-detail modal currently open, or null
   var _speciesFilter = '';
   var _selectedSpeciesName = 'Walleye';
@@ -840,6 +843,7 @@
     state.loc = { name: wName, lat: wLat, lng: wLng, tz: state.loc.tz };
     _resetLakeData();
     _manualLoc = true;
+    _sonarHold = false;
     _showAdvisorLoading(wName);
     setLocLine(esc(wName));
     renderNearbyWaters();
@@ -1823,6 +1827,7 @@
     var log = null;
     _sonarLogs.forEach(function (l) { if (l.id === id) log = l; });
     if (!log) return;
+    _sonarHold = true;
     var tab = document.querySelector('.tab[data-tab="today"]');
     if (tab) tab.click();
     if (!_drnEnabled) toggleDNRLayer();
@@ -2015,6 +2020,7 @@
     var el = document.getElementById('advisor-map');
     if (!el) return;
     try {
+      var created = !_map;
       if (!_map) {
         _map = L.map('advisor-map', { zoomControl: true, attributionControl: false });
         L.tileLayer(SATELLITE_URL, { maxZoom: 18 }).addTo(_map);
@@ -2023,7 +2029,7 @@
           selectMapPoint(e.latlng.lat, e.latlng.lng);
         });
       }
-      _map.setView([lat, lng], 14);
+      if (created || !_sonarHold) _map.setView([lat, lng], 14);
       if (_locMarker) _locMarker.remove();
       _locMarker = L.circleMarker([lat, lng], {
         radius: 9, fillColor: '#4fd07a', color: '#fff', weight: 2.5, fillOpacity: 1
@@ -3801,7 +3807,7 @@
         } catch(e) {}
       }
       // Only recenter map if the user hasn't manually picked a water body
-      if (!_manualLoc) _map.setView([lat, lng], _map.getZoom());
+      if (!_manualLoc && !_sonarHold) _map.setView([lat, lng], _map.getZoom());
     }
 
     // Skip location + recompute overrides when user has a manual selection
@@ -3836,6 +3842,7 @@
   // ---- manual location via city/state geocoding (Open-Meteo) ----
   function applyManualLocation(name, lat, lng, tz) {
     _manualLoc = true;
+    _sonarHold = false;
     _resetLakeData();
     state.nearbyWaters = [];
     _gaugeReqLat = null; _gaugeReqLng = null;
@@ -4179,6 +4186,7 @@
   function useMyLocation() {
     if (!navigator.geolocation) { alert('Geolocation not available; using Yellow Lake.'); return; }
     _manualLoc = false;
+    _sonarHold = false;
     _resetLakeData();
     _lastRecomputeLat = null; // force recompute on next GPS tick
     _lastRecomputeLng = null;
