@@ -7,10 +7,12 @@ change ships with a spec that fails without it, and is pushed to `master`.
 ## 1. Contours
 
 - [x] Minnesota depth from the new MN DNR server as labeled vector contours (old WMS was 404); verified live at Big Marine Lake
-- [~] Offline script: build a contour file per lake (WBIC) from all cached logs, median per cell, despiked
-- [ ] Build Yellow Lake (77 logs) and Cedar Lake (3 logs, marked partial) charts
+- [x] Offline script `tools/charts/build-lake-chart.mjs`: median per 4 m cell, spike passes, DNR depth cap, shore-slope rule (26 s for 57 GB)
+- [x] Built Yellow (77 logs, 7.1 M soundings, 19% of 4 m cells, 5-30 ft, 115 KB) and Cedar (3 logs, 2%, 20 KB); kept out of the repo
+- [ ] Decide how charts reach the app: import on device, or ship publicly with the site
 - [ ] App loads the built charts and labels depths; WI PDF stays as fallback
-- [ ] Verify on real imagery in Edge, screenshots
+- [x] Verified over satellite imagery in Edge: contours follow the shoreline; flat ~30 ft basin has few lines
+- [ ] Check the 5 ft ring mid-lake on Yellow (real hump, or junk?)
 - [ ] Decide whether to keep the WI DNR survey PDF embed
 
 ## 2. Confirmed bugs
